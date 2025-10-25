@@ -1,0 +1,63 @@
+{"timestamp":"2025-10-25T00:17:48Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite"}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:17:48.243196Z"}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0"}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":53}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low"}],"context":null}
+{"timestamp":"2025-10-25T00:17:48Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite"}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:19:10.231106Z"}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0"}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":50}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low"}],"context":null}
+{"timestamp":"2025-10-25T00:19:10Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite"}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:19:52.656513Z"}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0"}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":55}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low"}],"context":null}
+{"timestamp":"2025-10-25T00:19:52Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite"}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:25:02.744273Z"}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0"}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":54}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low"}],"context":null}
+{"timestamp":"2025-10-25T00:25:02Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite"}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:28:28.244063Z"}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0"}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test"}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":51}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low"}],"context":null}
+{"timestamp":"2025-10-25T00:28:28Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite","location":{"file":"/Users/franksiebenlist/Development/sente_lite/src/telemere_lite/core.cljc","line":77,"ns":"telemere-lite.core"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:36:45.079417Z","location":{"file":"/Users/franksiebenlist/Development/sente_lite/src/telemere_lite/core.cljc","line":90,"ns":"telemere-lite.core"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100,"location":{"file":"/Users/franksiebenlist/Development/sente_lite/src/telemere_lite/core.cljc","line":95,"ns":"telemere-lite.core"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":19,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":20,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":21,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":55,"location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":24,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":29,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:36:45Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4,"location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":31,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"info","ns":"telemere-lite.core","msg":["BB startup initiated",{"bb-version":"1.12.209","java-version":"25","os-name":"Mac OS X","user-dir":"/Users/franksiebenlist/Development/sente_lite","location":{"file":"/Users/franksiebenlist/Development/sente_lite/src/telemere_lite/core.cljc","line":79,"ns":"telemere-lite.core"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"info","ns":"telemere-lite.core","msg":["Module loading",{"module":"demo-module","timestamp":"2025-10-25T00:38:41.304873Z","location":{"file":"/Users/franksiebenlist/Development/sente_lite/src/telemere_lite/core.cljc","line":92,"ns":"telemere-lite.core"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"info","ns":"telemere-lite.core","msg":["Module loaded",{"module":"demo-module","duration-ms":100,"location":{"file":"/Users/franksiebenlist/Development/sente_lite/src/telemere_lite/core.cljc","line":97,"ns":"telemere-lite.core"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"info","ns":"telemere-lite.core","msg":["Demo application started",{"version":"0.1.0","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":19,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"debug","ns":"telemere-lite.core","msg":["Debug message",{"debug-data":"test","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":20,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"warn","ns":"telemere-lite.core","msg":["Warning message",{"warning-type":"test","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":21,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"info","ns":"telemere-lite.core","msg":["Performance metric",{"operation":"demo-operation","duration-ms":55,"location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":24,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"error","ns":"telemere-lite.core","msg":["Demo error",{"error-type":"simulation","severity":"low","location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":29,"ns":"user"}}],"context":null}
+{"timestamp":"2025-10-25T00:38:41Z","level":"info","ns":"telemere-lite.core","msg":["Demo completed",{"total-operations":4,"location":{"file":"/Users/franksiebenlist/Development/sente_lite/./demo_startup.bb","line":31,"ns":"user"}}],"context":null}

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:book.babashka.org)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git tag:*)",
+      "Bash(chmod:*)",
+      "Bash(./demo_startup.bb)",
+      "Bash(clj-kondo:*)",
+      "Bash(cljfmt fix:*)",
+      "WebFetch(domain:clojure.org)",
+      "Bash(bb:*)",
+      "Bash(clojure:*)",
+      "Bash(./run_tests.bb)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

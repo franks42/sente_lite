@@ -39,6 +39,8 @@ Since this is a library without build configuration files, there are no standard
 
 - **Linting**: `clj-kondo --lint <file>` - Run on every file change, resolve all errors before proceeding
 - **Formatting**: `cljfmt fix <file>` - Format files after any changes
+- **Testing**: `./run_tests.bb` - Run comprehensive test suite
+- **Demo**: `./demo_startup.bb` - Test telemere-lite functionality
 
 ## Coding Best Practices
 
