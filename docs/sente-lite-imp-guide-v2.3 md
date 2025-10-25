@@ -1,0 +1,882 @@
+# sente-lite: Sente-compatible WebSockets for Babashka & Scittle
+
+**Version:** 2.0 (Complete Implementation Guide)  
+**Status:** Architecture & Implementation Specification  
+**Target Environments:** Babashka, Scittle/SCI  
+**Core Philosophy:** Simple abstractions, native capabilities, declarative configuration
+
+---
+
+## Table of Contents
+
+1. [Overview & Philosophy](#overview--philosophy)
+2. [Implementation Choices](#implementation-choices)
+3. [Wire Format & Event Structure](#wire-format--event-structure)
+4. [API Reference](#api-reference)
+5. [Test Use Cases](#test-use-cases)
+6. [Example Applications](#example-applications)
+7. [Production Considerations](#production-considerations)
+
+---
+
+## Overview & Philosophy
+
+### What is sente-lite?
+
+**sente-lite** is a lightweight, Sente-compatible WebSocket library designed for constrained environments (Babashka, Scittle/SCI) that:
+- **Embraces native capabilities** instead of emulating JVM/ClojureScript features
+- **Adopts core.async.flow's architectural patterns** without implementation complexity
+- **Maximizes Sente API compatibility** (~85%) to ease migration
+- **Uses callbacks/promises** instead of core.async channels
+
+### Why Not Use Sente Directly?
+
+**Sente is incompatible** with Babashka and Scittle/SCI because:
+- Heavy `core.async` dependency with `go` macro parking semantics
+- Requires compiled JVM adapters (http-kit, Immutant, etc.)
+- Complex protocol negotiation not supported in interpreted environments
+
+**sente-lite provides 80-90% of Sente's value with 10-20% of the complexity.**
+
+### Design Philosophy (Inspired by core.async.flow)
+
+1. **Pure functions** - Business logic doesn't touch WebSockets
+2. **Declarative configuration** - System topology defined as data
+3. **Lifecycle management** - Centralized connection/process management
+4. **Observability** - Built-in metrics and error handling
+5. **Testability** - Step functions can be tested in isolation
+
+---
+
+## Implementation Choices
+
+### 1. Callback-Based Instead of Channels
+
+**Why:** Babashka doesn't support `go` block parking, Scittle lacks core.async, callbacks are native to both.
+
+**Comparison:**
+```clojure
+;; Sente (channels - can't do in BB/Scittle)
+(go-loop []
+  (when-some [msg (<! ch-recv)]
+    (handle msg)
+    (recur)))
+
+;; sente-lite (callbacks - works everywhere)
+(start-router! ch-recv handle-msg)
+```
+
+**Decision:** Callbacks with atom-based event buffering
+
+### 2. Transit vs EDN vs JSON
+
+**Evaluation:**
+
+| Format | Size | Speed | Types | BB | Browser |
+|--------|------|-------|-------|-----|---------|
+| **Transit** | Small | **Fast** | Full | ✅ | ✅ |
+| EDN | Medium | Slow | Full | ✅ | ⚠️ |
+| JSON | Small | Fast | Limited | ✅ | ✅ |
+
+**Decision:** Transit default, JSON fallback
+
+**Rationale:** Transit is 3-5x faster than EDN, preserves Clojure types, compact wire format.
+
+### 3. Event Router Pattern
+
+**Map-based Dispatch** (Chosen):
+```clojure
+(def handlers (atom {}))
+(defn register! [event-id handler]
+  (swap! handlers assoc event-id handler))
+```
+
+✅ Fast lookup  
+✅ Easy to inspect  
+✅ Hot-reloadable
+
+### 4. Connection State Management
+
+```clojure
+(def conn-state 
+  (atom {:open? false
+         :uid nil
+         :last-ws-ping nil
+         :retry-count 0}))
+
+;; State change notifications via callback
+(on-state-change! 
+  (fn [{:keys [old new]}]
+    (when (and (not (:open? old)) (:open? new))
+      (println "Connected!"))))
+```
+
+### 5. Reconnection Strategy
+
+**Exponential Backoff** (Chosen):
+```clojure
+{:initial-delay-ms 1000
+ :max-delay-ms 30000
+ :backoff-multiplier 2}
+```
+
+✅ Reduces server load  
+✅ Standard practice  
+✅ Configurable
+
+### 6. User ID Resolution
+
+**Server-side function:**
+```clojure
+{:user-id-fn (fn [request]
+               (get-in request [:session :uid]))}
+```
+
+**Decision:** Flexible function-based, no built-in auth
+
+### 7. Heartbeat/Keepalive
+
+```clojure
+;; Client pings every 25 seconds
+{:send-buf-ms-ping 25000}
+
+;; Server responds with handshake
+[:chsk/handshake {:uid user-id}]
+```
+
+---
+
+## Wire Format & Event Structure
+
+### Message Envelope
+
+All messages follow:
+```clojure
+[event-id ?data]
+```
+
+- `event-id` - Keyword identifying event type
+- `?data` - Optional data payload (Transit-serializable)
+
+### Event ID Conventions
+
+**Namespaced Keywords:**
+```clojure
+:domain/action
+:chat/message    ; User sends chat
+:user/login      ; User authentication
+:data/query      ; Data request
+```
+
+**Internal Events (`:chsk/` prefix):**
+```clojure
+:chsk/handshake  ; Connection established
+:chsk/state      ; Connection state changed
+:chsk/recv       ; Message received (wrapper)
+:chsk/ws-ping    ; Heartbeat ping
+```
+
+### Complete Message Examples
+
+#### 1. Handshake (Server → Client)
+
+```clojure
+;; Wire format (Transit JSON)
+["chsk/handshake", {"uid": "user-123", "csrf-token": "abc"}]
+
+;; Clojure representation
+[:chsk/handshake 
+ {:uid "user-123"
+  :csrf-token "abc"}]
+```
+
+#### 2. State Change (Internal)
+
+```clojure
+[:chsk/state
+ {:first-open? true
+  :open? true
+  :uid "user-123"
+  :last-ws-close nil
+  :_meta {:url "ws://..."}}]
+```
+
+#### 3. User Message (Bidirectional)
+
+**Client → Server:**
+```clojure
+(send! [:chat/message {:text "Hello" :room "general"}])
+
+;; Wire: ["chat/message", {"text": "Hello", "room": "general"}]
+```
+
+**Server → Client:**
+```clojure
+(broadcast! [:chat/message {:from "alice" :text "Hi!"}])
+```
+
+#### 4. Request/Reply Pattern
+
+```clojure
+;; Request
+[:data/query {:collection "users" :id 123}]
+
+;; Response
+[:data/result {:collection "users" :data {...}}]
+
+;; With correlation ID
+[:data/query {:collection "users" :correlation-id "req-456"}]
+[:data/result {:correlation-id "req-456" :data {...}}]
+```
+
+#### 5. Error Handling
+
+```clojure
+;; Server error
+[:chsk/error 
+ {:type :validation-error
+  :message "Invalid room name"
+  :event-id :chat/message
+  :data {...}}]
+
+;; Connection error
+[:chsk/state
+ {:open? false
+  :last-ws-close {:code 1006
+                  :reason "Connection lost"}}]
+```
+
+### Transit Encoding
+
+```clojure
+;; Keywords
+:user/login → "~:user/login"
+
+;; Sets
+#{1 2 3} → ["~#set", [1, 2, 3]]
+
+;; UUIDs
+#uuid "..." → ["~u", "..."]
+
+;; Dates
+#inst "2025-01-01" → ["~t", "2025-01-01T00:00:00.000Z"]
+```
+
+### Message Size Limits
+
+```clojure
+{:max-message-size (* 1024 1024)  ; 1MB default
+ :warn-size (* 512 1024)}         ; Warn at 512KB
+```
+
+---
+
+## API Reference
+
+### Server API (Babashka)
+
+#### make-channel-socket-server!
+
+```clojure
+(defn make-channel-socket-server!
+  "Create WebSocket server"
+  [{:keys [user-id-fn          ; (fn [request] uid)
+           serialization        ; :transit-json (default)
+           max-message-size     ; 1MB default
+           heartbeat-interval   ; 25000ms default
+           ]}]
+  {:ch-recv (atom [])           ; Event stream
+   :send-fn (fn [uid event])    ; Send to user
+   :broadcast-fn (fn [event])   ; Send to all
+   :connected-uids (atom #{})}) ; Currently connected
+```
+
+#### start-router!
+
+```clojure
+(defn start-router!
+  "Start event processing loop"
+  [ch-recv handler-fn]
+  ;; handler-fn receives: {:keys [event uid send-fn]}
+  )
+```
+
+#### Example:
+
+```clojure
+(ns my-server
+  (:require [sente-lite.server :as sente]))
+
+(def server
+  (sente/make-channel-socket-server!
+    {:user-id-fn #(get-in % [:params :uid])}))
+
+(defn handle-event [{:keys [event uid send-fn]}]
+  (let [[event-id data] event]
+    (case event-id
+      :ping (send-fn uid [:pong data])
+      (println "Unknown:" event-id))))
+
+(sente/start-router! (:ch-recv server) handle-event)
+```
+
+### Client API (Scittle)
+
+#### make-channel-socket-client!
+
+```clojure
+(defn make-channel-socket-client!
+  "Create WebSocket client"
+  [url {:keys [on-event         ; (fn [event])
+               on-state-change   ; (fn [state])
+               serialization     ; :transit-json
+               auto-reconnect?   ; true (default)
+               ]}]
+  {:state (atom {})
+   :send! (fn [event])
+   :close! (fn [])})
+```
+
+#### Example:
+
+```clojure
+(ns my-client
+  (:require [sente-lite.client :as sente]))
+
+(def socket
+  (sente/make-channel-socket-client!
+    "ws://localhost:8080/chsk"
+    {:on-event (fn [[event-id data]]
+                 (case event-id
+                   :pong (js/console.log "Pong!" data)
+                   (js/console.log "Event:" event-id)))
+     :on-state-change (fn [state]
+                        (js/console.log "State:" (:open? state)))}))
+
+;; Send message
+((:send! socket) [:ping {:time (js/Date.now)}])
+
+;; Close connection
+((:close! socket))
+```
+
+---
+
+## Test Use Cases
+
+### Unit Tests
+
+#### Serialization Round-Trip
+
+```clojure
+(deftest transit-round-trip-test
+  (let [data {:keyword :value
+              :set #{1 2 3}
+              :uuid #uuid "550e8400-e29b-41d4-a716-446655440000"
+              :instant #inst "2025-01-01"}
+        encoded (codec/encode data)
+        decoded (codec/decode encoded)]
+    (is (= data decoded))))
+```
+
+#### Event Router Dispatch
+
+```clojure
+(deftest event-dispatch-test
+  (let [received (atom [])
+        registry (atom {})]
+    
+    (router/register! registry :chat/message
+      (fn [ev] (swap! received conj [:chat ev])))
+    
+    (router/dispatch! registry [:chat/message {:text "hi"}])
+    
+    (is (= 1 (count @received)))
+    (is (= :chat (ffirst @received)))))
+```
+
+#### Reconnection Backoff
+
+```clojure
+(deftest exponential-backoff-test
+  (let [config {:initial-delay-ms 1000
+                :max-delay-ms 30000
+                :backoff-multiplier 2}]
+    
+    (is (= 1000 (calc-delay config 0)))
+    (is (= 2000 (calc-delay config 1)))
+    (is (= 4000 (calc-delay config 2)))
+    (is (= 30000 (calc-delay config 10)))))  ; Capped
+```
+
+### Integration Tests
+
+#### Client-Server Round-Trip
+
+```clojure
+(deftest send-receive-test
+  (let [received (atom nil)
+        server (start-test-server!)
+        client (make-test-client! 
+                 {:on-event #(reset! received %)})]
+    
+    ;; Send message
+    (send! client [:ping {:time 123}])
+    
+    ;; Wait and verify
+    (Thread/sleep 100)
+    (is (some? @received))
+    (is (= :ping (first @received)))))
+```
+
+#### Broadcast Test
+
+```clojure
+(deftest broadcast-test
+  (let [received-1 (atom nil)
+        received-2 (atom nil)
+        server (start-test-server!)
+        client-1 (make-test-client! {:on-event #(reset! received-1 %)})
+        client-2 (make-test-client! {:on-event #(reset! received-2 %)})]
+    
+    (broadcast! server [:announcement {:msg "Hello!"}])
+    
+    (Thread/sleep 100)
+    (is (= @received-1 @received-2))))
+```
+
+#### Auto-Reconnect Test
+
+```clojure
+(deftest auto-reconnect-test
+  (let [state-changes (atom [])
+        client (make-test-client! 
+                 {:on-state-change #(swap! state-changes conj %)})]
+    
+    ;; Initial connection
+    (Thread/sleep 200)
+    (is (-> @state-changes last :open?))
+    
+    ;; Server stops
+    (stop-server!)
+    (Thread/sleep 200)
+    (is (not (-> @state-changes last :open?)))
+    
+    ;; Server restarts
+    (restart-server!)
+    (Thread/sleep 500)
+    (is (-> @state-changes last :open?))
+    (is (>= (count @state-changes) 3))))  ; open, close, open
+```
+
+### E2E Tests
+
+#### Performance Test
+
+```clojure
+(deftest performance-test
+  (testing "100 concurrent clients"
+    (let [server (start-test-server!)
+          clients (repeatedly 100 #(make-test-client!))
+          msg-per-client 10]
+      
+      (Thread/sleep 1000)  ; Wait for connections
+      
+      (let [start (System/currentTimeMillis)]
+        ;; Each client sends 10 messages
+        (doseq [client clients
+                n (range msg-per-client)]
+          (send! client [:test/msg {:n n}]))
+        
+        (let [duration (- (System/currentTimeMillis) start)
+              total-msgs (* 100 10)
+              msgs-per-sec (/ total-msgs (/ duration 1000.0))]
+          
+          (println "Throughput:" (int msgs-per-sec) "msg/sec")
+          (is (< duration 5000))      ; Under 5 seconds
+          (is (> msgs-per-sec 100)))))))  ; >100 msg/sec
+```
+
+---
+
+## Example Applications
+
+### 1. Echo Server (Minimal)
+
+**Server (Babashka):**
+```clojure
+#!/usr/bin/env bb
+
+(ns echo-server
+  (:require [sente-lite.server :as sente]))
+
+(defn handle-event [{:keys [event uid send-fn]}]
+  (let [[event-id data] event]
+    (println "Received:" event-id "from" uid)
+    ;; Echo back
+    (send-fn uid event)))
+
+(defn -main []
+  (let [server (sente/make-channel-socket-server!
+                 {:user-id-fn (constantly "echo-user")})]
+    
+    (sente/start-router! (:ch-recv server) handle-event)
+    
+    (println "Echo server on port 8080")
+    @(promise)))
+
+(-main)
+```
+
+**Client (Scittle HTML):**
+```html
+<!DOCTYPE html>
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.js"></script>
+  <script type="application/x-scittle">
+    (ns echo-client
+      (:require [sente-lite.client :as sente]))
+    
+    (def socket 
+      (sente/make-channel-socket-client!
+        "ws://localhost:8080/chsk"
+        {:on-event (fn [[event-id data]]
+                     (js/alert (str "Echo: " data)))}))
+    
+    (defn send-message []
+      (let [msg (js/prompt "Enter message:")]
+        ((:send! socket) [:echo {:text msg}])))
+  </script>
+</head>
+<body>
+  <h1>Echo Client</h1>
+  <button onclick="send_message()">Send</button>
+</body>
+</html>
+```
+
+### 2. Chat Application
+
+**Server:**
+```clojure
+(ns chat-server
+  (:require [sente-lite.server :as sente]))
+
+(def rooms (atom {}))  ; {room-id #{uid1 uid2}}
+(def users (atom {}))  ; {uid {:name "..." :rooms #{...}}}
+
+(defmulti handle-event :id)
+
+(defmethod handle-event :chat/join
+  [{:keys [uid data send-fn broadcast-fn]}]
+  (let [{:keys [room name]} data]
+    ;; Add user to room
+    (swap! rooms update room (fnil conj #{}) uid)
+    (swap! users assoc uid {:name name :rooms #{room}})
+    
+    ;; Notify room
+    (broadcast-fn room [:chat/user-joined {:uid uid :name name}])
+    
+    ;; Send history
+    (send-fn uid [:chat/history {:room room :messages (get-history room)}])))
+
+(defmethod handle-event :chat/message
+  [{:keys [uid data broadcast-fn]}]
+  (let [{:keys [room text]} data
+        user (get @users uid)
+        msg {:from (:name user)
+             :text text
+             :timestamp (System/currentTimeMillis)}]
+    
+    (save-message! room msg)
+    (broadcast-fn room [:chat/message msg])))
+
+(defmethod handle-event :chat/typing
+  [{:keys [uid data broadcast-fn]}]
+  (let [{:keys [room typing]} data
+        user (get @users uid)]
+    (broadcast-fn room 
+                  [:chat/typing {:uid uid :name (:name user) :typing typing}]
+                  {:exclude-uid uid})))
+
+(defmethod handle-event :default
+  [{:keys [event]}]
+  (println "Unhandled:" event))
+
+(defn -main []
+  (let [server (sente/make-channel-socket-server!
+                 {:user-id-fn #(get-in % [:params :uid])})]
+    
+    (sente/start-router! (:ch-recv server) handle-event)
+    (println "Chat server running")
+    @(promise)))
+```
+
+**Client (Reagent):**
+```clojure
+(ns chat-client
+  (:require [reagent.core :as r]
+            [reagent.dom :as rdom]
+            [sente-lite.client :as sente]))
+
+(def state (r/atom {:messages [] :typing #{} :username nil}))
+(def socket (atom nil))
+
+(defn handle-event [[event-id data]]
+  (case event-id
+    :chat/message
+    (swap! state update :messages conj data)
+    
+    :chat/user-joined
+    (swap! state update :messages conj 
+           {:system true :text (str (:name data) " joined")})
+    
+    :chat/typing
+    (if (:typing data)
+      (swap! state update :typing conj (:name data))
+      (swap! state update :typing disj (:name data)))
+    
+    :chat/history
+    (swap! state assoc :messages (:messages data))
+    
+    nil))
+
+(defn connect! [username]
+  (reset! socket
+    (sente/make-channel-socket-client!
+      (str "ws://localhost:8080/chsk?uid=" username)
+      {:on-event handle-event}))
+  
+  ((:send! @socket) [:chat/join {:room "general" :name username}]))
+
+(defn send-message! [text]
+  ((:send! @socket) [:chat/message {:room "general" :text text}])
+  ((:send! @socket) [:chat/typing {:room "general" :typing false}]))
+
+(defn typing-indicator []
+  (let [typing (:typing @state)]
+    (when (seq typing)
+      [:div.typing (str (clojure.string/join ", " typing) " typing...")])))
+
+(defn message-list []
+  [:div.messages
+   (for [[i msg] (map-indexed vector (:messages @state))]
+     ^{:key i}
+     [:div.message {:class (when (:system msg) "system")}
+      (if (:system msg)
+        (:text msg)
+        [:span [:strong (:from msg) ": "] (:text msg)])])])
+
+(defn message-input []
+  (let [text (r/atom "")]
+    (fn []
+      [:div.input
+       [:input 
+        {:type "text"
+         :value @text
+         :placeholder "Type message..."
+         :on-change #(do
+                       (reset! text (.. % -target -value))
+                       ((:send! @socket) [:chat/typing 
+                                          {:room "general" 
+                                           :typing (not (empty? @text))}]))
+         :on-key-press #(when (= 13 (.-charCode %))
+                          (send-message! @text)
+                          (reset! text ""))}]
+       [:button {:on-click #(do (send-message! @text) (reset! text ""))}
+        "Send"]])))
+
+(defn login-screen []
+  (let [username (r/atom "")]
+    (fn []
+      [:div.login
+       [:h1 "Enter Chat"]
+       [:input {:type "text" :placeholder "Username"
+                :value @username
+                :on-change #(reset! username (.. % -target -value))}]
+       [:button {:on-click #(do (swap! state assoc :username @username)
+                                (connect! @username))}
+        "Join"]])))
+
+(defn chat-app []
+  (if (:username @state)
+    [:div.chat
+     [:h1 "Chat Room"]
+     [message-list]
+     [typing-indicator]
+     [message-input]]
+    [login-screen]))
+
+(rdom/render [chat-app] (js/document.getElementById "app"))
+```
+
+### 3. Real-Time Dashboard
+
+**Server:**
+```clojure
+(ns dashboard-server
+  (:require [sente-lite.server :as sente]))
+
+(defn generate-metrics []
+  {:cpu (+ 20 (rand-int 60))
+   :memory (+ 40 (rand-int 40))
+   :requests-per-sec (+ 100 (rand-int 200))
+   :timestamp (System/currentTimeMillis)})
+
+(defn start-metrics-broadcaster [server]
+  (future
+    (loop []
+      (Thread/sleep 1000)
+      ((:broadcast-fn server) [:metrics/update (generate-metrics)])
+      (recur))))
+
+(defn -main []
+  (let [server (sente/make-channel-socket-server!
+                 {:user-id-fn (constantly "dashboard")})]
+    (start-metrics-broadcaster server)
+    (println "Dashboard running")
+    @(promise)))
+```
+
+**Client:**
+```clojure
+(ns dashboard-client
+  (:require [reagent.core :as r]
+            [sente-lite.client :as sente]))
+
+(def metrics (r/atom {}))
+
+(def socket
+  (sente/make-channel-socket-client!
+    "ws://localhost:8080/chsk"
+    {:on-event (fn [[event-id data]]
+                 (when (= event-id :metrics/update)
+                   (reset! metrics data)))}))
+
+(defn metric-gauge [label value max-val color]
+  [:div.gauge
+   [:div.label label]
+   [:div.bar
+    [:div.fill {:style {:width (str (* 100 (/ value max-val)) "%")
+                        :background-color color}}]]
+   [:div.value (str value "%")]])
+
+(defn dashboard []
+  [:div.dashboard
+   [:h1 "System Metrics"]
+   [:div.metrics
+    [metric-gauge "CPU" (:cpu @metrics) 100 "#3b82f6"]
+    [metric-gauge "Memory" (:memory @metrics) 100 "#10b981"]
+    [:div.stat
+     [:label "Requests/sec"]
+     [:value (:requests-per-sec @metrics)]]]])
+
+(rdom/render [dashboard] (js/document.getElementById "app"))
+```
+
+### 4. Collaborative Editor
+
+**Server:**
+```clojure
+(ns collab-editor.server
+  (:require [sente-lite.server :as sente]))
+
+(def document (atom {:text "" :version 0}))
+(def users (atom {}))
+
+(defmulti handle-event :id)
+
+(defmethod handle-event :edit/operation
+  [{:keys [uid data send-fn broadcast-fn]}]
+  (let [{:keys [op version]} data]
+    (if (= version (:version @document))
+      ;; Apply operation
+      (let [new-doc (swap! document
+                          (fn [doc]
+                            {:text (apply-op (:text doc) op)
+                             :version (inc (:version doc))}))]
+        (broadcast-fn [:edit/operation 
+                       {:op op :version (:version new-doc) :uid uid}]
+                     {:exclude-uid uid}))
+      ;; Version conflict
+      (send-fn uid [:edit/sync @document]))))
+
+(defmethod handle-event :edit/cursor
+  [{:keys [uid data broadcast-fn]}]
+  (swap! users assoc-in [uid :cursor] (:position data))
+  (broadcast-fn [:edit/cursor {:uid uid :position (:position data)}]
+                {:exclude-uid uid}))
+```
+
+---
+
+## Production Considerations
+
+### Performance
+
+- **Message throughput:** Target >1000 msg/sec per server
+- **Connection limit:** 10,000+ concurrent connections
+- **Latency:** <50ms server processing time
+- **Memory:** ~1KB per connection
+
+### Monitoring
+
+```clojure
+(def metrics (atom {:messages-sent 0
+                    :messages-received 0
+                    :connections-active 0
+                    :errors 0}))
+
+(defn track-metric! [metric-key]
+  (swap! metrics update metric-key inc))
+```
+
+### Security
+
+- **Authentication:** Implement user-id-fn securely
+- **Authorization:** Validate events in handlers
+- **Rate limiting:** Limit messages per user
+- **Input validation:** Validate all incoming data
+
+### Deployment
+
+**Babashka Server:**
+```bash
+# SystemD service
+[Unit]
+Description=sente-lite WebSocket server
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bb server.clj
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**Docker:**
+```dockerfile
+FROM babashka/babashka:latest
+COPY server.clj /app/
+CMD ["bb", "/app/server.clj"]
+```
+
+---
+
+## Next Steps
+
+1. **Implement core protocol** - Transit codec, event router
+2. **Build Babashka server** - WebSocket handler, user routing
+3. **Build Scittle client** - Browser WebSocket, reconnection
+4. **Write test suite** - Unit, integration, E2E tests
+5. **Create examples** - Echo, chat, dashboard
+6. **Performance testing** - Load tests, optimize
+7. **Documentation** - API docs, migration guide
+
+---
+
+**Status:** Ready for implementation  
+**License:** EPL-1.0 (Clojure ecosystem standard)  
+**Compatibility:** Sente API ~85%
