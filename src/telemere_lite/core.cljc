@@ -102,11 +102,11 @@
                   :msg [msg enhanced-context]
                   :context nil}]
       #?(:bb (do
-               ;; Send to configured handlers
-               (doseq [[handler-id {:keys [handler-fn enabled?]}] @*handlers*]
+               ;; Send to configured handlers (now async-capable)
+               (doseq [[handler-id {:keys [handler enabled?]}] @*handlers*]
                  (when enabled?
                    (try
-                     (handler-fn signal)
+                     ((:dispatch-fn handler) signal)
                      (catch Exception e
                        (binding [*out* *err*]
                          (println "Handler" handler-id "failed:" (.getMessage e)))))))
@@ -351,22 +351,99 @@
            (binding [*out* *err*]
              (println "Error writing to stderr:" (.getMessage e))))))))
 
+;; Async handler infrastructure
+#?(:bb
+   (defn- async-handler-wrapper
+     "Wrap any handler function with async dispatch"
+     [handler-fn {:keys [mode buffer-size n-threads]
+                  :or {mode :dropping buffer-size 1024 n-threads 1}}]
+     (let [queue (java.util.concurrent.LinkedBlockingQueue. buffer-size)
+           executor (java.util.concurrent.Executors/newFixedThreadPool n-threads)
+           stats (atom {:queued 0 :processed 0 :dropped 0 :errors 0})
+           running? (atom true)]
+
+       ;; Background processing threads
+       (dotimes [_ n-threads]
+         (.submit executor
+           (fn []
+             (try
+               (while @running?
+                 (when-let [signal (.poll queue 1000 java.util.concurrent.TimeUnit/MILLISECONDS)]
+                   (try
+                     (handler-fn signal)
+                     (swap! stats update :processed inc)
+                     (catch Exception e
+                       (swap! stats update :errors inc)
+                       (binding [*out* *err*]
+                         (println "Async handler error:" (.getMessage e)))))))
+               (catch InterruptedException _
+                 ;; Thread shutdown - normal
+                 )
+               (catch Exception e
+                 (binding [*out* *err*]
+                   (println "Async handler thread error:" (.getMessage e))))))))
+
+       ;; Return handler interface
+       {:dispatch-fn
+        (fn [signal]
+          (when @running?
+            (case mode
+              :dropping
+              (if (.offer queue signal)
+                (swap! stats update :queued inc)
+                (swap! stats update :dropped inc))
+
+              :blocking
+              (try
+                (.put queue signal)
+                (swap! stats update :queued inc)
+                (catch InterruptedException _
+                  (swap! stats update :dropped inc)))
+
+              :sliding
+              (do
+                (when (= (.size queue) buffer-size)
+                  (.poll queue) ; Remove oldest
+                  (swap! stats update :dropped inc))
+                (.offer queue signal)
+                (swap! stats update :queued inc)))))
+
+        :stats-fn #(assoc @stats :queue-size (.size queue) :mode mode)
+        :shutdown-fn
+        (fn []
+          (reset! running? false)
+          (.shutdown executor)
+          (try
+            (.awaitTermination executor 5 java.util.concurrent.TimeUnit/SECONDS)
+            (catch InterruptedException _)))})))
+
 #?(:bb
    (defn add-handler!
-     "Add a telemetry handler (matching official Telemere API)"
+     "Add a telemetry handler with optional async dispatch (matching official Telemere API)"
      ([handler-id handler-fn]
       (add-handler! handler-id handler-fn {}))
      ([handler-id handler-fn opts]
-      (swap! *handlers* assoc handler-id
-             {:handler-fn handler-fn
-              :opts opts
-              :enabled? true}))))
+      (let [final-handler (if (:async opts)
+                           (async-handler-wrapper handler-fn (:async opts))
+                           {:dispatch-fn handler-fn
+                            :stats-fn (fn [] {:mode :sync :processed 0 :queued 0 :dropped 0 :errors 0})
+                            :shutdown-fn (fn [] nil)})]
+        (swap! *handlers* assoc handler-id
+               {:handler final-handler
+                :opts opts
+                :enabled? true})))))
 
 #?(:bb
    (defn remove-handler!
-     "Remove a telemetry handler (matching official Telemere API)"
+     "Remove a telemetry handler with proper async cleanup (matching official Telemere API)"
      [handler-id]
-     (swap! *handlers* dissoc handler-id)))
+     (when-let [handler-info (get @*handlers* handler-id)]
+       (try
+         ((:shutdown-fn (:handler handler-info)))
+         (catch Exception e
+           (binding [*out* *err*]
+             (println "Error shutting down handler" handler-id ":" (.getMessage e)))))
+       (swap! *handlers* dissoc handler-id))))
 
 #?(:bb
    (defn get-handlers
@@ -376,31 +453,92 @@
 
 #?(:bb
    (defn clear-handlers!
-     "Clear all handlers (utility function)"
+     "Clear all handlers with proper async cleanup (utility function)"
      []
+     (doseq [[handler-id handler-info] @*handlers*]
+       (try
+         ((:shutdown-fn (:handler handler-info)))
+         (catch Exception e
+           (binding [*out* *err*]
+             (println "Error shutting down handler" handler-id ":" (.getMessage e))))))
+     (reset! *handlers* {})))
+
+;; Handler statistics and monitoring
+#?(:bb
+   (defn get-handler-stats
+     "Get performance statistics for all handlers"
+     []
+     (into {}
+       (map (fn [[handler-id {:keys [handler]}]]
+              [handler-id ((:stats-fn handler))])
+            @*handlers*))))
+
+#?(:bb
+   (defn get-handler-health
+     "Check handler health and queue status"
+     []
+     (let [stats (get-handler-stats)]
+       {:healthy? (every? #(< (:errors %) 10) (vals stats))
+        :total-queued (reduce + 0 (map :queued (vals stats)))
+        :total-dropped (reduce + 0 (map :dropped (vals stats)))
+        :total-processed (reduce + 0 (map :processed (vals stats)))
+        :handlers (count stats)
+        :details stats})))
+
+#?(:bb
+   (defn shutdown-telemetry!
+     "Gracefully shutdown all async handlers"
+     []
+     (doseq [[handler-id {:keys [handler]}] @*handlers*]
+       (try
+         ((:shutdown-fn handler))
+         (catch Exception e
+           (binding [*out* *err*]
+             (println "Error shutting down handler" handler-id ":" (.getMessage e))))))
      (reset! *handlers* {})))
 
 ;; Convenience functions for common handlers
 #?(:bb
    (defn add-file-handler!
-     "Add file output handler"
+     "Add file output handler with async support"
      ([file-path]
-      (add-file-handler! :file file-path))
+      (add-file-handler! :file file-path {}))
      ([handler-id file-path]
-      (add-handler! handler-id (file-handler file-path)))))
+      (add-file-handler! handler-id file-path {}))
+     ([handler-id file-path opts]
+      ;; Default to async for production readiness
+      (let [default-opts {:async {:mode :dropping :buffer-size 1024 :n-threads 1}}
+            final-opts (if (contains? opts :sync)
+                        (dissoc opts :sync)  ; Remove :sync flag, keep as sync
+                        (merge default-opts opts))]
+        (add-handler! handler-id (file-handler file-path) final-opts)))))
 
 #?(:bb
    (defn add-stdout-handler!
-     "Add stdout output handler"
+     "Add stdout output handler with async support"
      ([]
-      (add-stdout-handler! :stdout))
+      (add-stdout-handler! :stdout {}))
      ([handler-id]
-      (add-handler! handler-id (stdout-handler)))))
+      (add-stdout-handler! handler-id {}))
+     ([handler-id opts]
+      ;; Default to async for production readiness
+      (let [default-opts {:async {:mode :dropping :buffer-size 512 :n-threads 1}}
+            final-opts (if (contains? opts :sync)
+                        (dissoc opts :sync)  ; Remove :sync flag, keep as sync
+                        (merge default-opts opts))]
+        (add-handler! handler-id (stdout-handler) final-opts)))))
 
 #?(:bb
    (defn add-stderr-handler!
-     "Add stderr output handler"
+     "Add stderr output handler with async support"
      ([]
-      (add-stderr-handler! :stderr))
+      (add-stderr-handler! :stderr {}))
      ([handler-id]
-      (add-handler! handler-id (stderr-handler)))))
+      (add-stderr-handler! handler-id {}))
+     ([handler-id opts]
+      ;; Default to async for production readiness
+      (let [default-opts {:async {:mode :dropping :buffer-size 256 :n-threads 1}}
+            final-opts (if (contains? opts :sync)
+                        (dissoc opts :sync)  ; Remove :sync flag, keep as sync
+                        (merge default-opts opts))]
+        (add-handler! handler-id (stderr-handler) final-opts)))))

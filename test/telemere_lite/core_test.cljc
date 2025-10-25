@@ -50,7 +50,7 @@
             location (get context "location")]
         (is (= "info" (get entry "level")))
         (is (= "Test message" (first msg)))
-        (is (= "value" (get context "test-data")))
+        (is (= "value" (get-in context ["data" "test-data"])))
         (is (contains? location "file"))
         (is (number? (get location "line")))
         (is (= "telemere-lite.core-test" (get location "ns")))))))
@@ -77,8 +77,8 @@
         (is (= "error" (get entry "level")))
         (let [msg (get entry "msg")
               context (second msg)]
-          (is (= "test" (get context "error-type")))
-          (is (= "low" (get context "severity")))
+          (is (= "test" (get-in context ["error" "error-type"])))
+          (is (= "low" (get-in context ["error" "severity"])))
           (is (contains? context "location")))))))
 
 (deftest test-performance-timing
@@ -138,7 +138,7 @@
         ;; Check module loaded entry
         (is (= "info" (get loaded-entry "level")))
         (is (= "Module loaded" (first (get loaded-entry "msg"))))
-        (is (= 150 (get (second (get loaded-entry "msg")) "duration-ms")))))))
+        (is (= 150 (get-in (second (get loaded-entry "msg")) ["data" "duration-ms"])))))))
 
 (deftest test-json-output-structure
   (testing "JSON output has correct structure"
@@ -160,6 +160,56 @@
           (is (= 2 (count msg)))
           (is (string? (first msg)))
           (is (map? (second msg))))))))
+
+(deftest test-official-api-compatibility
+  (testing "Official Telemere API compatibility"
+    ;; Test full options map style
+    (tel/log! {:level :info :msg "Full options test"})
+
+    ;; Test level and message style
+    (tel/log! :warn "Level and message test")
+
+    ;; Test error with exception
+    #?(:bb (tel/error! (Exception. "Test exception")))
+
+    ;; Test error with options map
+    (tel/error! {:msg "Error options test" :error-type "test"})
+
+    ;; Test signal! directly
+    (tel/signal! {:level :debug :msg "Direct signal test" :custom-field "test"})
+
+    (let [entries (read-log-entries)]
+      #?(:bb (is (= 5 (count entries)))
+         :clj (is (= 4 (count entries))))  ; No Exception test in CLJ
+
+      ;; Verify all entries have proper structure
+      (doseq [entry entries]
+        (is (contains? entry "timestamp"))
+        (is (contains? entry "level"))
+        (is (contains? entry "msg"))
+        (let [msg (get entry "msg")
+              context (second msg)]
+          (is (vector? msg))
+          (is (= 2 (count msg)))
+          (is (string? (first msg)))
+          (is (map? context))
+          (is (contains? context "location")))))))
+
+(deftest test-signal-foundation
+  (testing "signal! is the foundation macro"
+    ;; Direct signal! call
+    (tel/signal! {:level :info :msg "Signal foundation test" :operation "test" :duration-ms 42})
+
+    (let [entries (read-log-entries)]
+      (is (= 1 (count entries)))
+      (let [entry (first entries)
+            msg (get entry "msg")
+            context (second msg)]
+        (is (= "info" (get entry "level")))
+        (is (= "Signal foundation test" (first msg)))
+        (is (= "test" (get context "operation")))
+        (is (= 42 (get context "duration-ms")))
+        (is (contains? context "location"))))))
 
 (defn run-tests []
   "Run all tests and return summary"

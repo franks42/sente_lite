@@ -16,7 +16,16 @@
       "WebFetch(domain:clojure.org)",
       "Bash(bb:*)",
       "Bash(clojure:*)",
-      "Bash(./run_tests.bb)"
+      "Bash(./run_tests.bb)",
+      "Bash(./test_official_api.bb)",
+      "Bash(./test_filtering_api.bb)",
+      "Bash(./test_timbre_functions.bb)",
+      "Bash(./test_routing.bb)",
+      "Bash(./test_simple_filtering.bb)",
+      "WebFetch(domain:cljdoc.org)",
+      "Bash(./test_event_correlation.bb)",
+      "Bash(./test_async_performance.bb)",
+      "Bash(./test_async_simple.bb)"
     ],
     "deny": [],
     "ask": []
