@@ -101,22 +101,23 @@
                   :ns ns-str
                   :msg [msg enhanced-context]
                   :context nil}]
-      #?(:bb (do
+      #?(:bb (let [custom-handlers @*handlers*]
                ;; Send to configured handlers (now async-capable)
-               (doseq [[handler-id {:keys [handler enabled?]}] @*handlers*]
+               (doseq [[handler-id {:keys [handler enabled?]}] custom-handlers]
                  (when enabled?
                    (try
                      ((:dispatch-fn handler) signal)
                      (catch Exception e
                        (binding [*out* *err*]
                          (println "Handler" handler-id "failed:" (.getMessage e)))))))
-               ;; Also send to Timbre (for backwards compatibility)
-               (case level
-                 :debug (timbre/debug msg enhanced-context)
-                 :info  (timbre/info msg enhanced-context)
-                 :warn  (timbre/warn msg enhanced-context)
-                 :error (timbre/error msg enhanced-context)
-                 (timbre/info msg enhanced-context)))
+               ;; Only send to Timbre if NO custom handlers configured (backwards compatibility)
+               (when (empty? custom-handlers)
+                 (case level
+                   :debug (timbre/debug msg enhanced-context)
+                   :info  (timbre/info msg enhanced-context)
+                   :warn  (timbre/warn msg enhanced-context)
+                   :error (timbre/error msg enhanced-context)
+                   (timbre/info msg enhanced-context))))
          :scittle (js/console.log (str "[" level "] " msg " " (->json signal)))))))
 
 #_{:clj-kondo/ignore [:unresolved-symbol]}
@@ -251,7 +252,8 @@
      ([signal-type ns-pattern level]
       ;; For namespace-specific levels, use BB Timbre's set-ns-min-level
       ;; Note: signal-type is ignored for now in our lite implementation
-      (timbre/set-ns-min-level level ns-pattern))))
+      ;; Note: set-ns-min-level! is a macro, so we use swap-config! + set-ns-min-level
+      (timbre/swap-config! (fn [config] (timbre/set-ns-min-level config ns-pattern level))))))
 
 #?(:bb
    (defn get-min-level

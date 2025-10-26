@@ -73,7 +73,10 @@
   (doseq [[id {:keys [opts]}] handlers]
     (println (format "Handler %s: async=%s" id (boolean (:async opts))))))
 
-;; Clean up
+;; Final cleanup - shutdown all async handlers to allow process to exit
+(tel/shutdown-telemetry!)
+
+;; Clean up files
 (doseq [file ["sync-test.log" "async-test.log"]]
   (when (.exists (io/file file))
     (io/delete-file file)))
