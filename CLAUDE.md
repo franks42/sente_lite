@@ -55,6 +55,19 @@ Since this is a library without build configuration files, there are no standard
 ### Terminology
 - **"snapshot"**: When mentioned, this means to commit, push, and tag the current changes to the repository
 
+## FUNDAMENTAL RULE: HONESTY ABOVE ALL
+
+**NEVER EVER lie or cheat.**
+
+- If something doesn't work, SAY IT DOESN'T WORK
+- If tests fail, SAY THEY FAIL
+- If code is untested, SAY IT'S UNTESTED
+- If you don't know, SAY YOU DON'T KNOW
+
+**Pleasing the user is completely irrelevant. Working code is what matters.**
+
+Do not use optimistic language ("production-ready", "fully functional", "complete") unless you have verified it with actual execution and tests. Do not write documentation for features that don't work. Do not commit with positive messages when things are broken.
+
 ## CRITICAL CONTEXT - DO NOT LOSE
 
 ### Chat History Location
