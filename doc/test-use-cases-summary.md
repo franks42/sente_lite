@@ -715,6 +715,84 @@ Attempt 5: 30000ms + jitter (capped at max-delay)
 - `::client-subscribe-requested` - User called subscribe!
 - `::client-unsubscribe-requested` - User called unsubscribe!
 
+#### Phase 6e: Integration Test ✅
+
+22. **bb_client_tests/09_integration.bb** - Complete Connection Management Integration
+    - **Integration scope**: Tests all Phase 6 features working together
+      - Server heartbeat (Phase 6a)
+      - Client state tracking with auto-pong (Phase 6b)
+      - Auto-reconnection with exponential backoff (Phase 6c)
+      - Subscription restoration after reconnect (Phase 6d)
+
+    - **Test scenarios** (12 tests total):
+      1. Initial connection establishment
+      2. Channel subscription state tracking
+      3. Heartbeat and auto-pong configuration
+      4. Subscription state maintenance
+      5. Connection loss detection (transitions to `:reconnecting`)
+      6. Auto-reconnection after server restart
+      7. Subscription restoration after reconnect
+      8. Connection and subscription stability
+      9. State consistency after reconnection
+      10. Multiple disconnect/reconnect cycles
+      11. Multiple independent clients with separate state
+      12. Independent subscription management across clients
+
+    - **Key validations**:
+      - Connection lifecycle: `:closed` → `:connecting` → `:open` → `:reconnecting` → `:open`
+      - Subscription state preserved across reconnections
+      - Multiple clients maintain independent state
+      - Reconnection with exponential backoff works correctly
+      - State remains consistent through multiple cycles
+
+    - **Test approach**:
+      - Focus on state management integration (not message flow)
+      - Individual phase tests validate message delivery
+      - Integration test validates features work together as a system
+      - Tests state consistency, not timing-dependent message reception
+
+    - **Example test flow**:
+      ```clojure
+      ;; Create managed client with all features
+      (def client
+        (wsm/create-managed-client
+         {:uri "ws://localhost:3000/"
+          :on-state-change (fn [old new] ...)
+          :on-message (fn [msg] ...)
+          :heartbeat {:auto-pong true}  ; Phase 6b
+          :reconnect {:enabled true     ; Phase 6c
+                      :max-attempts 5
+                      :initial-delay-ms 1000}}))
+
+      ;; Connect and subscribe
+      ((:connect! client))
+      ((:subscribe! client) "channel-1")
+
+      ;; Simulate connection loss
+      (stop-server!)
+      ;; Client automatically enters :reconnecting state
+
+      ;; Restart server
+      (start-server!)
+      ;; Client automatically reconnects and restores subscriptions
+
+      ;; Validate state
+      (= :open ((:get-state client)))
+      (= #{"channel-1"} ((:get-subscriptions client)))
+      ```
+
+    - **State management validation**:
+      - Connection state tracked correctly through lifecycle
+      - Subscriptions preserved in client state atom
+      - Multiple clients isolated (no state leakage)
+      - State consistent after multiple reconnection cycles
+
+    - **PASSING**: 12/12 tests (100% success rate)
+      - All connection management features integrate correctly
+      - State management works reliably across all scenarios
+      - Multiple clients can coexist with independent state
+      - Reconnection + subscription restoration work together
+
 ### Additional Test (Not in Runner)
 
 12. **test_wire_formats.bb** - Wire Format System
