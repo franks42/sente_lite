@@ -25,9 +25,34 @@
       "WebFetch(domain:cljdoc.org)",
       "Bash(./test_event_correlation.bb)",
       "Bash(./test_async_performance.bb)",
-      "Bash(./test_async_simple.bb)"
+      "Bash(./test_async_simple.bb)",
+      "Bash(./test_server_foundation.bb)",
+      "Bash(./test_channel_integration.bb)",
+      "Bash(./test_wire_formats.bb)",
+      "Read(//Users/franksiebenlist/Development/sente/**)",
+      "WebFetch(domain:http-kit.github.io)",
+      "WebFetch(domain:tools.ietf.org)",
+      "WebFetch(domain:datatracker.ietf.org)",
+      "Bash(cat:*)",
+      "Bash(./VERIFY_AFTER_EDIT.bb src/sente_lite/channels.cljc)",
+      "Bash(./VERIFY_AFTER_EDIT.bb:*)",
+      "mcp__memory__store_memory",
+      "mcp__memory__recall_memory",
+      "Read(//Users/franksiebenlist/.claude/projects/-Users-franksiebenlist-Development-sente-lite/**)",
+      "Bash(git ls-tree:*)",
+      "Bash(git check-ignore:*)",
+      "Bash(mkdir:*)",
+      "Bash(git mv:*)",
+      "Bash(mv:*)",
+      "Bash(rmdir:*)",
+      "Bash(git reset:*)",
+      "Bash(./test/scripts/run_all_tests.bb:*)"
     ],
     "deny": [],
     "ask": []
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "memory"
+  ]
 }
