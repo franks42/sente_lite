@@ -46,7 +46,8 @@
       "Bash(mv:*)",
       "Bash(rmdir:*)",
       "Bash(git reset:*)",
-      "Bash(./test/scripts/run_all_tests.bb:*)"
+      "Bash(./test/scripts/run_all_tests.bb:*)",
+      "Bash(git rm:*)"
     ],
     "deny": [],
     "ask": []
