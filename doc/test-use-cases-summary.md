@@ -6,6 +6,194 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
 
 ---
 
+## Test Architecture & Client Configuration
+
+### Overview Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    Test Suite Architecture                       │
+├─────────────────────────────────────────────────────────────────┤
+│                                                                   │
+│  Phase 1: Telemere-lite Core (6 tests)                          │
+│  ┌──────────────────────────────────────┐                       │
+│  │  BB Test Script → telemere-lite API  │                       │
+│  │  (Pure unit tests, no client)        │                       │
+│  └──────────────────────────────────────┘                       │
+│                                                                   │
+│  Phase 2: Async Implementation (2 tests)                        │
+│  ┌──────────────────────────────────────┐                       │
+│  │  BB Test Script → async handlers     │                       │
+│  │  (Performance tests, no client)      │                       │
+│  └──────────────────────────────────────┘                       │
+│                                                                   │
+│  Phase 3: WebSocket Foundation (3 tests)                        │
+│  ┌──────────────────────────────────────┐                       │
+│  │ 3a) Browser Client Test              │                       │
+│  │     BB → http-kit → Browser JS       │                       │
+│  ├──────────────────────────────────────┤                       │
+│  │ 3b) Server Foundation Test           │                       │
+│  │     BB → sente-lite-server (no client)│                      │
+│  ├──────────────────────────────────────┤                       │
+│  │ 3c) Channel Integration Test         │                       │
+│  │     BB → sente-lite channels         │                       │
+│  │     (Simulated connection IDs)       │                       │
+│  └──────────────────────────────────────┘                       │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Phase 1 & 2: Pure Babashka Unit Tests
+
+**No Client Required** - Tests run entirely in Babashka process.
+
+```
+┌─────────────────────────────────────────────┐
+│  test_*.bb (Babashka Script)                │
+│                                             │
+│  (require '[telemere-lite.core :as tel])   │
+│                                             │
+│  (tel/signal! {:level :info ...})          │
+│        │                                    │
+│        ├──→ Custom Handlers (async/sync)   │
+│        └──→ Timbre (fallback logging)      │
+│                                             │
+│  Assert: stats, output files, behavior     │
+└─────────────────────────────────────────────┘
+```
+
+**Configuration**: Tests configure handlers directly via API
+```clojure
+;; Async handler
+(tel/add-file-handler! :async-test "async-test.log"
+  {:async {:mode :dropping :buffer-size 1024 :n-threads 1}})
+
+;; Sync handler
+(tel/add-file-handler! :sync-test "sync-test.log"
+  {:sync true})
+```
+
+### Phase 3a: WebSocket Foundation (Browser Client)
+
+**Client**: Embedded HTML/JavaScript in test script
+
+```
+┌──────────────────┐                    ┌────────────────────┐
+│  BB Test Script  │                    │   Browser Client   │
+│                  │                    │  (Embedded HTML)   │
+│  http-kit server │◄───── WebSocket ──┤                    │
+│  (port 3000)     │      (ws://)      │  JavaScript:       │
+│                  │                    │  - Connect         │
+│  Echo handler:   │      JSON msgs    │  - Send messages   │
+│  - on-open       │◄─────────────────►│  - Receive echoes  │
+│  - on-message    │                    │  - Log to console  │
+│  - on-close      │                    │                    │
+│  - on-error      │                    │                    │
+└──────────────────┘                    └────────────────────┘
+```
+
+**Configuration**: Test embeds browser client in HTTP response
+```clojure
+{:status 200
+ :headers {"content-type" "text/html"}
+ :body "<!DOCTYPE html>
+        <html>
+        <script>
+          const ws = new WebSocket('ws://localhost:3000');
+          ws.onopen = () => ws.send(JSON.stringify({type: 'ping'}));
+          ws.onmessage = (e) => console.log('Echo:', e.data);
+        </script>
+        </html>"}
+```
+
+**Access**: Open browser to `http://localhost:3000` during test
+
+### Phase 3b: Server Foundation (No Client)
+
+**Client**: None - Server-only validation tests
+
+```
+┌──────────────────────────────────────────┐
+│  test_server_foundation.bb               │
+│                                          │
+│  (require '[sente-lite.server-simple])  │
+│                                          │
+│  Server Lifecycle Tests:                │
+│  ├─ start-server! → running?            │
+│  ├─ get-server-stats → connections      │
+│  ├─ wire-format system → available      │
+│  └─ stop-server! → shutdown             │
+│                                          │
+│  HTTP Endpoints (not tested):           │
+│  - GET /health → {:status "ok"}         │
+│  - GET /stats → {:connections 0 ...}    │
+│                                          │
+│  No WebSocket client - server tests only│
+└──────────────────────────────────────────┘
+```
+
+**Configuration**: Server with telemetry
+```clojure
+(def test-server
+  (server/start-server!
+    {:port 3001
+     :telemetry {:enabled true
+                 :handler-id :test-server}}))
+```
+
+**Manual Testing**: Can use `curl` or browser
+- Health: `http://localhost:3001/health`
+- Stats: `http://localhost:3001/stats`
+
+### Phase 3c: Channel Integration (Simulated Clients)
+
+**Client**: Simulated connection IDs (strings) - No actual WebSocket
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  test_channel_integration.bb                            │
+│                                                         │
+│  Multiple Servers (different wire formats):             │
+│  ┌─────────────┬─────────────┬──────────────┐         │
+│  │ Port 3002   │ Port 3003   │ Port 3004    │         │
+│  │ JSON format │ EDN format  │ Transit+JSON │         │
+│  └─────────────┴─────────────┴──────────────┘         │
+│                                                         │
+│  Simulated Connections:                                 │
+│  conn1 = "conn-test-001"  ──┐                          │
+│  conn2 = "conn-test-002"    ├──→ subscribe! channels   │
+│  conn3 = "conn-test-003"  ──┘                          │
+│                                                         │
+│  Channel Operations:                                    │
+│  ├─ create-channel! "test-channel"                     │
+│  ├─ subscribe! conn1 "test-channel"                    │
+│  ├─ publish! "test-channel" {:msg "hello"}             │
+│  ├─ send-rpc-request! conn1 {:id 123 ...}             │
+│  └─ broadcast-to-channel! "test-channel" data          │
+│                                                         │
+│  No actual WebSocket connections - API tests only      │
+└─────────────────────────────────────────────────────────┘
+```
+
+**Configuration**: Servers with channel system
+```clojure
+;; JSON server with channels
+(def test-server-json
+  (server/start-server!
+    {:port 3002
+     :wire-format :json
+     :channels {:auto-create true
+                :default-config {:max-subscribers 100
+                                :message-retention 5}}}))
+
+;; Simulate connections (no actual WebSocket)
+(def conn1 "conn-test-001")
+(channels/subscribe! conn1 "test-channel")
+```
+
+**Key Difference**: Uses string IDs to simulate connections, not real WebSocket channels
+
+---
+
 ## Test Organization
 
 ### Phase 1: Telemere-lite Core Tests (6 tests)
@@ -51,13 +239,13 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
    - Performance metrics
    - Claims 24.5x improvement over synchronous
 
-### Phase 3: WebSocket Foundation Tests (3 tests)
+### Phase 3: WebSocket Foundation Tests (3 tests + BB Client Suite)
 
 **Purpose**: Core sente-lite WebSocket functionality
 
 9. **test_websocket_foundation.bb** - WebSocket Foundation
    - **Raw http-kit WebSocket server** (port 3000)
-   - Connection lifecycle (on-open, on-message, on-close, on-error)
+   - Connection lifecycle (on-open, on-receive, on-close, on-error)
    - JSON message handling
    - Connection tracking
    - Echo server pattern
@@ -95,6 +283,40 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
       - Expired RPC request cleanup
       - Graceful shutdown
     - Error handling validation
+
+### Phase 3: BB Client Tests (NEW - 2025-10-26) ✅
+
+**Purpose**: BB-to-BB WebSocket client-server testing with native Babashka client
+
+12. **bb_client_tests/01_startup_test.bb** - Server Startup
+    - Server lifecycle validation
+    - Port binding verification
+    - Telemetry initialization
+
+13. **bb_client_tests/02_connection_test.bb** - Connection Lifecycle
+    - WebSocket handshake
+    - Connection tracking
+    - Clean disconnection
+    - Uses `babashka.http-client.websocket`
+
+14. **bb_client_tests/03_message_echo.bb** - Bidirectional Communication ✅
+    - Client → Server message delivery
+    - Server → Client message delivery
+    - Message echo validation
+    - JSON serialization/deserialization
+    - **PASSING** after fixing:
+      - Server: `:on-message` → `:on-receive` (http-kit callback name)
+      - Client: Refactored to native `babashka.http-client.websocket`
+
+15. **minimal_ws_echo.bb** - Minimal Echo Server
+    - Simplest possible WebSocket echo
+    - Used for isolating WebSocket bugs
+    - Validates http-kit `:on-receive` callback
+
+16. **minimal_ws_client.bb** - Minimal Native Client
+    - Simplest possible Babashka WebSocket client
+    - Uses `babashka.http-client.websocket` (native)
+    - No Java interop or workarounds needed
 
 ### Additional Test (Not in Runner)
 
@@ -151,10 +373,12 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
 ### ⚠️ What's Missing/Incomplete
 
 **Client-Side Testing:**
-- ❌ No browser WebSocket client tests
-- ❌ No connection/reconnection logic tests
-- ❌ No client-side message handling
+- ✅ BB-to-BB WebSocket client tests (COMPLETE - 2025-10-26)
+- ✅ Connection/reconnection logic (basic tests PASSING)
+- ✅ Client-side message handling (bidirectional WORKING)
+- ❌ No browser WebSocket client tests (beyond manual HTML)
 - ❌ No client heartbeat/keepalive
+- ❌ No automatic reconnection with backoff
 
 **Protocol Features:**
 - ❌ No WebSocket handshake validation
@@ -336,6 +560,49 @@ According to run_all_tests.bb success message:
    - Many concurrent connections
    - High message throughput
    - Memory leak detection
+
+---
+
+## Phase 3 Implementation Notes (2025-10-26)
+
+### Critical Bugs Fixed
+
+**Bug #1: http-kit Callback Name Mismatch**
+- **Issue**: `src/sente_lite/server.cljc:272` used `:on-message` instead of `:on-receive`
+- **Impact**: Server never received messages from clients
+- **Fix**: Changed to `:on-receive` (http-kit's actual callback name)
+- **Reference**: `doc/issues/websocket-message-flow-issue.md`
+
+**Bug #2: Java 11 WebSocket Receive Counter**
+- **Issue**: Java 11 WebSocket API starts with receive counter at 0
+- **Impact**: Client never invoked onText callback, couldn't receive messages
+- **Workaround**: Added `.request(Long/MAX_VALUE)` in onOpen
+- **Better Solution**: Refactored to `babashka.http-client.websocket` (native)
+
+### Client Refactor: Native Babashka WebSocket
+
+**Before**: Java 11 WebSocket API
+- Required Java interop (`java.net.http.WebSocket`)
+- Needed `.request()` workaround
+- More complex code (~94 lines)
+
+**After**: `babashka.http-client.websocket`
+- Native Babashka implementation
+- No workarounds needed
+- Simpler, cleaner code (~60 lines)
+- Aligns with project philosophy: "Native capability first"
+
+**Files Changed**:
+- `test/scripts/bb_client_tests/ws_client.clj` - Refactored to native
+- `test/scripts/minimal_ws_client.bb` - New minimal native client
+- `test/scripts/minimal_ws_echo.bb` - Minimal test server
+
+### Lessons Learned
+
+1. **Always verify API callback names** - Don't assume `:on-message` is universal
+2. **Native platforms first** - Babashka's native WebSocket is simpler than Java interop
+3. **Minimal reproduction tests** - Created `minimal_ws_*.bb` to isolate issues
+4. **Documentation matters** - Java 11 WebSocket's `.request()` requirement is poorly documented
 
 ---
 
