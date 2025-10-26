@@ -117,6 +117,9 @@
                           :format (wire/format-name wire-format)}})
       false)))
 
+;; Forward declarations
+(declare broadcast-to-channel!)
+
 ;; Message routing and handling
 (defn- route-message
   "Route parsed message to appropriate handler"
@@ -163,6 +166,9 @@
             result (channels/publish! channel-id message-data
                                       :sender-conn-id conn-id
                                       :exclude-sender? exclude-sender?)]
+        ;; Actually broadcast the message to subscribers
+        (when (:success result)
+          (broadcast-to-channel! channel-id message-data))
         {:type "publish-result"
          :channel-id channel-id
          :success (:success result)
