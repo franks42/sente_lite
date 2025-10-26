@@ -63,8 +63,24 @@
           (catch Exception e
             (tel/error! "Message handler error" {:error e :msg msg})))))))
 
-;; Forward declaration
+;; Forward declarations
 (declare reconnect-with-backoff!)
+(declare restore-subscriptions!)
+
+(defn- restore-subscriptions!
+  "Restore all subscriptions after reconnection"
+  [state ws]
+  (let [subscriptions (:subscriptions @state)]
+    (when (seq subscriptions)
+      (tel/event! ::restoring-subscriptions {:count (count subscriptions)
+                                             :channels subscriptions})
+      (doseq [channel-id subscriptions]
+        (tel/event! ::restoring-subscription {:channel channel-id})
+        (ws/send! ws (json/generate-string
+                      {:type "subscribe"
+                       :channel-id channel-id}))
+        ;; Small delay to ensure each subscription is processed
+        (Thread/sleep 100)))))
 
 (defn- connect-internal!
   "Internal connection function"
@@ -81,6 +97,8 @@
                                    (update-state! state {:status :open
                                                          :ws ws
                                                          :reconnect-attempt 0})
+                                   ;; Restore subscriptions after reconnection (Phase 6d)
+                                   (restore-subscriptions! state ws)
                                    ;; Call user on-open callback
                                    (when-let [on-open (get-in @state [:config :on-open])]
                                      (on-open ws)))
@@ -167,7 +185,17 @@
                 :max-attempts 5
                 :initial-delay-ms 1000
                 :max-delay-ms 30000
-                :backoff-multiplier 2}"
+                :backoff-multiplier 2}
+
+  Returns client handle with methods:
+    :connect! - Initiate connection
+    :disconnect! - Graceful close
+    :send! - Send message (validates state)
+    :subscribe! - Subscribe to channel (Phase 6d)
+    :unsubscribe! - Unsubscribe from channel (Phase 6d)
+    :get-state - Get current state keyword
+    :get-full-state - Get full state atom value
+    :get-subscriptions - Get set of subscribed channel IDs"
   [config]
   (let [state (atom {:status :closed
                      :ws nil
@@ -200,4 +228,45 @@
                   (tel/error! "Cannot send - no active connection" {})
                   false)))
      :get-state (fn [] (:status @state))
-     :get-full-state (fn [] @state)}))
+     :get-full-state (fn [] @state)
+     :subscribe! (fn [channel-id]
+                   (tel/event! ::client-subscribe-requested {:channel channel-id})
+                   (if-let [ws (:ws @state)]
+                     (if (= :open (:status @state))
+                       (do
+                         ;; Add to subscriptions set
+                         (swap! state update :subscriptions conj channel-id)
+                         ;; Send subscribe message
+                         (ws/send! ws (json/generate-string
+                                       {:type "subscribe"
+                                        :channel-id channel-id}))
+                         true)
+                       (do
+                         (tel/error! "Cannot subscribe - connection not open"
+                                     {:status (:status @state) :channel channel-id})
+                         false))
+                     (do
+                       (tel/error! "Cannot subscribe - no active connection"
+                                   {:channel channel-id})
+                       false)))
+     :unsubscribe! (fn [channel-id]
+                     (tel/event! ::client-unsubscribe-requested {:channel channel-id})
+                     (if-let [ws (:ws @state)]
+                       (if (= :open (:status @state))
+                         (do
+                           ;; Remove from subscriptions set
+                           (swap! state update :subscriptions disj channel-id)
+                           ;; Send unsubscribe message
+                           (ws/send! ws (json/generate-string
+                                         {:type "unsubscribe"
+                                          :channel-id channel-id}))
+                           true)
+                         (do
+                           (tel/error! "Cannot unsubscribe - connection not open"
+                                       {:status (:status @state) :channel channel-id})
+                           false))
+                       (do
+                         (tel/error! "Cannot unsubscribe - no active connection"
+                                     {:channel channel-id})
+                         false)))
+     :get-subscriptions (fn [] (:subscriptions @state))}))
