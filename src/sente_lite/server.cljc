@@ -21,8 +21,10 @@
    :telemetry {:enabled true
                :handler-id :sente-lite-server}
    :websocket {:max-connections 1000
-               :heartbeat-interval-ms 30000
                :message-timeout-ms 5000}
+   :heartbeat {:enabled true
+               :interval-ms 30000    ; Send ping every 30s
+               :timeout-ms 60000}    ; Close if no pong for 60s
    :channels {:auto-create true
               :default-config {:max-subscribers 1000
                                :message-retention 0
@@ -37,6 +39,7 @@
                    :channel channel
                    :opened-at (System/currentTimeMillis)
                    :last-activity (System/currentTimeMillis)
+                   :last-pong (System/currentTimeMillis)
                    :message-count 0}]
     (swap! connections assoc channel conn-data)
     (swap! connection-index assoc conn-id channel)
@@ -67,6 +70,13 @@
            #(-> %
                 (assoc :last-activity (System/currentTimeMillis))
                 (update :message-count inc)))))
+
+(defn- update-connection-pong!
+  "Update last-pong timestamp for connection"
+  [channel]
+  (when (get @connections channel)
+    (swap! connections update channel
+           #(assoc % :last-pong (System/currentTimeMillis)))))
 
 ;; JSON serialization helper
 (defn- to-json [data]
@@ -133,6 +143,14 @@
       {:type "pong"
        :timestamp (System/currentTimeMillis)
        :original-timestamp (:timestamp parsed-message)}
+
+      :pong
+      (do
+        ;; Update last-pong timestamp when client responds
+        (when-let [channel (get @connection-index conn-id)]
+          (update-connection-pong! channel))
+        {:type "pong-ack"
+         :timestamp (System/currentTimeMillis)})
 
       ;; Channel operations
       :subscribe
@@ -213,6 +231,76 @@
   ;; Send message to a specific connection by conn-id
   (when-let [channel (get @connection-index conn-id)]
     (send-message! channel message wire-format)))
+
+;; Heartbeat management
+(defn- send-heartbeat-pings!
+  "Send pings to all connections and close dead ones"
+  [config]
+  (let [timeout-ms (get-in config [:heartbeat :timeout-ms] 60000)
+        now (System/currentTimeMillis)
+        wire-format (get-wire-format config)
+        dead-conns (atom [])]
+
+    (tel/event! ::heartbeat-check {:total-connections (count @connections)
+                                   :timeout-ms timeout-ms})
+
+    ;; Check each connection
+    (doseq [[channel conn-data] @connections]
+      (let [time-since-pong (- now (:last-pong conn-data))
+            conn-id (:id conn-data)]
+        (if (> time-since-pong timeout-ms)
+          ;; Connection is dead - mark for removal
+          (do
+            (tel/event! ::heartbeat-timeout {:conn-id conn-id
+                                             :time-since-pong-ms time-since-pong
+                                             :timeout-ms timeout-ms})
+            (swap! dead-conns conj [channel conn-id]))
+          ;; Connection alive - send ping
+          (when (send-message! channel {:type :ping
+                                        :timestamp now} wire-format)
+            (tel/event! ::heartbeat-ping-sent {:conn-id conn-id})))))
+
+    ;; Close dead connections
+    (doseq [[channel conn-id] @dead-conns]
+      (tel/event! ::closing-dead-connection {:conn-id conn-id})
+      (remove-connection! channel)
+      #?(:bb (http/close channel)))
+
+    (when (seq @dead-conns)
+      (tel/event! ::heartbeat-cleanup-complete {:closed-count (count @dead-conns)}))))
+
+(defn- start-heartbeat-task!
+  "Start background heartbeat task"
+  [config]
+  (let [interval-ms (get-in config [:heartbeat :interval-ms] 30000)
+        enabled? (get-in config [:heartbeat :enabled] true)]
+
+    (tel/event! ::heartbeat-starting {:enabled enabled?
+                                      :interval-ms interval-ms})
+
+    (when enabled?
+      #?(:bb
+         (future
+           (try
+             (while @server-state
+               (Thread/sleep interval-ms)
+               (when @server-state  ; Check again after sleep
+                 (send-heartbeat-pings! config)))
+             (tel/event! ::heartbeat-stopped {})
+             (catch Exception e
+               (tel/error! "Heartbeat task error" {:error e}))))
+         :clj
+         (future
+           (try
+             (while @server-state
+               (Thread/sleep interval-ms)
+               (when @server-state
+                 (send-heartbeat-pings! config)))
+             (tel/event! ::heartbeat-stopped {})
+             (catch Exception e
+               (tel/error! "Heartbeat task error" {:error e}))))
+         :cljs
+         (tel/error! "Heartbeat not supported in ClojureScript" {})))))
 
 ;; WebSocket handlers
 (defn- on-websocket-open [channel config]
@@ -350,6 +438,9 @@
 
           (tel/event! ::server-started {:port (:port merged-config)
                                         :host (:host merged-config)})
+
+          ;; Start heartbeat task
+          (start-heartbeat-task! merged-config)
 
           server))))
   ([]

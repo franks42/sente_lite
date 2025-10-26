@@ -47,7 +47,17 @@
       "Bash(rmdir:*)",
       "Bash(git reset:*)",
       "Bash(./test/scripts/run_all_tests.bb:*)",
-      "Bash(git rm:*)"
+      "Bash(git rm:*)",
+      "Bash(git merge:*)",
+      "Bash(open:*)",
+      "Bash(for test in test_official_api test_simple_filtering test_filtering_api test_event_correlation test_routing test_timbre_functions)",
+      "Bash(do echo \"=== Running $test ===\")",
+      "Bash(/dev/null)",
+      "Bash(done)",
+      "Bash(timeout 10 bb test:*)",
+      "Bash(echo:*)",
+      "Bash(tee:*)",
+      "Bash(lsof:*)"
     ],
     "deny": [],
     "ask": []
