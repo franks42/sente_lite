@@ -2,7 +2,7 @@
 
 ## Overview
 
-Current test suite organized in 4 phases with 17 test scripts covering telemetry, async, WebSocket, and channel pub/sub functionality.
+Current test suite organized in 6 phases with 19 test scripts covering telemetry, async, WebSocket, channel pub/sub, and connection management functionality.
 
 ---
 
@@ -52,6 +52,21 @@ Current test suite organized in 4 phases with 17 test scripts covering telemetry
 │  │     - Channel subscriptions          │                       │
 │  │     - Message publishing             │                       │
 │  │     - Channel isolation validation   │                       │
+│  └──────────────────────────────────────┘                       │
+│                                                                   │
+│  Phase 6: Connection Management (2 tests) ✅                     │
+│  ┌──────────────────────────────────────┐                       │
+│  │ 6a) Server Heartbeat                 │                       │
+│  │     BB Server → Ping → BB Client     │                       │
+│  │     - Periodic ping sending          │                       │
+│  │     - Dead connection detection      │                       │
+│  │     - Auto-close unresponsive        │                       │
+│  ├──────────────────────────────────────┤                       │
+│  │ 6b) Client State Tracking            │                       │
+│  │     Managed Client Wrapper           │                       │
+│  │     - State machine (6 states)       │                       │
+│  │     - State change callbacks         │                       │
+│  │     - Auto-pong to server pings      │                       │
 │  └──────────────────────────────────────┘                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -427,6 +442,101 @@ Current test suite organized in 4 phases with 17 test scripts covering telemetry
 - Subscriptions processed correctly
 - Published messages delivered to correct subscribers
 - Channel isolation working (no message leakage)
+
+### Phase 6: Connection Management (NEW - 2025-10-26) ✅
+
+**Purpose**: Production-ready connection management with heartbeat, state tracking, and auto-reconnection
+
+#### Phase 6a: Server Heartbeat ✅
+
+18. **bb_client_tests/05_heartbeat.bb** - Server Heartbeat Detection
+    - **Server-side heartbeat mechanism**:
+      - Background task sends pings every 30s (configurable: `:interval-ms`)
+      - Tracks `:last-pong` timestamp per connection
+      - Automatically closes connections that don't respond within 60s (configurable: `:timeout-ms`)
+    - **Test with aggressive settings** (2s interval, 5s timeout):
+      - Responsive client: Auto-responds to pings, stays connected
+      - Unresponsive client: Ignores pings, closed after timeout
+    - **PASSING** - Server detects and closes dead connections
+
+**Configuration**:
+```clojure
+{:heartbeat {:enabled true
+             :interval-ms 30000    ; Send ping every 30s
+             :timeout-ms 60000}}   ; Close if no pong for 60s
+```
+
+**Implementation** (`src/sente_lite/server.cljc`):
+- `send-heartbeat-pings!` - Check all connections and close dead ones
+- `start-heartbeat-task!` - Background future with while loop
+- `update-connection-pong!` - Track pong responses
+- `:pong` handler - Update timestamp when client responds
+- Clean shutdown: while loop exits when `@server-state` nil
+
+**Telemetry Events**:
+- `::heartbeat-check` - Periodic check initiated
+- `::heartbeat-ping-sent` - Ping sent to connection
+- `::heartbeat-timeout` - Connection exceeded timeout
+- `::closing-dead-connection` - Closing unresponsive connection
+- `::heartbeat-cleanup-complete` - Cleanup cycle complete
+
+#### Phase 6b: Client State Tracking ✅
+
+19. **bb_client_tests/06_state_tracking.bb** - Client Connection State Machine
+    - **Managed WebSocket client wrapper** (`ws_client_managed.clj`):
+      - State machine with 6 states
+      - State change callbacks
+      - Send validation (only works in `:open`)
+      - Auto-pong response to server pings
+    - **States**:
+      - `:closed` - No connection
+      - `:connecting` - Connection attempt in progress
+      - `:open` - Connection established and healthy
+      - `:closing` - Graceful close initiated
+      - `:reconnecting` - Attempting to reconnect (Phase 6c)
+      - `:failed` - Exceeded max reconnect attempts (Phase 6c)
+    - **Test validates**:
+      - Initial state (:closed)
+      - Connection state progression (:closed → :connecting → :open)
+      - Send only works in :open state
+      - Graceful disconnect (:open → :closing → :closed)
+      - All state transitions tracked via callback
+    - **PASSING** - State tracking working correctly
+
+**API** (`ws_client_managed.clj`):
+```clojure
+(def client
+  (wsm/create-managed-client
+   {:uri "ws://localhost:3000/"
+    :on-state-change (fn [old-state new-state] ...)
+    :on-message (fn [msg] ...)
+    :heartbeat {:auto-pong true}}))
+
+;; Methods
+((:connect! client))       ; Initiate connection
+((:disconnect! client))    ; Graceful close
+((:send! client) message)  ; Send (validates state)
+((:get-state client))      ; Current state keyword
+```
+
+**State Transitions**:
+```
+:closed ──connect!──> :connecting ──success──> :open
+:open ──disconnect!──> :closing ──complete──> :closed
+:open ──lost──> :closed
+```
+
+**Auto-Pong Feature**:
+- Client automatically responds to server `:ping` messages
+- Configurable: `{:heartbeat {:auto-pong true}}`
+- No application code needed for heartbeat responses
+- Maintains connection health transparently
+
+**Key Implementation Details**:
+- State tracked in atom: `{:status :state :ws client :reconnect-attempt 0 ...}`
+- State change notifications via callback
+- Message handler checks for ping and auto-responds
+- Send validates connection is :open before transmitting
 
 ### Additional Test (Not in Runner)
 
