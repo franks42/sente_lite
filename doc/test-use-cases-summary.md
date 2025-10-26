@@ -626,6 +626,95 @@ Attempt 5: 30000ms + jitter (capped at max-delay)
 - `::connection-lost` - Unexpected close detected
 - Max attempts exceeded logs error
 
+#### Phase 6d: Subscription Restoration ✅
+
+21. **bb_client_tests/08_subscription_restoration.bb** - Automatic Subscription Restoration After Reconnect
+    - **Subscription management** in managed client:
+      - Subscriptions tracked in `:subscriptions` set
+      - `subscribe!` method adds to set and sends to server
+      - `unsubscribe!` method removes from set and sends to server
+      - `get-subscriptions` method returns current set
+    - **Auto-restoration logic**:
+      - Called from `:on-open` handler after reconnection
+      - Iterates through `:subscriptions` set
+      - Sends subscribe message for each channel
+      - 100ms delay between subscriptions for processing
+    - **Test validates**:
+      - Client subscribes to 2 channels initially
+      - Connection lost (server stops)
+      - Server restarts
+      - Client automatically reconnects (Phase 6c)
+      - Subscriptions automatically restored
+      - Server confirms both subscriptions
+    - **PASSING** - Core subscription restoration working
+
+**API Extension**:
+```clojure
+(def client
+  (wsm/create-managed-client
+   {:uri "ws://localhost:3000/"
+    :on-message (fn [msg] ...)
+    :reconnect {:enabled true}}))
+
+;; Subscribe to channel
+((:subscribe! client) "channel-id")
+
+;; Unsubscribe from channel
+((:unsubscribe! client) "channel-id")
+
+;; Get current subscriptions
+((:get-subscriptions client))  ; => #{"channel-id" ...}
+```
+
+**Subscription Lifecycle**:
+```
+1. User calls (:subscribe! client) "channel-1"
+   → Adds to :subscriptions set
+   → Sends {:type "subscribe" :channel-id "channel-1"} to server
+
+2. Connection lost (server restart)
+   → Client detects loss (Phase 6c)
+   → Triggers auto-reconnection
+
+3. Reconnection succeeds
+   → :on-open handler fires
+   → restore-subscriptions! called automatically
+   → Iterates :subscriptions set
+   → Sends subscribe message for each channel
+   → Server confirms each subscription
+
+4. Client receives messages on restored channels
+```
+
+**Key Implementation** (`ws_client_managed.clj:70-83`):
+```clojure
+(defn- restore-subscriptions! [state ws]
+  (let [subscriptions (:subscriptions @state)]
+    (when (seq subscriptions)
+      (tel/event! ::restoring-subscriptions
+                  {:count (count subscriptions)
+                   :channels subscriptions})
+      (doseq [channel-id subscriptions]
+        (tel/event! ::restoring-subscription {:channel channel-id})
+        (ws/send! ws (json/generate-string
+                      {:type "subscribe"
+                       :channel-id channel-id}))
+        ;; Small delay to ensure processing
+        (Thread/sleep 100)))))
+```
+
+**State Management**:
+- Subscriptions stored in atom: `{:subscriptions #{"chan1" "chan2"} ...}`
+- Subscribe adds with `(swap! state update :subscriptions conj channel-id)`
+- Unsubscribe removes with `(swap! state update :subscriptions disj channel-id)`
+- Persists across reconnections automatically
+
+**Telemetry Events**:
+- `::restoring-subscriptions` - Starting restoration with count
+- `::restoring-subscription` - Restoring individual channel
+- `::client-subscribe-requested` - User called subscribe!
+- `::client-unsubscribe-requested` - User called unsubscribe!
+
 ### Additional Test (Not in Runner)
 
 12. **test_wire_formats.bb** - Wire Format System
