@@ -44,6 +44,13 @@
   "Convert objects to JSON-serializable form"
   [obj]
   (cond
+    ;; Handle nil
+    (nil? obj) nil
+
+    ;; Handle JSON primitives (pass through)
+    (or (string? obj) (number? obj) (boolean? obj)) obj
+
+    ;; Handle exceptions
     #?(:bb (instance? Throwable obj)
        :scittle false)
     #?(:bb {:type (str (type obj))
@@ -51,9 +58,39 @@
             :class (str (class obj))}
        :scittle {})
 
+    ;; Handle Class objects (convert to string)
+    #?(:bb (instance? Class obj)
+       :scittle false)
+    #?(:bb (str obj)
+       :scittle "")
+
+    ;; Handle functions (convert to string representation)
+    (fn? obj) (str obj)
+
+    ;; Handle atoms/refs/agents (get value but mark it)
+    #?(:bb (instance? clojure.lang.IDeref obj)
+       :scittle false)
+    #?(:bb {:deref-type (str (type obj))
+            :deref-value (serialize-for-json @obj)}
+       :scittle {})
+
+    ;; Handle keywords
+    (keyword? obj) (str obj)
+
+    ;; Handle symbols
+    (symbol? obj) (str obj)
+
+    ;; Handle maps (recursively serialize)
     (map? obj) (into {} (map (fn [[k v]] [k (serialize-for-json v)]) obj))
+
+    ;; Handle sequential collections (recursively serialize)
     (sequential? obj) (mapv serialize-for-json obj)
-    :else obj))
+
+    ;; Handle sets (convert to vector)
+    (set? obj) (mapv serialize-for-json (vec obj))
+
+    ;; Fallback: convert to string
+    :else (str obj)))
 
 ;; Store our own ns-filter since BB Timbre doesn't have built-in ns filtering
 #?(:bb (def ^:dynamic *ns-filter* {:allow #{"*"} :deny #{}}))
