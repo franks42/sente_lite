@@ -365,23 +365,23 @@
        ;; Background processing threads
        (dotimes [_ n-threads]
          (.submit executor
-           (fn []
-             (try
-               (while @running?
-                 (when-let [signal (.poll queue 1000 java.util.concurrent.TimeUnit/MILLISECONDS)]
-                   (try
-                     (handler-fn signal)
-                     (swap! stats update :processed inc)
-                     (catch Exception e
-                       (swap! stats update :errors inc)
-                       (binding [*out* *err*]
-                         (println "Async handler error:" (.getMessage e)))))))
-               (catch InterruptedException _
+                  (fn []
+                    (try
+                      (while @running?
+                        (when-let [signal (.poll queue 1000 java.util.concurrent.TimeUnit/MILLISECONDS)]
+                          (try
+                            (handler-fn signal)
+                            (swap! stats update :processed inc)
+                            (catch Exception e
+                              (swap! stats update :errors inc)
+                              (binding [*out* *err*]
+                                (println "Async handler error:" (.getMessage e)))))))
+                      (catch InterruptedException _
                  ;; Thread shutdown - normal
-                 )
-               (catch Exception e
-                 (binding [*out* *err*]
-                   (println "Async handler thread error:" (.getMessage e))))))))
+                        )
+                      (catch Exception e
+                        (binding [*out* *err*]
+                          (println "Async handler thread error:" (.getMessage e))))))))
 
        ;; Return handler interface
        {:dispatch-fn
@@ -424,10 +424,10 @@
       (add-handler! handler-id handler-fn {}))
      ([handler-id handler-fn opts]
       (let [final-handler (if (:async opts)
-                           (async-handler-wrapper handler-fn (:async opts))
-                           {:dispatch-fn handler-fn
-                            :stats-fn (fn [] {:mode :sync :processed 0 :queued 0 :dropped 0 :errors 0})
-                            :shutdown-fn (fn [] nil)})]
+                            (async-handler-wrapper handler-fn (:async opts))
+                            {:dispatch-fn handler-fn
+                             :stats-fn (fn [] {:mode :sync :processed 0 :queued 0 :dropped 0 :errors 0})
+                             :shutdown-fn (fn [] nil)})]
         (swap! *handlers* assoc handler-id
                {:handler final-handler
                 :opts opts
@@ -469,9 +469,9 @@
      "Get performance statistics for all handlers"
      []
      (into {}
-       (map (fn [[handler-id {:keys [handler]}]]
-              [handler-id ((:stats-fn handler))])
-            @*handlers*))))
+           (map (fn [[handler-id {:keys [handler]}]]
+                  [handler-id ((:stats-fn handler))])
+                @*handlers*))))
 
 #?(:bb
    (defn get-handler-health
@@ -509,8 +509,8 @@
       ;; Default to async for production readiness
       (let [default-opts {:async {:mode :dropping :buffer-size 1024 :n-threads 1}}
             final-opts (if (contains? opts :sync)
-                        (dissoc opts :sync)  ; Remove :sync flag, keep as sync
-                        (merge default-opts opts))]
+                         (dissoc opts :sync)  ; Remove :sync flag, keep as sync
+                         (merge default-opts opts))]
         (add-handler! handler-id (file-handler file-path) final-opts)))))
 
 #?(:bb
@@ -524,8 +524,8 @@
       ;; Default to async for production readiness
       (let [default-opts {:async {:mode :dropping :buffer-size 512 :n-threads 1}}
             final-opts (if (contains? opts :sync)
-                        (dissoc opts :sync)  ; Remove :sync flag, keep as sync
-                        (merge default-opts opts))]
+                         (dissoc opts :sync)  ; Remove :sync flag, keep as sync
+                         (merge default-opts opts))]
         (add-handler! handler-id (stdout-handler) final-opts)))))
 
 #?(:bb
@@ -539,6 +539,6 @@
       ;; Default to async for production readiness
       (let [default-opts {:async {:mode :dropping :buffer-size 256 :n-threads 1}}
             final-opts (if (contains? opts :sync)
-                        (dissoc opts :sync)  ; Remove :sync flag, keep as sync
-                        (merge default-opts opts))]
+                         (dissoc opts :sync)  ; Remove :sync flag, keep as sync
+                         (merge default-opts opts))]
         (add-handler! handler-id (stderr-handler) final-opts)))))
