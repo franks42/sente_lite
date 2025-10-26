@@ -62,34 +62,74 @@ Since this is a library without build configuration files, there are no standard
 - Use this file to recover lost context from previous sessions
 - Contains detailed discussions about migration plans and architecture decisions
 
-### Current Project Status
-- **Phase 0 COMPLETED**: Code quality cleanup - achieved zero clj-kondo errors and warnings
-- **Zero tolerance policy**: ALL linting errors must be resolved before proceeding
-- **Linting achievements**: Fixed 28 errors + 36 warnings across multiple files
-- **Test verification**: All tests passing after quality fixes
+### Current Project Status (2025-10-25)
+- **BRANCH**: `jetty9-migration` (clean, ready for Phase 1)
+- **MAIN BRANCH**: `v0.5.2-cleanup` - fully organized, linted, tested, committed
+- **ALL COMPLETED**:
+  - ✅ Project structure reorganized (doc/, dev/, test/scripts/)
+  - ✅ All 70KB of sente-lite source code committed and tracked
+  - ✅ Zero linting errors (0 errors, 10 cljs warnings - expected)
+  - ✅ All tests passing (run_tests.bb: 10 tests, 0 failures)
+  - ✅ Pre-commit hooks working and enforcing quality
+  - ✅ Clean working tree, all files properly tracked
+- **NEXT**: Start jetty9 migration Phase 1 (Environment Setup)
+
+### Recent Tags History
+1. `v0.3.0-sente-lite` - Recovered 70KB sente-lite source (was untracked!)
+2. `v0.4.0-project-structure` - Proper Clojure project organization
+3. `v0.5.0-lint-clean` - Clean linting, formatting, tests passing
+4. `v0.5.1-tooling-update` - Claude Code tooling configuration
+5. `v0.5.2-cleanup` - Removed log files from tracking (CURRENT on main)
 
 ### Ring Jetty9 Adapter Migration
 - **CRITICAL**: Project requires migration from http-kit to `info.sunng/ring-jetty9-adapter` for HTTP/2 support
-- **Documentation**: Complete migration plan saved in `docs/ring-jetty9-adapter-migration-plan.md`
+- **Documentation**: Complete migration plan at `doc/ring-jetty9-adapter-migration-plan.md`
 - **Why needed**: http-kit lacks HTTP/2 support; jetty9 provides HTTP/2 + WebSocket capabilities
-- **Research completed**: Identified jetty9 as the solution during HTTP/2 vs WebSocket analysis
-- **Todo items**: 10-step migration plan currently in todo list
+- **Status**: Ready to start Phase 1 on jetty9-migration branch
+- **7 Phases**: Environment Setup → Server Implementation → Compatibility Testing → HTTP/2 Testing → Performance → Integration → Assessment
 
-### Implementation Progress
-- **Current focus**: Testing ring-jetty9-adapter compatibility with existing WebSocket implementation
+### Implementation Progress - Jetty9 Migration
+- **Current branch**: `jetty9-migration` (based on main v0.5.2-cleanup)
+- **Current phase**: Phase 1 - Environment Setup (not started)
+- **Next tasks**:
+  1. Create bb.edn with jetty9 dependencies
+  2. Verify dependency resolution with babashka
+  3. Test babashka can load jetty9 namespace
 - **Goal**: Maintain same test suite while gaining HTTP/2 capabilities
-- **Next phase**: Phase 1 of jetty9 migration plan (environment setup)
 
 ### Key Files and Context
-- `src/sente_lite/server.cljc` - Current http-kit based server (441 lines)
-- `src/sente_lite/server_simple.cljc` - Simplified server foundation (161 lines)
-- `docs/plan.md` - 785-line comprehensive implementation plan
-- `docs/ring-jetty9-adapter-migration-plan.md` - Detailed 7-phase migration strategy
+- `src/sente_lite/server.cljc` - Current http-kit based server (17KB, ~441 lines)
+- `src/sente_lite/server_simple.cljc` - Simplified server foundation (6.5KB, ~161 lines)
+- `src/sente_lite/channels.cljc` - WebSocket channel management (12KB)
+- `src/sente_lite/transit_multiplexer.cljc` - Transit envelope pattern (13KB)
+- `src/sente_lite/wire_format.cljc` - Message serialization (11KB)
+- `src/sente_lite/wire_multiplexer.cljc` - Message multiplexing (11KB)
+- `doc/plan.md` - 785-line comprehensive implementation plan
+- `doc/ring-jetty9-adapter-migration-plan.md` - Detailed 7-phase migration strategy
 - `.clj-kondo/config.edn` - Linting configuration for zero-warning compliance
+- `test/scripts/run_all_tests.bb` - Main test runner (11 test scripts)
+
+### Project Structure (Proper Clojure Conventions)
+```
+sente_lite/
+├── src/                    # Source code
+│   ├── sente_lite/        # Main WebSocket library (70KB total)
+│   └── telemere_lite/     # Telemetry implementation
+├── test/                   # Test namespaces
+│   ├── scripts/           # Test runner scripts (11 scripts)
+│   └── telemere_lite/     # Test files
+├── doc/                    # Documentation (singular, Clojure convention)
+├── dev/                    # Development tools (linting, editing scripts)
+├── deps.edn                # Clojure dependencies
+└── run_tests.bb            # Main test runner (convenience)
+```
 
 ### Memory Context
-- User expects migration plans to exist (previous discussion context)
-- Chat history contains HTTP/2 research and jetty9 identification
+- **CRITICAL RECOVERY**: On 2025-10-25, discovered 70KB of sente-lite source was untracked!
+- All source files were in src/sente_lite/ but never committed (telemere-lite was committed instead)
+- Immediately committed, pushed, tagged as v0.3.0-sente-lite
+- Then reorganized entire project structure to Clojure best practices
+- User expects proper snapshots (commit/push/tag) throughout work
 - Migration from http-kit to jetty9 is architectural necessity, not preference
 
 ## Important Implementation Details
