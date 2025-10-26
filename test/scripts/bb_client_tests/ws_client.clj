@@ -1,27 +1,37 @@
 (ns ws-client
   "Simple WebSocket client for Babashka using Java 11+ WebSocket API"
-  (:import [java.net.http HttpClient WebSocket WebSocket$Listener]
+  (:require [telemere-lite.core :as tel])
+  (:import [java.net.http HttpClient WebSocket$Listener]
            [java.net URI]
-           [java.time Duration]
-           [java.util.concurrent CompletableFuture CompletionStage]))
+           [java.time Duration]))
 
 (defn create-listener
   "Create a WebSocket listener with callbacks"
-  [{:keys [on-open on-message on-close on-error]}]
+  [{:keys [uri on-open on-message on-close on-error]}]
   (reify WebSocket$Listener
     (onOpen [this ws]
+      (tel/event! ::ws-open {:uri uri})
       (when on-open (on-open ws))
       nil)
 
     (onText [this ws data last]
+      (tel/event! ::ws-message-received
+                  {:uri uri
+                   :data-length (count data)
+                   :last last})
       (when on-message (on-message ws data last))
       nil)
 
     (onClose [this ws status-code reason]
+      (tel/event! ::ws-close
+                  {:uri uri
+                   :status-code status-code
+                   :reason reason})
       (when on-close (on-close ws status-code reason))
       nil)
 
     (onError [this ws error]
+      (tel/error! "WebSocket error" {:error error :uri uri})
       (when on-error (on-error ws error))
       nil)))
 
@@ -35,20 +45,28 @@
     :on-close - Called when connection closes
     :on-error - Called on error"
   [{:keys [uri] :as opts}]
-  (let [client (-> (HttpClient/newBuilder)
-                   (.connectTimeout (Duration/ofSeconds 10))
-                   (.build))
-        listener (create-listener opts)
-        ws-builder (.newWebSocketBuilder client)
-        ws (.buildAsync ws-builder
-                       (URI/create uri)
-                       listener)]
-    ;; Wait for connection to complete (blocking)
-    (.join ws)))
+  (tel/event! ::ws-connecting {:uri uri})
+  (try
+    (let [client (-> (HttpClient/newBuilder)
+                     (.connectTimeout (Duration/ofSeconds 10))
+                     (.build))
+          listener (create-listener opts)
+          ws-builder (.newWebSocketBuilder client)
+          ws (.buildAsync ws-builder
+                          (URI/create uri)
+                          listener)]
+      ;; Wait for connection to complete (blocking)
+      (let [result (.join ws)]
+        (tel/event! ::ws-connected {:uri uri :ws (str result)})
+        result))
+    (catch Exception e
+      (tel/error! "Failed to connect WebSocket" {:error e :uri uri})
+      (throw e))))
 
 (defn send!
   "Send text message to WebSocket"
   [ws message]
+  (tel/event! ::ws-send {:message-length (count message)})
   (.sendText ws message true))
 
 (defn close!
@@ -56,6 +74,8 @@
   ([ws]
    (close! ws 1000 "Normal closure"))
   ([ws status-code reason]
+   (tel/event! ::ws-closing {:status-code status-code
+                             :reason reason})
    (.sendClose ws status-code reason)))
 
 (defn wait-for-close
