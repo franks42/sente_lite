@@ -2,7 +2,7 @@
 
 ## Overview
 
-Current test suite organized in 3 phases with 11+ test scripts covering telemetry, async, and WebSocket functionality.
+Current test suite organized in 4 phases with 17 test scripts covering telemetry, async, WebSocket, and channel pub/sub functionality.
 
 ---
 
@@ -27,7 +27,7 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
 │  │  (Performance tests, no client)      │                       │
 │  └──────────────────────────────────────┘                       │
 │                                                                   │
-│  Phase 3: WebSocket Foundation (3 tests)                        │
+│  Phase 3: WebSocket Foundation (3 tests + 5 BB client tests)   │
 │  ┌──────────────────────────────────────┐                       │
 │  │ 3a) Browser Client Test              │                       │
 │  │     BB → http-kit → Browser JS       │                       │
@@ -38,6 +38,20 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
 │  │ 3c) Channel Integration Test         │                       │
 │  │     BB → sente-lite channels         │                       │
 │  │     (Simulated connection IDs)       │                       │
+│  ├──────────────────────────────────────┤                       │
+│  │ 3d) BB Client Tests (5 tests)        │                       │
+│  │     BB Server ↔ BB Native WS Client  │                       │
+│  │     - Startup, Connection, Echo      │                       │
+│  │     - Minimal tests                  │                       │
+│  └──────────────────────────────────────┘                       │
+│                                                                   │
+│  Phase 4: Channel Pub/Sub with Real Clients (1 test) ✅         │
+│  ┌──────────────────────────────────────┐                       │
+│  │ 4a) Real Client Pub/Sub              │                       │
+│  │     BB Server + 3 BB WS Clients      │                       │
+│  │     - Channel subscriptions          │                       │
+│  │     - Message publishing             │                       │
+│  │     - Channel isolation validation   │                       │
 │  └──────────────────────────────────────┘                       │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -318,6 +332,102 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
     - Uses `babashka.http-client.websocket` (native)
     - No Java interop or workarounds needed
 
+### Phase 4: Channel Pub/Sub with Real Clients (NEW - 2025-10-26) ✅
+
+**Purpose**: End-to-end validation of channel-based pub/sub messaging with real WebSocket connections
+
+17. **bb_client_tests/04_channel_pubsub.bb** - Real Client Channel Pub/Sub ✅
+    - **3 real WebSocket clients** using native Babashka client
+    - **Channel subscription testing**:
+      - client1 & client2 subscribe to "announcements" channel
+      - client3 subscribes to "alerts" channel
+    - **Message publishing**:
+      - client1 publishes to "announcements" → client1 & client2 receive
+      - client2 publishes to "alerts" → client3 receives
+    - **Channel isolation validation**:
+      - Messages don't leak between channels
+      - Only subscribers receive published messages
+    - **PASSING** after fixes:
+      - Server: Added `broadcast-to-channel!` call in `:publish` handler
+      - Test: Fixed validation to check `:channel-id` (not `:channel`)
+      - Test: Fixed validation to check top-level fields (not nested `:message`)
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  Phase 4 Architecture: Real Client Pub/Sub                  │
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  BB Server (port 3000)                   3 BB Clients       │
+│  ┌─────────────────────┐                 ┌─────────────┐   │
+│  │ sente-lite.server   │                 │  client1    │   │
+│  │  + channels system  │◄────subscribe───┤  (announce) │   │
+│  │  + auto-create      │                 └─────────────┘   │
+│  │  + broadcast        │                 ┌─────────────┐   │
+│  │                     │◄────subscribe───┤  client2    │   │
+│  │ Message Flow:       │                 │  (announce) │   │
+│  │ 1. client1 publish  │                 └─────────────┘   │
+│  │    ↓                │                 ┌─────────────┐   │
+│  │ 2. channels/publish!│◄────subscribe───┤  client3    │   │
+│  │    ↓                │                 │  (alerts)   │   │
+│  │ 3. broadcast-to-    │                 └─────────────┘   │
+│  │    channel!         │                                   │
+│  │    ↓                │                                   │
+│  │ 4. Deliver to all   │──────publish────►                 │
+│  │    subscribers      │  (with channel isolation)         │
+│  └─────────────────────┘                                   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+**Configuration**: Server with auto-create channels
+```clojure
+(def test-server
+  (server/start-server!
+   {:port 3000
+    :host "localhost"
+    :wire-format :json
+    :channels {:auto-create true
+               :default-config {:max-subscribers 100
+                                :message-retention 5}}}))
+
+;; Real WebSocket client with message handler
+(def client1
+  (ws/connect!
+   {:uri "ws://localhost:3000/"
+    :on-message (message-handler :client1)}))
+
+;; Message handler - IMPORTANT: Convert CharBuffer to String
+(defn message-handler [client-id]
+  (fn [ws data last]
+    (let [data-str (str data) ; babashka.http-client.websocket returns CharBuffer!
+          msg (json/parse-string data-str true)]
+      (swap! received-messages update client-id (fnil conj []) msg))))
+```
+
+**Critical Findings**:
+
+1. **Server Broadcast Bug** (FIXED):
+   - `:publish` handler called `channels/publish!` but never broadcasted
+   - `channels/publish!` only tracks publication, doesn't deliver messages
+   - Fix: Added `(broadcast-to-channel! channel-id message-data)` after publish
+   - Impact: Fundamental missing feature that blocked all pub/sub functionality
+
+2. **CharBuffer Discovery**:
+   - `babashka.http-client.websocket` returns `java.nio.HeapCharBuffer` objects
+   - Not strings like Java 11 WebSocket API
+   - Must convert with `(str data)` before JSON parsing
+   - Error was: `ClassCastException: java.nio.HeapCharBuffer cannot be cast to java.lang.String`
+
+3. **Message Structure**:
+   - Broadcasted messages have `:channel-id` (not `:channel`)
+   - Message data is at top level (not nested under `:message`)
+   - Server adds `:broadcast-time` timestamp automatically
+
+**Test Results**: Phase 4 PASSED ✅
+- All 3 clients connected successfully
+- Subscriptions processed correctly
+- Published messages delivered to correct subscribers
+- Channel isolation working (no message leakage)
+
 ### Additional Test (Not in Runner)
 
 12. **test_wire_formats.bb** - Wire Format System
@@ -356,11 +466,12 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
 
 **sente-lite Core Features:**
 - ✅ Channel creation and management
-- ✅ Pub/sub messaging
+- ✅ Pub/sub messaging (tested with real clients - Phase 4)
+- ✅ Channel isolation (verified - Phase 4)
+- ✅ Message broadcasting to subscribers (fixed and tested)
 - ✅ RPC request/response patterns
 - ✅ Connection tracking
 - ✅ Subscription management
-- ✅ Message broadcasting
 - ✅ Multi-format server support
 - ✅ Health and stats endpoints
 
@@ -388,7 +499,9 @@ Current test suite organized in 3 phases with 11+ test scripts covering telemetr
 - ❌ No connection handshake (client ID negotiation)
 
 **Real-World Scenarios:**
-- ❌ No multi-client stress testing
+- ✅ Multi-client pub/sub testing (3 clients - Phase 4)
+- ✅ Channel isolation testing (Phase 4)
+- ❌ No multi-client stress testing (high volume/many clients)
 - ❌ No connection drop/reconnection tests
 - ❌ No message ordering guarantees
 - ❌ No message delivery guarantees
