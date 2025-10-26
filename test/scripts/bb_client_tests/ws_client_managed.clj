@@ -63,6 +63,9 @@
           (catch Exception e
             (tel/error! "Message handler error" {:error e :msg msg})))))))
 
+;; Forward declaration
+(declare reconnect-with-backoff!)
+
 (defn- connect-internal!
   "Internal connection function"
   [state]
@@ -86,11 +89,17 @@
                         :on-close (fn [ws status reason]
                                     (tel/event! ::connection-closed
                                                 {:status status :reason reason})
-                                    (update-state! state {:status :closed
-                                                          :ws nil})
-                                    ;; Call user on-close callback
-                                    (when-let [on-close (get-in @state [:config :on-close])]
-                                      (on-close ws status reason)))
+                                    (let [was-closing? (= :closing (:status @state))
+                                          reconnect-enabled? (get-in @state [:config :reconnect :enabled] false)]
+                                      (update-state! state {:status :closed
+                                                            :ws nil})
+                                      ;; Call user on-close callback
+                                      (when-let [on-close (get-in @state [:config :on-close])]
+                                        (on-close ws status reason))
+                                      ;; Trigger reconnection if not intentional close
+                                      (when (and (not was-closing?) reconnect-enabled?)
+                                        (tel/event! ::connection-lost {:will-reconnect true})
+                                        (reconnect-with-backoff! state))))
                         :on-error (fn [ws error]
                                     (tel/error! "WebSocket error" {:error error :uri uri})
                                     ;; Call user on-error callback
@@ -101,8 +110,47 @@
         ws-client)
       (catch Exception e
         (tel/error! "Failed to connect WebSocket" {:error e :uri uri})
-        (update-state! state {:status :failed})
-        (throw e)))))
+        (let [reconnect-enabled? (get-in @state [:config :reconnect :enabled] false)]
+          (if reconnect-enabled?
+            (reconnect-with-backoff! state)
+            (update-state! state {:status :failed})))
+        nil))))
+
+(defn- reconnect-with-backoff!
+  "Attempt reconnection with exponential backoff and jitter"
+  [state]
+  (let [config (:config @state)
+        current-attempt (:reconnect-attempt @state)
+        max-attempts (get-in config [:reconnect :max-attempts] 5)
+        initial-delay (get-in config [:reconnect :initial-delay-ms] 1000)
+        max-delay (get-in config [:reconnect :max-delay-ms] 30000)
+        multiplier (get-in config [:reconnect :backoff-multiplier] 2)]
+
+    (if (>= current-attempt max-attempts)
+      ;; Exceeded max attempts - give up
+      (do
+        (tel/error! "Max reconnect attempts exceeded" {:attempts current-attempt})
+        (update-state! state {:status :failed}))
+
+      ;; Calculate delay with exponential backoff and jitter
+      (let [base-delay (* initial-delay (Math/pow multiplier current-attempt))
+            capped-delay (min base-delay max-delay)
+            jitter (* capped-delay 0.25 (- (rand) 0.5))  ; ±25% randomness
+            actual-delay (long (+ capped-delay jitter))]
+
+        (tel/event! ::reconnect-scheduled {:attempt (inc current-attempt)
+                                           :delay-ms actual-delay})
+        (update-state! state {:status :reconnecting
+                              :reconnect-attempt (inc current-attempt)})
+
+        ;; Schedule reconnection attempt
+        (future
+          (try
+            (Thread/sleep actual-delay)
+            (tel/event! ::reconnect-attempt {:attempt (inc current-attempt)})
+            (connect-internal! state)
+            (catch Exception e
+              (tel/error! "Reconnection attempt failed" {:error e :attempt (inc current-attempt)}))))))))
 
 (defn create-managed-client
   "Create a managed WebSocket client with state tracking

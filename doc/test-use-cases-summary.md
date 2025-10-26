@@ -2,7 +2,7 @@
 
 ## Overview
 
-Current test suite organized in 6 phases with 19 test scripts covering telemetry, async, WebSocket, channel pub/sub, and connection management functionality.
+Current test suite organized in 6 phases with 20 test scripts covering telemetry, async, WebSocket, channel pub/sub, and connection management functionality.
 
 ---
 
@@ -537,6 +537,94 @@ Current test suite organized in 6 phases with 19 test scripts covering telemetry
 - State change notifications via callback
 - Message handler checks for ping and auto-responds
 - Send validates connection is :open before transmitting
+
+#### Phase 6c: Auto-Reconnection ✅
+
+20. **bb_client_tests/07_reconnection.bb** - Automatic Reconnection with Exponential Backoff
+    - **Auto-reconnection logic** in managed client:
+      - Detects connection loss (not graceful disconnect)
+      - Exponential backoff: `initial-delay * (multiplier ^ attempt)`
+      - Jitter: ±25% randomness to prevent thundering herd
+      - Max attempts tracking → `:failed` state
+    - **Test 1: Successful reconnection**:
+      - Client connects to server
+      - Server stops (simulates connection loss)
+      - Server restarts
+      - Client automatically reconnects
+      - Validates reconnection succeeded
+    - **Test 2: Max attempts exceeded**:
+      - Client tries to connect to stopped server
+      - Retries with exponential backoff (500ms, 1s, 2s)
+      - Reaches `:failed` state after max attempts
+      - No further reconnection attempts
+    - **PASSING** - Auto-reconnection working correctly
+
+**Configuration**:
+```clojure
+(def client
+  (wsm/create-managed-client
+   {:uri "ws://localhost:3000/"
+    :reconnect {:enabled true
+                :max-attempts 5
+                :initial-delay-ms 1000
+                :max-delay-ms 30000
+                :backoff-multiplier 2}}))
+```
+
+**Backoff Calculation**:
+```
+Attempt 0: 1000ms + jitter (±250ms) = 750-1250ms
+Attempt 1: 2000ms + jitter (±500ms) = 1500-2500ms
+Attempt 2: 4000ms + jitter (±1000ms) = 3000-5000ms
+Attempt 3: 8000ms + jitter (±2000ms) = 6000-10000ms
+Attempt 4: 16000ms + jitter (±4000ms) = 12000-20000ms
+Attempt 5: 30000ms + jitter (capped at max-delay)
+```
+
+**State Transitions with Reconnection**:
+```
+:closed ──connect!──> :connecting ──success──> :open
+:open ──lost──> :closed ──auto──> :reconnecting ──retry──> :connecting
+:connecting ──failed──> :reconnecting (with backoff delay)
+:reconnecting ──max attempts──> :failed
+```
+
+**Connection Loss Detection**:
+- **Graceful close** (user called `:disconnect!`):
+  - State was `:closing` before close → NO reconnection
+- **Unexpected close** (connection lost):
+  - State was `:open` before close → triggers reconnection
+  - `:on-close` handler checks state and decides
+- **Connection failure** (server down):
+  - Exception in `:websocket` call → triggers reconnection
+
+**Key Implementation** (`ws_client_managed.clj:119-153`):
+```clojure
+(defn- reconnect-with-backoff! [state]
+  (let [current-attempt (:reconnect-attempt @state)
+        max-attempts (get-in @state [:config :reconnect :max-attempts] 5)]
+    (if (>= current-attempt max-attempts)
+      ;; Give up
+      (update-state! state {:status :failed})
+
+      ;; Calculate delay and retry
+      (let [base-delay (* initial-delay (Math/pow multiplier current-attempt))
+            capped-delay (min base-delay max-delay)
+            jitter (* capped-delay 0.25 (- (rand) 0.5))
+            actual-delay (long (+ capped-delay jitter))]
+
+        (update-state! state {:status :reconnecting
+                             :reconnect-attempt (inc current-attempt)})
+        (future
+          (Thread/sleep actual-delay)
+          (connect-internal! state))))))
+```
+
+**Telemetry Events**:
+- `::reconnect-scheduled` - Backoff delay calculated
+- `::reconnect-attempt` - Reconnection attempt started
+- `::connection-lost` - Unexpected close detected
+- Max attempts exceeded logs error
 
 ### Additional Test (Not in Runner)
 
