@@ -67,7 +67,10 @@
   "Send text message to WebSocket"
   [ws message]
   (tel/event! ::ws-send {:message-length (count message)})
-  (.sendText ws message true))
+  ;; sendText returns CompletableFuture - must wait for completion
+  (let [send-future (.sendText ws message true)]
+    (.join send-future)  ; Block until message is actually sent
+    (tel/event! ::ws-send-complete {:message-length (count message)})))
 
 (defn close!
   "Close WebSocket connection"
