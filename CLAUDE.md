@@ -52,6 +52,21 @@ Since this is a library without build configuration files, there are no standard
    - Make the change in the tmp file
    - Copy the corrected form back to the code file
 
+### Logging and Observability
+**NEVER use println for logging** - We have invested significant effort in telemere-lite for structured observability.
+
+- Use `(tel/log! level message data)` for structured logging
+- Use `(tel/event! event-id data)` for event tracking
+- Use `(tel/error! message error-data)` for error logging
+- Use `(tel/debug! ...)`, `(tel/info! ...)`, `(tel/warn! ...)` for level-specific logging
+
+**Rationale**: telemere-lite provides:
+- Structured data with every log
+- Async handlers for performance
+- Filtering by level, namespace, and event ID
+- Integration with Timbre for formatting
+- Full observability across client and server
+
 ### Terminology
 - **"snapshot"**: When mentioned, this means to commit, push, and tag the current changes to the repository
 
