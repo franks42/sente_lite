@@ -318,12 +318,12 @@
         serialized (multiplex-serialize test-messages)
         deserialized (multiplex-deserialize serialized)]
 
-    (println "Transit multiplexing test:")
-    (println "  Original messages:" (count test-messages))
-    (println "  Serialized size:" (count serialized) "chars")
-    (println "  Deserialized messages:" (if (coll? deserialized) (count deserialized) 1))
-    (println "  Round-trip success:" (= (count test-messages)
-                                        (if (coll? deserialized) (count deserialized) 1)))
+    (tel/log! :info "Transit multiplexing test"
+              {:original-messages (count test-messages)
+               :serialized-size (count serialized)
+               :deserialized-messages (if (coll? deserialized) (count deserialized) 1)
+               :round-trip-success (= (count test-messages)
+                                      (if (coll? deserialized) (count deserialized) 1))})
 
     {:original test-messages
      :serialized serialized

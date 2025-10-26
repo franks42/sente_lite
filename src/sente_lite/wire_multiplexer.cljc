@@ -294,13 +294,18 @@
       (let [wrapped (wrap-message test-message format-spec)
             unwrapped (unwrap-message wrapped)]
 
-        (println "Format" format-spec ": wrapped=" (count wrapped) "chars, success=" (some? (:message unwrapped)))
+        (tel/log! :info "Format test"
+                  {:format format-spec
+                   :wrapped-size (count wrapped)
+                   :success (some? (:message unwrapped))})
 
         ;; Verify round-trip
         (when-not (= test-message (:message unwrapped))
-          (println "WARNING: Round-trip failed for" format-spec))))
+          (tel/log! :warn "Round-trip failed" {:format format-spec}))))
 
     ;; Test auto-detection
     (let [json-msg (to-json test-message)
           detected (detect-message-format json-msg)]
-      (println "Auto-detection:" (subs json-msg 0 20) "->" detected))))
+      (tel/log! :info "Auto-detection test"
+                {:sample (subs json-msg 0 20)
+                 :detected-format detected}))))
