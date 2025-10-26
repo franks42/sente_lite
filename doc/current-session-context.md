@@ -121,11 +121,52 @@ Test file: `test/scripts/bb_client_tests/01_server_startup.bb`
 4. Server stopped cleanly, Running after stop: false
 ```
 
+## Phase 2: COMPLETED ✅ (2025-10-26)
+
+**WebSocket Connection Verified - PASSED**
+
+Test file: `test/scripts/bb_client_tests/02_connection_test.bb`
+Client library: `test/scripts/bb_client_tests/ws_client.clj`
+
+### What Works
+- ✅ WebSocket client connects to server successfully
+- ✅ Server registers the connection (active connections: 1)
+- ✅ Client can close connection cleanly
+- ✅ Server detects disconnection (active connections: 0)
+- ✅ Full connection lifecycle working
+
+### Implementation Findings
+- **No babashka.http-client.websocket exists** - Documentation was incorrect
+- Used Java 11's `java.net.http.WebSocket` API directly via Java interop
+- Created reusable `ws-client` namespace for WebSocket client operations
+- Listener pattern with callbacks for: on-open, on-message, on-close, on-error
+
+### Test Output
+```
+1. Server started, running: true
+2. Client connected
+3. Active connections: 1 ✅ Server registered the connection
+4. Client closed
+5. Active connections: 0 ✅ Server registered the disconnection
+6. Server stopped
+```
+
+### WebSocket Client API
+```clojure
+(ws/connect! {:uri "ws://localhost:3000/"
+              :on-open (fn [ws] ...)
+              :on-message (fn [ws data last] ...)
+              :on-close (fn [ws status reason] ...)
+              :on-error (fn [ws error] ...)})
+(ws/send! ws "message")
+(ws/close! ws)
+```
+
 ## Next Immediate Step
 
-**Phase 2: Implement BB Client**
+**Phase 3: Message Exchange**
 
-Build babashka WebSocket client using `babashka.http-client.websocket` to connect to the server.
+Test sending messages from client to server and server to client, verify message delivery and formats.
 
 ## Key Files Reference
 
