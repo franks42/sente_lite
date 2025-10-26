@@ -1,6 +1,6 @@
 # WebSocket Message Flow Issue
 
-## Status: 🔴 BLOCKING
+## Status: ✅ RESOLVED
 
 ## Issue
 WebSocket connections open successfully between Java 11 WebSocket client and http-kit server, but **no messages flow in either direction**.
@@ -99,3 +99,36 @@ None currently. WebSocket bidirectional communication is fundamental requirement
 ## Priority
 
 **CRITICAL** - Blocks all message-based testing and development
+
+## Resolution (2025-10-26)
+
+### Root Causes Identified
+
+1. **Server Bug**: `src/sente_lite/server.cljc` line 272 used `:on-message` instead of `:on-receive`
+   - http-kit's WebSocket API uses `:on-receive` for message callbacks
+   - This prevented the server from receiving any messages from clients
+
+2. **Client Bug**: Java 11 WebSocket API requires explicit `.request(n)` call
+   - Java 11 WebSocket starts with receive counter at 0
+   - Must call `.request(Long/MAX_VALUE)` in onOpen to allow message reception
+   - Without this, client never invokes onText callback
+
+### Fixes Applied
+
+1. **Server**: Changed `:on-message` to `:on-receive` in server.cljc:272
+2. **Client**: Added `.request(Long/MAX_VALUE)` in onOpen callback
+3. **Client Refactor**: Switched from Java 11 API to `babashka.http-client.websocket`
+   - Native Babashka implementation is simpler and requires no workarounds
+   - Aligns with project philosophy: "Native capability first"
+
+### Test Results
+
+✅ Phase 3 message echo test: **PASSING**
+✅ Minimal WebSocket echo test: **WORKING**
+✅ Bidirectional communication: **CONFIRMED**
+
+### Lessons Learned
+
+1. Always verify API callback names match the library's expectations
+2. Java 11 WebSocket requires explicit request management (not needed with native clients)
+3. Native platform capabilities should be preferred over Java interop when available

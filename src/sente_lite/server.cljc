@@ -269,7 +269,7 @@
     #?(:bb
        (http/as-channel request
                         {:on-open    #(on-websocket-open % config)
-                         :on-message #(on-websocket-message %1 %2 config)
+                         :on-receive #(on-websocket-message %1 %2 config)
                          :on-close   #(on-websocket-close %1 %2 config)
                          :on-error   #(on-websocket-error %1 %2 config)})
        :clj
