@@ -62,9 +62,9 @@ Since this is a library without build configuration files, there are no standard
 - Use this file to recover lost context from previous sessions
 - Contains detailed discussions about migration plans and architecture decisions
 
-### Current Project Status (2025-10-25)
-- **BRANCH**: `jetty9-migration` (clean, ready for Phase 1)
-- **MAIN BRANCH**: `v0.5.2-cleanup` - fully organized, linted, tested, committed
+### Current Project Status (2025-10-26)
+- **BRANCH**: `main` - ready for sente-lite HTTP/1.1 + WebSocket development
+- **LAST TAG**: `v0.5.2-cleanup` - fully organized, linted, tested, committed
 - **ALL COMPLETED**:
   - ✅ Project structure reorganized (doc/, dev/, test/scripts/)
   - ✅ All 70KB of sente-lite source code committed and tracked
@@ -72,7 +72,8 @@ Since this is a library without build configuration files, there are no standard
   - ✅ All tests passing (run_tests.bb: 10 tests, 0 failures)
   - ✅ Pre-commit hooks working and enforcing quality
   - ✅ Clean working tree, all files properly tracked
-- **NEXT**: Start jetty9 migration Phase 1 (Environment Setup)
+  - ✅ HTTP/2 investigation complete (see doc/http2-investigation-2025-10.md)
+- **NEXT**: Continue sente-lite core implementation (HTTP/1.1 + WebSocket)
 
 ### Recent Tags History
 1. `v0.3.0-sente-lite` - Recovered 70KB sente-lite source (was untracked!)
@@ -81,21 +82,21 @@ Since this is a library without build configuration files, there are no standard
 4. `v0.5.1-tooling-update` - Claude Code tooling configuration
 5. `v0.5.2-cleanup` - Removed log files from tracking (CURRENT on main)
 
-### Ring Jetty9 Adapter Migration
-- **CRITICAL**: Project requires migration from http-kit to `info.sunng/ring-jetty9-adapter` for HTTP/2 support
-- **Documentation**: Complete migration plan at `doc/ring-jetty9-adapter-migration-plan.md`
-- **Why needed**: http-kit lacks HTTP/2 support; jetty9 provides HTTP/2 + WebSocket capabilities
-- **Status**: Ready to start Phase 1 on jetty9-migration branch
-- **7 Phases**: Environment Setup → Server Implementation → Compatibility Testing → HTTP/2 Testing → Performance → Integration → Assessment
+### HTTP/2 Investigation (October 2025)
+- **Status**: ON HOLD - Investigation complete, HTTP/2 efforts paused
+- **Decision**: Continue with HTTP/1.1 + WebSocket implementation
+- **Reason**: Babashka (prime target) has no viable HTTP/2 path without excessive complexity
+- **Full Documentation**: See `doc/http2-investigation-2025-10.md` for complete findings
+- **Key Finding**: ring-jetty9-adapter requires JVM classes not available in babashka's SCI interpreter
+- **Options Evaluated**: Pod (too complex), reverse proxy (limited benefit), split architecture (doubles maintenance)
+- **Branch Preserved**: `jetty9-migration` kept for historical reference
+- **Future**: Can revisit if babashka ecosystem evolves or HTTP/2 becomes critical for JVM deployments
 
-### Implementation Progress - Jetty9 Migration
-- **Current branch**: `jetty9-migration` (based on main v0.5.2-cleanup)
-- **Current phase**: Phase 1 - Environment Setup (not started)
-- **Next tasks**:
-  1. Create bb.edn with jetty9 dependencies
-  2. Verify dependency resolution with babashka
-  3. Test babashka can load jetty9 namespace
-- **Goal**: Maintain same test suite while gaining HTTP/2 capabilities
+### Current Focus: HTTP/1.1 + WebSocket Implementation
+- **Platform**: Babashka as prime target
+- **Server**: http-kit (HTTP/1.1 + WebSocket)
+- **Protocol**: WebSocket provides full-duplex communication
+- **Philosophy**: Lightweight, native capabilities, ~500 LOC simplicity
 
 ### Key Files and Context
 - `src/sente_lite/server.cljc` - Current http-kit based server (17KB, ~441 lines)
@@ -105,7 +106,8 @@ Since this is a library without build configuration files, there are no standard
 - `src/sente_lite/wire_format.cljc` - Message serialization (11KB)
 - `src/sente_lite/wire_multiplexer.cljc` - Message multiplexing (11KB)
 - `doc/plan.md` - 785-line comprehensive implementation plan
-- `doc/ring-jetty9-adapter-migration-plan.md` - Detailed 7-phase migration strategy
+- `doc/http2-investigation-2025-10.md` - Complete HTTP/2 investigation (Oct 2025, on hold)
+- `doc/ring-jetty9-adapter-migration-plan.md` - Original 7-phase migration strategy (superseded)
 - `.clj-kondo/config.edn` - Linting configuration for zero-warning compliance
 - `test/scripts/run_all_tests.bb` - Main test runner (11 test scripts)
 
@@ -129,8 +131,10 @@ sente_lite/
 - All source files were in src/sente_lite/ but never committed (telemere-lite was committed instead)
 - Immediately committed, pushed, tagged as v0.3.0-sente-lite
 - Then reorganized entire project structure to Clojure best practices
+- **HTTP/2 Investigation**: On 2025-10-26, investigated jetty9 migration for HTTP/2 support
+- Found jetty9 incompatible with babashka (requires JVM classes unavailable in SCI)
+- Decision: Pause HTTP/2 efforts, continue with http-kit (HTTP/1.1 + WebSocket)
 - User expects proper snapshots (commit/push/tag) throughout work
-- Migration from http-kit to jetty9 is architectural necessity, not preference
 
 ## Important Implementation Details
 
