@@ -1,17 +1,23 @@
 #!/usr/bin/env bb
 
+(require '[babashka.fs :as fs])
+
 (println "🧪 === Running Complete Sente-lite Test Suite ===")
 (println)
 
 (def test-results (atom {:total 0 :passed 0 :failed 0}))
+
+;; Get the directory where this script is located
+(def script-dir (-> *file* fs/parent str))
 
 (defn run-test [test-name test-file]
   (println (format "🔄 Running %s..." test-name))
   (swap! test-results update :total inc)
 
   (try
-    (let [result (babashka.process/shell {:out :string :err :string}
-                                        "bb" test-file)]
+    (let [full-path (str script-dir "/" test-file)
+          result (babashka.process/shell {:out :string :err :string}
+                                        "bb" full-path)]
       (if (zero? (:exit result))
         (do
           (println (format "✅ %s PASSED" test-name))
@@ -34,23 +40,23 @@
 
 ;; Phase 1: Core telemere-lite functionality
 (println "🔧 === Phase 1: Telemere-lite Core Tests ===")
-(run-test "Official API Compatibility" "./test_official_api.bb")
-(run-test "Simple Filtering" "./test_simple_filtering.bb")
-(run-test "Advanced Filtering API" "./test_filtering_api.bb")
-(run-test "Event Correlation" "./test_event_correlation.bb")
-(run-test "Message Routing" "./test_routing.bb")
-(run-test "Timbre Functions" "./test_timbre_functions.bb")
+(run-test "Official API Compatibility" "test_official_api.bb")
+(run-test "Simple Filtering" "test_simple_filtering.bb")
+(run-test "Advanced Filtering API" "test_filtering_api.bb")
+(run-test "Event Correlation" "test_event_correlation.bb")
+(run-test "Message Routing" "test_routing.bb")
+(run-test "Timbre Functions" "test_timbre_functions.bb")
 
 ;; Phase 2: Async implementation
 (println "⚡ === Phase 2: Async Implementation Tests ===")
-(run-test "Simple Async Implementation" "./test_async_simple.bb")
-(run-test "Async Performance Benchmarks" "./test_async_performance.bb")
+(run-test "Simple Async Implementation" "test_async_simple.bb")
+(run-test "Async Performance Benchmarks" "test_async_performance.bb")
 
 ;; Phase 3: WebSocket foundation and Channel system
 (println "🌐 === Phase 3: WebSocket Foundation Tests ===")
-(run-test "WebSocket Foundation" "./test_websocket_foundation.bb")
-(run-test "Server Foundation" "./test_server_foundation.bb")
-(run-test "Channel Integration" "./test_channel_integration.bb")
+(run-test "WebSocket Foundation" "test_websocket_foundation.bb")
+(run-test "Server Foundation" "test_server_foundation.bb")
+(run-test "Channel Integration" "test_channel_integration.bb")
 
 ;; Summary
 (println "📊 === Test Summary ===")

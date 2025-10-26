@@ -1,17 +1,20 @@
 (ns telemere-lite.core-test
   "Tests for telemere-lite core functionality"
   (:require [telemere-lite.core :as tel]
-            #?(:bb [clojure.test :refer [deftest testing is use-fixtures]]
-               :clj [clojure.test :refer [deftest testing is use-fixtures]])
-            #?(:bb [clojure.java.io :as io]
-               :clj [clojure.java.io :as io])
-            #?(:bb [cheshire.core :as json]
-               :clj [cheshire.core :as json])))
+            #?@(:bb [[clojure.test :refer [deftest testing is use-fixtures]]
+                     [clojure.java.io :as io]
+                     [clojure.string]
+                     [cheshire.core :as json]]
+                :clj [[clojure.test :refer [deftest testing is use-fixtures]]
+                      [clojure.java.io :as io]
+                      [clojure.string]
+                      [cheshire.core :as json]])))
 
 (def test-log-file "test-telemetry.jsonl")
 
-(defn setup-test-logging []
+(defn setup-test-logging
   "Setup test environment"
+  []
   (alter-var-root #'tel/*output-file* (constantly test-log-file))
   (alter-var-root #'tel/*telemetry-enabled* (constantly true))
   #?(:bb (tel/ensure-log-dir!))
@@ -19,8 +22,9 @@
   (when (.exists (io/file test-log-file))
     (io/delete-file test-log-file)))
 
-(defn teardown-test-logging []
+(defn teardown-test-logging
   "Clean up test environment"
+  []
   (when (.exists (io/file test-log-file))
     (io/delete-file test-log-file)))
 
@@ -30,8 +34,9 @@
     (test-fn)
     (teardown-test-logging)))
 
-(defn read-log-entries []
+(defn read-log-entries
   "Read all log entries from test file"
+  []
   (when (.exists (io/file test-log-file))
     (->> (slurp test-log-file)
          (clojure.string/split-lines)
@@ -211,7 +216,8 @@
         (is (= 42 (get context "duration-ms")))
         (is (contains? context "location"))))))
 
-(defn run-tests []
+(defn run-tests
   "Run all tests and return summary"
+  []
   #?(:bb (clojure.test/run-tests 'telemere-lite.core-test)
      :clj (clojure.test/run-tests 'telemere-lite.core-test)))

@@ -2,7 +2,10 @@
            :unused-private-var {:level :off}
            :missing-else-branch {:level :off}
            :unresolved-var {:level :off}
+           :unresolved-symbol {:level :warning}
+           :unresolved-namespace {:level :warning}
            :redundant-let {:level :off}
            :single-operand-logical {:level :off}
            :single-logical-operand {:level :off}
-           :redundant-ignore {:level :off}}}
+           :redundant-ignore {:level :off}}
+ :output {:langs [:clj :cljc]}}
