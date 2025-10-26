@@ -55,6 +55,43 @@ Since this is a library without build configuration files, there are no standard
 ### Terminology
 - **"snapshot"**: When mentioned, this means to commit, push, and tag the current changes to the repository
 
+## CRITICAL CONTEXT - DO NOT LOSE
+
+### Chat History Location
+- **Full conversation history**: `/Users/franksiebenlist/.claude/projects/-Users-franksiebenlist-Development-sente-lite/efb105ef-14ea-4aad-bbf6-0de3434b1c5c.jsonl`
+- Use this file to recover lost context from previous sessions
+- Contains detailed discussions about migration plans and architecture decisions
+
+### Current Project Status
+- **Phase 0 COMPLETED**: Code quality cleanup - achieved zero clj-kondo errors and warnings
+- **Zero tolerance policy**: ALL linting errors must be resolved before proceeding
+- **Linting achievements**: Fixed 28 errors + 36 warnings across multiple files
+- **Test verification**: All tests passing after quality fixes
+
+### Ring Jetty9 Adapter Migration
+- **CRITICAL**: Project requires migration from http-kit to `info.sunng/ring-jetty9-adapter` for HTTP/2 support
+- **Documentation**: Complete migration plan saved in `docs/ring-jetty9-adapter-migration-plan.md`
+- **Why needed**: http-kit lacks HTTP/2 support; jetty9 provides HTTP/2 + WebSocket capabilities
+- **Research completed**: Identified jetty9 as the solution during HTTP/2 vs WebSocket analysis
+- **Todo items**: 10-step migration plan currently in todo list
+
+### Implementation Progress
+- **Current focus**: Testing ring-jetty9-adapter compatibility with existing WebSocket implementation
+- **Goal**: Maintain same test suite while gaining HTTP/2 capabilities
+- **Next phase**: Phase 1 of jetty9 migration plan (environment setup)
+
+### Key Files and Context
+- `src/sente_lite/server.cljc` - Current http-kit based server (441 lines)
+- `src/sente_lite/server_simple.cljc` - Simplified server foundation (161 lines)
+- `docs/plan.md` - 785-line comprehensive implementation plan
+- `docs/ring-jetty9-adapter-migration-plan.md` - Detailed 7-phase migration strategy
+- `.clj-kondo/config.edn` - Linting configuration for zero-warning compliance
+
+### Memory Context
+- User expects migration plans to exist (previous discussion context)
+- Chat history contains HTTP/2 research and jetty9 identification
+- Migration from http-kit to jetty9 is architectural necessity, not preference
+
 ## Important Implementation Details
 
 ### Serialization Strategy

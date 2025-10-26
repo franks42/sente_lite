@@ -12,3 +12,11 @@ pom.xml.asc
 .lein-failures
 .nrepl-port
 .cpcache/
+
+# IDE and linter caches
+.clj-kondo/.cache/
+.lsp/
+
+# Logs
+*.log
+logs/telemetry.jsonl
