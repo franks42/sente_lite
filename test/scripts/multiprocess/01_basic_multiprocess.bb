@@ -78,17 +78,31 @@
     (System/exit 1)))
 
 ;; Wait for processes to exit
-(tel/log! :info "Waiting for processes to exit")
+(tel/log! :info "Waiting for client processes to exit")
 @client1-process
 @client2-process
-(Thread/sleep 1000)
+(tel/log! :info "Clients exited")
 
-;; Kill server (it runs for duration, may still be running)
-(tel/log! :info "Stopping server")
+;; Wait for server to complete its duration and write result
+;; Server runs for test-duration-sec and should exit naturally
+(tel/log! :info "Waiting for server to complete" {:duration-sec test-duration-sec})
 (try
-  (babashka.process/destroy server-process)
+  ;; Wait up to duration + 5 seconds for server to finish and write result
+  (def server-wait-start (System/currentTimeMillis))
+  (def server-timeout-ms (* (+ test-duration-sec 5) 1000))
+
+  ;; Use deref with timeout to wait for server process
+  (deref server-process server-timeout-ms :timeout)
+
+  (def server-wait-duration (- (System/currentTimeMillis) server-wait-start))
+  (tel/log! :info "Server completed" {:duration-ms server-wait-duration})
+
   (catch Exception e
-    (tel/log! :warn "Could not stop server" {:error (str e)})))
+    (tel/log! :warn "Server did not complete cleanly" {:error (str e)})
+    ;; Try to stop it if still running
+    (try
+      (babashka.process/destroy server-process)
+      (catch Exception _))))
 
 ;; Read all results
 (tel/log! :info "Reading test results")
