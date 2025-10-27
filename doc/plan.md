@@ -2573,6 +2573,93 @@ A fundamental architectural decision: Should we use explicit application-level m
 - More complex
 - Starvation possible (bulk never processed if constant critical traffic)
 
+**Critical Insight: Priority Queues Work Best With Congestion**
+
+Priority queues are most valuable when the receive side is **congested** (slow processing):
+
+```clojure
+;; Scenario 1: NO congestion (fast processing)
+;; Processing: 1ms per message
+;; Arrival rate: 10 messages/sec
+;; Queue depth: Always empty
+
+;; Priority doesn't matter - messages processed immediately!
+(enqueue! {:priority :critical :data "urgent"})   ; Processed in 1ms
+(enqueue! {:priority :bulk :data "not urgent"})   ; Also processed in 1ms
+
+;; Scenario 2: WITH congestion (slow processing)
+;; Processing: 100ms per message
+;; Arrival rate: 50 messages/sec
+;; Queue depth: Growing (5 msg/sec accumulation)
+
+;; Without priority: Critical waits behind 1000 bulk messages
+;; Wait time: 1000 messages × 100ms = 100 seconds!
+
+;; With priority: Critical jumps queue
+(enqueue! {:priority :critical :data "urgent"})   ; Processed in 100ms
+(enqueue! {:priority :bulk :data "not urgent"})   ; Waits 100 seconds
+```
+
+**Why this matters:**
+
+```clojure
+;; Low congestion: Priority adds complexity without benefit
+;; Processing rate >> arrival rate
+;; Queue always near-empty
+;; All messages processed quickly regardless of priority
+
+;; High congestion: Priority provides huge value
+;; Processing rate << arrival rate
+;; Queue backs up
+;; Critical messages skip queue, bulk messages wait
+
+;; Example: Real-time trading
+;; Normal load: 100 msg/sec, processing at 1000 msg/sec
+;; → Priority unnecessary (queue empty)
+;;
+;; Market spike: 10,000 msg/sec, processing at 1000 msg/sec
+;; → Priority critical! Cancel orders must skip 9000 queued messages
+```
+
+**Rule of thumb:**
+
+- **Queue depth < 10**: Priority provides minimal benefit (messages processed quickly anyway)
+- **Queue depth 10-100**: Priority helps latency-sensitive messages
+- **Queue depth > 100**: Priority essential (without it, critical messages wait minutes)
+
+**Design implication:**
+
+```clojure
+;; Adaptive priority: Only use priority queue when congested
+(def current-queue (atom :simple-queue))
+
+(defn maybe-upgrade-to-priority! []
+  (let [depth (queue-depth)]
+    (cond
+      ;; Heavy congestion: Switch to priority
+      (and (> depth 100) (= @current-queue :simple-queue))
+      (do
+        (tel/warn! "Queue congested, enabling priority" {:depth depth})
+        (reset! current-queue :priority-queue))
+
+      ;; Congestion cleared: Switch back to simple
+      (and (< depth 10) (= @current-queue :priority-queue))
+      (do
+        (tel/info! "Queue cleared, disabling priority" {:depth depth})
+        (reset! current-queue :simple-queue)))))
+
+;; Check every second
+(future
+  (loop []
+    (Thread/sleep 1000)
+    (maybe-upgrade-to-priority!)
+    (recur)))
+```
+
+**Real-world observation:** Video conferencing - under normal load (low congestion), all messages (video frames, control) process immediately. During network congestion (queue builds up), priority ensures "mute/unmute" controls work instantly even when video frames queue for seconds.
+
+**Recommendation:** Start with simple FIFO queue. Add priority only when queue depth monitoring shows persistent congestion (depth > 50 for >10 seconds).
+
 ---
 
 **Strategy 4: Ring Buffer (High Performance)**
