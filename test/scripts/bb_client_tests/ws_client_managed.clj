@@ -134,6 +134,30 @@
             (update-state! state {:status :failed})))
         nil))))
 
+(defn- update-uri-port!
+  "Update URI with new port from port-file (for ephemeral port servers)"
+  [state]
+  (when-let [port-file-fn (get-in @state [:config :reconnect :port-file-fn])]
+    (try
+      (let [new-port (port-file-fn)
+            current-uri (get-in @state [:config :uri])
+            uri-parts (re-matches #"ws://([^:]+):(\d+)(.*)" current-uri)]
+        (when uri-parts
+          (let [[_ host old-port path] uri-parts
+                old-port-int (Integer/parseInt old-port)]
+            (when (not= new-port old-port-int)
+              (let [new-uri (str "ws://" host ":" new-port path)]
+                (tel/event! ::port-changed {:old-port old-port-int
+                                            :new-port new-port
+                                            :old-uri current-uri
+                                            :new-uri new-uri})
+                ;; Update URI in state
+                (swap! state assoc-in [:config :uri] new-uri)
+                true)))))
+      (catch Exception e
+        (tel/error! "Failed to read port file for reconnection" {:error e})
+        false))))
+
 (defn- reconnect-with-backoff!
   "Attempt reconnection with exponential backoff and jitter"
   [state]
@@ -166,6 +190,8 @@
           (try
             (Thread/sleep actual-delay)
             (tel/event! ::reconnect-attempt {:attempt (inc current-attempt)})
+            ;; Check if port has changed (for ephemeral port servers)
+            (update-uri-port! state)
             (connect-internal! state)
             (catch Exception e
               (tel/error! "Reconnection attempt failed" {:error e :attempt (inc current-attempt)}))))))))
@@ -185,7 +211,12 @@
                 :max-attempts 5
                 :initial-delay-ms 1000
                 :max-delay-ms 30000
-                :backoff-multiplier 2}
+                :backoff-multiplier 2
+                :port-file-fn nil}  ; (fn [] port) - Read port file on reconnect
+                                     ; For ephemeral port servers that may restart
+                                     ; with different port. If provided, will be
+                                     ; called before each reconnect attempt to
+                                     ; get the current port and update URI if changed.
 
   Returns client handle with methods:
     :connect! - Initiate connection

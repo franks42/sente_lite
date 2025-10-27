@@ -69,7 +69,9 @@
       "Bash(for i in {1..2})",
       "Bash(/tmp/test_probe_ready.bb)",
       "Bash(/tmp/test_07_with_probe.bb)",
-      "Bash(/tmp/test_ephemeral_port.bb)"
+      "Bash(/tmp/test_ephemeral_port.bb)",
+      "Bash(timeout 30 bb test:*)",
+      "Bash(timeout 60 bb test:*)"
     ],
     "deny": [],
     "ask": []

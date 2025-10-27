@@ -45,9 +45,9 @@
                     :ping-interval-ms 5000}
         :channels {:auto-create true}}))
 
-    ;; Get actual port and verify
+    ;; Get actual port and verify (unless ephemeral port was requested)
     (def actual-port (server/get-server-port))
-    (when (not= port actual-port)
+    (when (and (not= port 0) (not= port actual-port))
       (tel/error! "Port mismatch" {:expected port :actual actual-port})
       (server/stop-server!)
       (System/exit 1))

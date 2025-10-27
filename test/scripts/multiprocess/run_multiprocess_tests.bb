@@ -21,6 +21,10 @@
     :name "Basic Multi-Process"
     :script (str script-dir "/01_basic_multiprocess.bb")
     :description "1 server + 2 clients, basic pub/sub"}
+   {:id "02"
+    :name "Ephemeral Port Reconnection"
+    :script (str script-dir "/02_ephemeral_reconnection.bb")
+    :description "Server restarts with different ephemeral port"}
    {:id "03"
     :name "Reconnection"
     :script (str script-dir "/03_reconnection.bb")
