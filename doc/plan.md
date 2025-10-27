@@ -465,26 +465,347 @@ await page.evaluate(() => window.senteState);
 
 ### Phase 3: Advanced Features (Week 4)
 **Goal:** Production-ready features and optimizations
-**Status:** Partially complete (heartbeat done, reconnection done)
+**Status:** Partially complete (heartbeat done, reconnection done, error handling done)
 
-#### Tasks:
+#### Completed Tasks:
 - [x] Implement heartbeat/keepalive
   - Client ping mechanism
   - Server handshake responses
   - Connection health monitoring
-- [ ] Add message batching/buffering
-  - Client-side event buffering
-  - Batch send optimization
-  - Offline queue management
 - [x] Build error handling
   - Comprehensive error events
   - Error recovery strategies
   - Debug mode with logging
 
+#### Pending Tasks:
+
+##### 3.1 Message Batching/Buffering
+**Goal:** Optimize throughput and reliability for high-message scenarios
+
+**A. Message Batching** (Throughput Optimization)
+Combine multiple small messages into single WebSocket frame to reduce protocol overhead.
+
+**Configuration:**
+```clojure
+{:batching {:enabled true
+            :max-batch-size 10           ; Max messages per batch
+            :max-batch-bytes 4096        ; Max bytes per batch (4KB)
+            :flush-interval-ms 10        ; Auto-flush after 10ms
+            :flush-on-idle true}}        ; Flush when queue empty
+```
+
+**Implementation:**
+- Time-based: Flush after N milliseconds
+- Size-based: Flush when batch reaches N bytes
+- Count-based: Flush after N messages
+- Idle-based: Flush when no more messages queued
+
+**Wire format:**
+```clojure
+;; Single message (current)
+{:type :event :id :foo :data {...}}
+
+;; Batched messages (new)
+{:type :batch
+ :messages [{:type :event :id :foo :data {...}}
+            {:type :event :id :bar :data {...}}]}
+```
+
+**Benefits:**
+- 40-60% reduction in frame overhead
+- Better CPU efficiency (fewer syscalls)
+- Improved throughput for high-message scenarios
+
+**Trade-offs:**
+- Added latency (flush interval)
+- Increased memory (queue storage)
+- More complex code
+
+**Estimated Effort:** 8-12 hours
+
+**B. Message Buffering** (Reliability Feature)
+Queue messages during brief disconnections to prevent message loss.
+
+**Configuration:**
+```clojure
+{:buffering {:enabled true
+             :max-buffer-size 100         ; Max messages per user
+             :max-buffer-bytes 1048576    ; 1MB limit per user
+             :ttl-ms 300000               ; Expire after 5 min
+             :buffer-on-disconnect true}} ; Auto-buffer when disconnected
+```
+
+**Implementation:**
+- Per-user message buffers
+- TTL-based expiration
+- Automatic flush on reconnection
+- Memory-bounded queues
+
+**Benefits:**
+- No message loss during brief disconnections
+- Graceful server restart handling
+- Better user experience
+
+**Trade-offs:**
+- Memory pressure (buffer storage)
+- Potential duplicate messages
+- Message ordering complexity
+
+**Estimated Effort:** 12-16 hours
+
+##### 3.2 Compression
+**Goal:** Reduce wire size for large messages and improve bandwidth efficiency
+
+**Options:**
+
+**A. Per-Message Compression (RECOMMENDED)**
+Compress individual messages before framing.
+
+**Configuration:**
+```clojure
+{:compression {:enabled true
+               :algorithm :gzip           ; :gzip, :deflate, :brotli
+               :level 6                   ; 1-9, balance speed/ratio
+               :min-bytes 512             ; Only compress if > 512 bytes
+               :content-types [:json :transit]}} ; What to compress
+```
+
+**Wire format:**
+```clojure
+{:type :event
+ :id :foo
+ :data {...}
+ :compressed true               ; Flag for receiver
+ :compression-algorithm :gzip}  ; How to decompress
+```
+
+**Benefits:**
+- 60-80% size reduction for text (JSON, Transit)
+- Works with all message types
+- Client/server can negotiate
+
+**Trade-offs:**
+- CPU overhead (compress/decompress)
+- Latency increase (~5-20ms per message)
+- Not worth it for small messages (<512 bytes)
+
+**B. WebSocket Per-Message Deflate Extension**
+Browser-native compression using `permessage-deflate`.
+
+**Configuration:**
+```clojure
+{:websocket {:permessage-deflate true
+             :compression-level 6}}
+```
+
+**Benefits:**
+- Browser handles compression automatically
+- No wire format changes needed
+- Very efficient
+
+**Trade-offs:**
+- Only works in browsers (not BB client)
+- Less control over compression
+- Not supported by all WebSocket libraries
+
+**C. Stream Compression**
+Compress entire WebSocket stream (not individual messages).
+
+**Not recommended:** Interferes with frame boundaries and message routing.
+
+**Recommendation:** Start with per-message compression (Option A) with 512-byte threshold.
+
+**Estimated Effort:** 6-10 hours
+
+##### 3.3 Message Chunking
+**Goal:** Handle messages larger than max frame size by splitting into chunks
+
+**Current Limits:**
+- Default max message: 1MB (line 38)
+- Warning threshold: 512KB
+- WebSocket theoretical max: 2^63 bytes
+- Practical limits: Browser ~100MB, Server configurable
+
+**Chunking Options:**
+
+**Option 1: Application-Level Chunking (RECOMMENDED)**
+Split large messages into chunks before sending to WebSocket.
+
+**Configuration:**
+```clojure
+{:chunking {:enabled true
+            :chunk-size 65536          ; 64KB per chunk
+            :max-chunks 1000           ; Max 1000 chunks = 64MB
+            :timeout-ms 30000}}        ; Reassembly timeout
+```
+
+**Wire format:**
+```clojure
+;; First chunk
+{:type :chunk-start
+ :message-id "uuid-1234"
+ :total-chunks 5
+ :chunk-index 0
+ :data "base64-encoded-chunk-data"}
+
+;; Middle chunks
+{:type :chunk
+ :message-id "uuid-1234"
+ :chunk-index 1
+ :data "base64-encoded-chunk-data"}
+
+;; Last chunk
+{:type :chunk-end
+ :message-id "uuid-1234"
+ :chunk-index 4
+ :data "base64-encoded-chunk-data"}
+```
+
+**Implementation:**
+- Sender splits into chunks
+- Each chunk sent as separate WebSocket frame
+- Receiver reassembles using message-id
+- Timeout clears incomplete messages
+
+**Benefits:**
+- Full control over chunk size
+- Works with all transports
+- Memory efficient (stream processing)
+- Can combine with compression
+
+**Trade-offs:**
+- Most complex implementation
+- State management (reassembly buffers)
+- Potential out-of-order chunks
+- Timeout/cleanup logic needed
+
+**Estimated Effort:** 15-20 hours
+
+**Option 2: Streaming API**
+Provide streaming send/receive API for large data.
+
+**API:**
+```clojure
+;; Sender
+(with-message-stream [stream client message-id]
+  (stream/write-chunk! stream chunk-1)
+  (stream/write-chunk! stream chunk-2)
+  (stream/close! stream))
+
+;; Receiver
+(on-stream-start [stream message-id metadata]
+  (doseq [chunk (stream/read-chunks stream)]
+    (process-chunk chunk)))
+```
+
+**Benefits:**
+- Elegant API for streaming
+- Memory efficient
+- Good for file uploads/downloads
+
+**Trade-offs:**
+- Different API from regular messages
+- More complex for simple use cases
+- Requires callback-based processing
+
+**Estimated Effort:** 20-25 hours
+
+**Option 3: External Storage Reference**
+Store large data externally, send reference via WebSocket.
+
+**Wire format:**
+```clojure
+{:type :large-message
+ :storage :s3
+ :reference "s3://bucket/key"
+ :size 50000000
+ :metadata {...}}
+```
+
+**Benefits:**
+- Keeps WebSocket lightweight
+- Leverages existing storage infrastructure
+- Good for truly large data (>10MB)
+
+**Trade-offs:**
+- Requires external infrastructure
+- Additional latency (separate fetch)
+- More complex client implementation
+- Cost of external storage
+
+**Estimated Effort:** 10-15 hours (excluding infrastructure setup)
+
+**Option 4: Increase Frame Limits**
+Simply allow larger frames without chunking.
+
+**Configuration:**
+```clojure
+{:max-frame-size 10485760}  ; 10MB
+```
+
+**Benefits:**
+- Simplest approach
+- No code changes needed
+
+**Trade-offs:**
+- Memory pressure (entire message in RAM)
+- Blocks other messages during transmission
+- Head-of-line blocking
+- Not scalable beyond ~10MB
+
+**Recommendation:** Only for controlled environments with known message sizes.
+
+**Estimated Effort:** 2-3 hours
+
+**Option 5: Hybrid - Compress Then Chunk**
+Combine compression with chunking for best results.
+
+**Process:**
+1. Compress message (if > 512 bytes)
+2. If compressed size > chunk-size, split into chunks
+3. Send chunks with compression flag
+4. Receiver reassembles then decompresses
+
+**Configuration:**
+```clojure
+{:compression {:enabled true
+               :min-bytes 512
+               :algorithm :gzip}
+ :chunking {:enabled true
+            :chunk-size 65536
+            :compress-first true}}  ; Compress before chunking
+```
+
+**Benefits:**
+- Best wire efficiency
+- Handles any message size
+- Optimal for large JSON/Transit
+
+**Trade-offs:**
+- Most complex implementation
+- Highest CPU overhead
+- Hardest to debug
+
+**Estimated Effort:** 25-30 hours
+
+**Recommendation Matrix:**
+
+| Use Case | Recommended Option | Estimated Effort |
+|----------|-------------------|------------------|
+| High-throughput small messages | Batching | 8-12 hours |
+| Reliable notifications | Buffering | 12-16 hours |
+| Large JSON/Transit (1-10MB) | Chunking + Compression | 25-30 hours |
+| Very large data (>10MB) | External Storage | 10-15 hours |
+| Known small messages (<1MB) | Increase limits | 2-3 hours |
+| File uploads/downloads | Streaming API | 20-25 hours |
+
 #### Deliverables:
 - [x] Heartbeat mechanism
-- [ ] Message buffering (deferred)
 - [x] Robust error handling
+- [ ] Message batching (deferred, 8-12 hours)
+- [ ] Message buffering (deferred, 12-16 hours)
+- [ ] Compression (deferred, 6-10 hours)
+- [ ] Chunking (deferred, 15-30 hours depending on option)
 
 ### Phase 6: Connection Management ✅ COMPLETE (Added 2025-10-26)
 **Goal:** Production-ready connection lifecycle management
@@ -767,12 +1088,35 @@ await page.evaluate(() => window.senteState);
 - **Authentication & Authorization**: Token-based auth, user ID routing
 - **Browser Client (Scittle)**: JavaScript client with same API
 - **nREPL Integration**: Transit multiplexer, bencode validation
-- **Performance**: Message batching, compression, binary formats
-- **Monitoring**: Prometheus metrics, health checks
+- **Performance Optimizations**: See Phase 3 for detailed specs on batching, buffering, compression, and chunking
+- **Monitoring**: Prometheus metrics, health checks, distributed tracing
 
 ---
 
 ## Updates Log
+
+### 2025-10-26 (Later) - Phase 3 Performance Features Specification
+**Status:** Planning complete, implementation pending
+
+- 📋 **Phase 3 Expanded**: Comprehensive specifications for performance features
+  - **Message Batching**: 4 flush strategies, 40-60% overhead reduction (8-12 hours)
+  - **Message Buffering**: Per-user queues, TTL expiration, reconnection flush (12-16 hours)
+  - **Compression**: 3 options analyzed (per-message RECOMMENDED), 60-80% size reduction (6-10 hours)
+  - **Chunking**: 5 options with trade-offs, application-level chunking RECOMMENDED (15-20 hours)
+  - **Hybrid Option**: Compress-then-chunk for optimal large message handling (25-30 hours)
+
+- 📊 **Decision Matrix**: Added recommendation matrix for different use cases
+  - High-throughput: Batching
+  - Reliable notifications: Buffering
+  - Large messages (1-10MB): Chunking + Compression
+  - Very large (>10MB): External storage reference
+  - File transfers: Streaming API
+
+- 🎯 **Wire Formats Defined**: Complete wire protocol specifications for:
+  - Batched messages (`:batch` type)
+  - Compressed messages (`:compressed` flag + algorithm)
+  - Chunked messages (`:chunk-start`, `:chunk`, `:chunk-end`)
+  - External references (`:large-message` with storage URL)
 
 ### 2025-10-26 - Connection Management Complete & Port Discovery
 **Tag:** `v0.6.0-socket-fix`
