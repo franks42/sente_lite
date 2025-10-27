@@ -734,16 +734,41 @@ await page.evaluate(() => window.senteState);
 
 **Testing Architecture**
 - ✅ Single-process tests (server + client in same BB)
-- 📋 Multi-process tests (separate BB processes) - PLANNED in FUTURE-ENHANCEMENTS.md
+- 📋 Multi-process tests (separate BB processes) - See "Future Enhancements" below
 
-### 📋 PLANNED
+### 📋 PLANNED - Future Enhancements
 
-See `doc/FUTURE-ENHANCEMENTS.md` for detailed roadmap:
-- Multi-process testing (HIGH priority)
-- Authentication & authorization
-- Browser client (Scittle)
-- nREPL integration
-- Performance optimizations
+#### Multi-Process Testing (HIGH Priority)
+**Current:** Tests run server + client in same BB process
+**Desired:** Separate BB processes for real distributed testing
+
+**Test Scenarios:**
+1. **Basic multi-process** (HIGH) - 1 server + 2 clients, basic pub/sub
+2. **Ephemeral port discovery** (HIGH) - Server port 0, clients discover via file
+3. **Reconnection** (MEDIUM) - Server restart, clients auto-reconnect
+4. **Concurrent startup** (MEDIUM) - 10 clients start simultaneously
+5. **Process failure** (LOW) - Kill client, server cleanup
+6. **Stress test** (LOW) - 20 clients, 100 msg/sec
+
+**Implementation Approaches:**
+- Shell script orchestration (bb processes with `&`)
+- BB parent process (`babashka.process`)
+- Test framework integration
+
+**Technical:**
+- Port discovery: `/tmp/sente-lite-server-port-{PID}`
+- Process sync: ready signal files
+- Result aggregation: JSON files
+- Cleanup: PID tracking, proper shutdown
+
+**Estimated Effort:** 15-25 hours
+
+#### Other Future Enhancements
+- **Authentication & Authorization**: Token-based auth, user ID routing
+- **Browser Client (Scittle)**: JavaScript client with same API
+- **nREPL Integration**: Transit multiplexer, bencode validation
+- **Performance**: Message batching, compression, binary formats
+- **Monitoring**: Prometheus metrics, health checks
 
 ---
 
@@ -772,8 +797,8 @@ See `doc/FUTURE-ENHANCEMENTS.md` for detailed roadmap:
   - Telemetry events track both ports
   - Use cases: testing, containers, development, service discovery
 
-- 📋 **Multi-Process Testing**: Documented future enhancement
-  - 6 test scenarios defined
+- 📋 **Multi-Process Testing**: Future enhancement planned
+  - 6 test scenarios defined in "Future Enhancements" section
   - Implementation approaches outlined
   - Estimated effort: 15-25 hours
 

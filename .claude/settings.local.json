@@ -57,7 +57,19 @@
       "Bash(timeout 10 bb test:*)",
       "Bash(echo:*)",
       "Bash(tee:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(timeout 15 bb test:*)",
+      "Bash(1)",
+      "Read(//tmp/**)",
+      "Bash(timeout 15 bb:*)",
+      "Bash(git restore:*)",
+      "Bash(pkill:*)",
+      "Bash(for i in {1..3})",
+      "Bash(do echo \"=== Run $i ===\")",
+      "Bash(for i in {1..2})",
+      "Bash(/tmp/test_probe_ready.bb)",
+      "Bash(/tmp/test_07_with_probe.bb)",
+      "Bash(/tmp/test_ephemeral_port.bb)"
     ],
     "deny": [],
     "ask": []

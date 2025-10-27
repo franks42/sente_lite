@@ -70,6 +70,27 @@ Since this is a library without build configuration files, there are no standard
 ### Terminology
 - **"snapshot"**: When mentioned, this means to commit, push, and tag the current changes to the repository
 
+## Project Planning & Task Management
+
+**USE `doc/plan.md` AS THE SINGLE SOURCE OF TRUTH FOR:**
+- Project status and current state
+- Completed phases and features
+- In-progress work
+- Future enhancements and ideas
+- Task priorities and estimates
+- Architecture decisions
+- Updates log (date-stamped entries)
+
+**NEVER create separate planning documents** like FUTURE-ENHANCEMENTS.md, TODO.md, ROADMAP.md, etc.
+**ALWAYS update plan.md** when:
+- Completing features or phases
+- Planning new work
+- Recording architecture decisions
+- Documenting ideas for future work
+- Tracking progress
+
+Keep plan.md up-to-date and comprehensive. It's the authoritative source for project state.
+
 ## FUNDAMENTAL RULE: HONESTY ABOVE ALL
 
 **NEVER EVER lie or cheat.**
