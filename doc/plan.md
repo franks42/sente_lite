@@ -1627,6 +1627,532 @@ This gives you the flexibility to handle everything from real-time dashboards to
 
 ---
 
+#### Multiple WebSocket Connections: Single vs Multiple
+
+A critical architectural decision: Should clients use one WebSocket connection or multiple parallel connections?
+
+**The Question:**
+
+```clojure
+;; Option 1: Single connection (current approach)
+(def client (ws/connect! "ws://server.com"))
+(ws/send! client {:type :chat :data "..."})
+(ws/send! client {:type :file-upload :data "..."})
+(ws/send! client {:type :metrics :data "..."})
+
+;; Option 2: Multiple connections
+(def chat-conn (ws/connect! "ws://server.com/chat"))
+(def data-conn (ws/connect! "ws://server.com/data"))
+(def metrics-conn (ws/connect! "ws://server.com/metrics"))
+```
+
+**Use Cases for Multiple Connections:**
+
+1. **Separation of concerns** (different traffic types)
+2. **Priority channels** (critical vs bulk data)
+3. **Failure isolation** (one fails, others continue)
+4. **Head-of-line blocking avoidance** (large transfer doesn't block small messages)
+5. **Load balancing** (different servers per connection)
+6. **Browser connection limits** (work around per-domain limits)
+
+---
+
+### Advantages of Multiple Connections
+
+**1. Failure Isolation**
+
+```clojure
+;; Single connection: Everything fails together
+(def conn (ws/connect! "ws://server.com"))
+(ws/on-close conn
+  (fn []
+    ;; Chat, file uploads, metrics ALL disconnected!
+    (reconnect-everything!)))
+
+;; Multiple connections: Isolated failures
+(def chat-conn (ws/connect! "ws://server.com/chat"))
+(def file-conn (ws/connect! "ws://server.com/files"))
+
+(ws/on-close file-conn
+  (fn []
+    ;; Only file uploads affected
+    ;; Chat continues working!
+    (reconnect-file-upload!)))
+```
+
+**Benefit:** A problem with file uploads doesn't disrupt real-time chat.
+
+**Real-world example:** Slack uses separate connections per workspace so issues in one workspace don't affect others.
+
+---
+
+**2. Head-of-Line Blocking Avoidance**
+
+```clojure
+;; Single connection: Large upload blocks everything
+(ws/send! conn {:type :file-upload :size 100000000})  ; 100MB
+(ws/send! conn {:type :chat :msg "hello"})            ; Waits for 100MB to finish!
+
+;; Multiple connections: Independent flows
+(ws/send! file-conn {:type :file-upload :size 100000000})
+(ws/send! chat-conn {:type :chat :msg "hello"})  ; Immediate!
+```
+
+**Benefit:** Small, latency-sensitive messages aren't blocked by large transfers.
+
+**Real-world observation:** Video conferencing apps use separate connections for video vs control messages. Control messages (mute, unmute) must be instant, can't wait for video frames.
+
+---
+
+**3. Priority Separation**
+
+```clojure
+;; Multiple connections with QoS
+(def critical-conn (ws/connect! "ws://server.com/critical"
+                                {:priority :high
+                                 :timeout 1000}))
+
+(def bulk-conn (ws/connect! "ws://server.com/bulk"
+                            {:priority :low
+                             :timeout 30000}))
+
+;; Server can prioritize critical connection
+(defn handle-connections! []
+  ;; Process critical messages first
+  (process-priority-queue! critical-connections)
+  ;; Then bulk
+  (process-bulk-queue! bulk-connections))
+```
+
+**Benefit:** Separate connection pools allow server-side QoS policies.
+
+**Real-world example:** Trading platforms use separate connections for:
+- Orders (highest priority, <1ms latency)
+- Market data (high priority, streaming)
+- Account info (normal priority)
+- Analytics (low priority, bulk)
+
+---
+
+**4. Load Balancing & Scalability**
+
+```clojure
+;; Different connections → different backend servers
+(def chat-conn (ws/connect! "ws://chat-server-1.com"))
+(def files-conn (ws/connect! "ws://file-server-1.com"))
+(def metrics-conn (ws/connect! "ws://metrics-server-1.com"))
+
+;; Each server specialized for its workload
+;; Chat servers: Low latency, many connections
+;; File servers: High throughput, large transfers
+;; Metrics servers: Time-series optimized
+```
+
+**Benefit:** Horizontal scaling with specialized servers.
+
+**Real-world example:** Netflix uses multiple connections to CDNs for video streams while control/API traffic goes to different servers.
+
+---
+
+**5. Simpler Flow Control Per Connection**
+
+```clojure
+;; Single connection: Complex multiplexed flow control
+(def flow-state (atom {:chat {:credits 10}
+                       :files {:credits 5}
+                       :metrics {:credits 20}}))
+
+;; Multiple connections: Simple per-connection flow control
+(def chat-conn (ws/connect! {...}))   ; 10 credits
+(def files-conn (ws/connect! {...}))  ; 5 credits
+(def metrics-conn (ws/connect! {...}))  ; 20 credits
+```
+
+**Benefit:** OS-level TCP flow control handles backpressure automatically per connection.
+
+---
+
+**6. Authentication & Authorization Separation**
+
+```clojure
+;; Different tokens per connection
+(def user-conn (ws/connect! "ws://server.com/user"
+                            {:token user-token}))
+
+(def admin-conn (ws/connect! "ws://server.com/admin"
+                             {:token admin-token}))
+
+;; Server can enforce different policies per connection
+;; User connection: Limited rate
+;; Admin connection: Unlimited rate
+```
+
+**Benefit:** Fine-grained access control, easier security auditing.
+
+---
+
+### Disadvantages of Multiple Connections
+
+**1. Increased Overhead**
+
+```clojure
+;; Per connection overhead:
+;; - TCP handshake (1-3 RTT)
+;; - TLS handshake (2-4 RTT)
+;; - WebSocket upgrade (1 RTT)
+;; - Total: 4-8 RTT per connection
+
+;; Single connection: 4-8 RTT
+;; 5 connections: 20-40 RTT!
+
+;; Over 100ms mobile connection:
+;; Single: 400-800ms connection time
+;; Multiple: 2-4 seconds connection time!
+```
+
+**Cost:** Significant connection establishment overhead, especially on mobile.
+
+**Real-world observation:** Mobile apps typically minimize connections due to cellular latency. Each additional connection adds 200-500ms on 4G.
+
+---
+
+**2. Server Resource Usage**
+
+```clojure
+;; Server resources per connection:
+;; - File descriptor (1 per connection)
+;; - Socket buffer (32-64KB per connection)
+;; - TLS state (2-5KB per connection)
+;; - Application state (varies)
+
+;; 10,000 users × 3 connections = 30,000 connections!
+;; File descriptors: 30,000 (may hit ulimit)
+;; Socket buffers: 30,000 × 64KB = 1.9GB
+;; TLS state: 30,000 × 5KB = 150MB
+```
+
+**Cost:** 3x resource usage per user, potential scalability issues.
+
+**Real-world observation:** C10K problem becomes C30K problem with 3 connections per user. May require more servers or higher-end hardware.
+
+---
+
+**3. State Synchronization Complexity**
+
+```clojure
+;; Single connection: Simple state tracking
+(def user-state (atom {:user-id 123
+                       :last-activity (now)
+                       :subscriptions #{:chat :notifications}}))
+
+;; Multiple connections: Which connection tracks what?
+(def user-connections
+  {:chat {:conn chat-conn :last-activity (now)}
+   :files {:conn files-conn :last-activity (now)}
+   :metrics {:conn metrics-conn :last-activity (now)}})
+
+;; Problem: Is user "online" if chat disconnected but files connected?
+;; Problem: How to track last-activity across connections?
+;; Problem: Which connection sends notifications?
+```
+
+**Cost:** Complex logic for user presence, routing, state management.
+
+---
+
+**4. Message Ordering Issues**
+
+```clojure
+;; Single connection: Natural ordering
+(ws/send! conn {:type :create :id 1})
+(ws/send! conn {:type :update :id 1})  ; Arrives after create
+
+;; Multiple connections: Race conditions!
+(ws/send! conn-a {:type :create :id 1})
+(ws/send! conn-b {:type :update :id 1})  ; Might arrive BEFORE create!
+
+;; Requires explicit sequencing
+{:type :update
+ :id 1
+ :sequence-number 42
+ :depends-on 41}  ; Must apply after sequence 41
+```
+
+**Cost:** Need application-level sequencing, harder to debug race conditions.
+
+---
+
+**5. Connection Management Complexity**
+
+```clojure
+;; Single connection: Simple
+(defn ensure-connected! []
+  (when-not (ws/connected? conn)
+    (reconnect!)))
+
+;; Multiple connections: Coordination nightmare
+(defn ensure-all-connected! []
+  ;; Which to connect first?
+  ;; What if some succeed and others fail?
+  ;; Retry logic per connection?
+  ;; How to report partial connectivity?
+  (doseq [[name conn] connections]
+    (when-not (ws/connected? conn)
+      (try
+        (reconnect! name conn)
+        (catch Exception e
+          ;; Continue with other connections?
+          ;; Fail all?
+          (handle-partial-failure! name e))))))
+```
+
+**Cost:** Exponentially more complex reconnection logic, harder to test.
+
+---
+
+**6. Authentication Overhead**
+
+```clojure
+;; Single connection: Auth once
+(ws/connect! "ws://server.com" {:token (get-auth-token)})  ; 1 token fetch
+
+;; Multiple connections: Auth N times
+(ws/connect! "ws://server.com/chat" {:token (get-auth-token)})     ; Token fetch 1
+(ws/connect! "ws://server.com/files" {:token (get-auth-token)})    ; Token fetch 2
+(ws/connect! "ws://server.com/metrics" {:token (get-auth-token)})  ; Token fetch 3
+
+;; If token expires: Must refresh 3 connections!
+```
+
+**Cost:** 3x auth overhead, potential for inconsistent auth state.
+
+---
+
+**7. Harder to Maintain Message Context**
+
+```clojure
+;; Single connection: Request/response correlation
+(ws/send! conn {:id "req-1" :type :query :data "..."})
+;; Response comes back on same connection
+{:id "req-1" :type :response :data "..."}
+
+;; Multiple connections: Where does response go?
+(ws/send! query-conn {:id "req-1" :type :query :data "..."})
+;; Response might come on results-conn or query-conn?
+;; Client must listen on all connections for responses
+```
+
+**Cost:** More complex message routing on client side.
+
+---
+
+### Performance Comparison
+
+| Metric | Single Connection | Multiple Connections (3) |
+|--------|------------------|--------------------------|
+| **Connection time (mobile)** | 400-800ms | 1200-2400ms |
+| **Server memory (10K users)** | 640MB | 1920MB |
+| **File descriptors** | 10,000 | 30,000 |
+| **Complexity** | Low | High |
+| **Head-of-line blocking** | Possible | Eliminated |
+| **Failure isolation** | None | Good |
+| **Message ordering** | Guaranteed | Requires sequencing |
+
+---
+
+### Real-World Patterns
+
+**Pattern 1: Single Connection with Multiplexing (RECOMMENDED for most)**
+
+```clojure
+;; One connection, multiple logical streams
+(def conn (ws/connect! "ws://server.com"))
+
+;; Application-level multiplexing
+(ws/send! conn {:stream :chat :data "hello"})
+(ws/send! conn {:stream :files :data "..."})
+(ws/send! conn {:stream :metrics :data "..."})
+
+;; Server routes by stream
+(defn route-message! [conn msg]
+  (case (:stream msg)
+    :chat (handle-chat! conn msg)
+    :files (handle-files! conn msg)
+    :metrics (handle-metrics! conn msg)))
+```
+
+**When to use:**
+- Most applications
+- Cost-sensitive (mobile)
+- Simple state management
+- Guaranteed message ordering important
+
+**Examples:** WhatsApp Web, Telegram Web, most single-page apps
+
+---
+
+**Pattern 2: Two Connections (Control + Data)**
+
+```clojure
+;; Control channel: Small, latency-sensitive
+(def control-conn (ws/connect! "ws://server.com/control"))
+
+;; Data channel: Bulk transfers
+(def data-conn (ws/connect! "ws://server.com/data"))
+
+;; Control never blocked by data
+(ws/send! control-conn {:type :pause-upload})  ; Instant!
+```
+
+**When to use:**
+- Large file transfers + real-time control
+- Video/audio streaming + chat
+- Bulk data + notifications
+
+**Examples:** Video conferencing (Zoom, Meet), file sync apps (Dropbox)
+
+---
+
+**Pattern 3: Multiple Connections (Specialized)**
+
+```clojure
+;; Each connection to specialized backend
+(def chat-conn (ws/connect! "ws://chat-shard-1.com"))
+(def presence-conn (ws/connect! "ws://presence.com"))
+(def notifications-conn (ws/connect! "ws://notifications.com"))
+```
+
+**When to use:**
+- Microservices architecture
+- Geographic distribution
+- Different SLAs per service
+- Very high scale
+
+**Examples:** Slack (per-workspace), Discord (voice vs data), AWS real-time services
+
+---
+
+**Pattern 4: Connection Pool with Sharding**
+
+```clojure
+;; Pool of connections for load distribution
+(def connections
+  [(ws/connect! "ws://shard-1.com")
+   (ws/connect! "ws://shard-2.com")
+   (ws/connect! "ws://shard-3.com")])
+
+;; Hash-based routing
+(defn send-message! [msg]
+  (let [shard (mod (hash (:user-id msg)) (count connections))
+        conn (nth connections shard)]
+    (ws/send! conn msg)))
+```
+
+**When to use:**
+- Distributed state (user sharding)
+- Horizontal scaling
+- Very high message rates
+- Geographic distribution
+
+**Examples:** Large-scale gaming (MMOs), trading platforms, IoT backends
+
+---
+
+### Decision Framework
+
+**Choose SINGLE connection when:**
+
+✅ Application is relatively simple
+✅ Connection count matters (mobile, cost)
+✅ Message ordering is critical
+✅ State management should be simple
+✅ All traffic has similar latency requirements
+✅ Users typically online continuously
+
+**Choose MULTIPLE connections when:**
+
+✅ Large file transfers + real-time control needed
+✅ Different priority levels (critical vs bulk)
+✅ Microservices architecture (different backends)
+✅ Failure isolation is critical
+✅ Different SLAs per traffic type
+✅ Very high scale (horizontal scaling needed)
+✅ Geographic distribution (different regions)
+
+---
+
+### Hybrid Approach (RECOMMENDED)
+
+Start with single connection, add connections as needed:
+
+```clojure
+;; Phase 1: Single connection (MVP)
+(def conn (ws/connect! "ws://server.com"))
+
+;; Phase 2: Add data connection when needed
+(defn upgrade-to-dual-connection! []
+  (when (large-transfer-needed?)
+    (def data-conn (ws/connect! "ws://server.com/data"))
+    ;; Keep control-conn for everything else
+    (def control-conn conn)))
+
+;; Configuration-driven
+(defn connect! [config]
+  (if (:multi-connection? config)
+    (connect-multiple! config)
+    (connect-single! config)))
+```
+
+**Benefits:**
+- Start simple
+- Add complexity when justified
+- Can be feature-flag controlled
+- Backwards compatible
+
+---
+
+### Implementation Considerations for sente-lite
+
+**Support both patterns:**
+
+```clojure
+;; Single connection mode (default)
+(def client
+  (sente/make-client
+    {:uri "ws://server.com"
+     :mode :single}))
+
+;; Multiple connection mode (opt-in)
+(def client
+  (sente/make-client
+    {:connections {:control "ws://server.com/control"
+                   :data "ws://server.com/data"
+                   :metrics "ws://server.com/metrics"}
+     :mode :multiple}))
+
+;; Unified API works with both
+(sente/send! client {:stream :chat :data "hello"})
+```
+
+**API abstraction:** Hide connection complexity from application code.
+
+---
+
+### Key Recommendations for sente-lite
+
+1. **Default to single connection** with multiplexing
+2. **Provide multi-connection as opt-in feature** for advanced use cases
+3. **Implement stream-level flow control** on single connection to avoid head-of-line blocking
+4. **Allow configuration** via feature flags
+5. **Document trade-offs** clearly for users
+
+**Rationale:**
+- Single connection is simpler, cheaper, sufficient for 90% of use cases
+- Multi-connection available for the 10% that need it (file uploads, microservices, etc.)
+- Users can start simple, upgrade when needed
+
+---
+
 #### Observations & Real-World Considerations
 
 **A. Performance Characteristics**
