@@ -111,7 +111,7 @@
 (def validation-failures (atom []))
 
 ;; Validate server ran
-(when-not (= :passed (:status server-result))
+(when-not (= "passed" (:status server-result))
   (swap! validation-failures conj "Server did not pass"))
 
 ;; Validate clients connected
