@@ -282,14 +282,15 @@ sente_lite/
 
 ## Development Phases
 
-### Phase 0: Telemere-lite Foundation (Week 1)
+### Phase 0: Telemere-lite Foundation ✅ COMPLETE
 **Goal:** Unified telemetry library for BB and Scittle with maximum code sharing
+**Status:** Production-ready, all tests passing
 
 #### Strategy: Platform-Agnostic Core + Platform-Specific Backends
 Create a shared API that works in both BB and Scittle, with minimal platform-specific code.
 
 #### Focus: Shared Telemetry API with Reader Conditionals
-- [ ] **Core Telemere-lite** (`telemere-lite/`)
+- [x] **Core Telemere-lite** (`telemere-lite/`)
   - `core.cljc` - Shared API using reader conditionals
   - `signals.cljc` - Signal creation (works in BB and Scittle)
   - `structured.cljc` - JSON/EDN formatting (pure Clojure)
@@ -464,9 +465,10 @@ await page.evaluate(() => window.senteState);
 
 ### Phase 3: Advanced Features (Week 4)
 **Goal:** Production-ready features and optimizations
+**Status:** Partially complete (heartbeat done, reconnection done)
 
 #### Tasks:
-- [ ] Implement heartbeat/keepalive
+- [x] Implement heartbeat/keepalive
   - Client ping mechanism
   - Server handshake responses
   - Connection health monitoring
@@ -474,15 +476,88 @@ await page.evaluate(() => window.senteState);
   - Client-side event buffering
   - Batch send optimization
   - Offline queue management
-- [ ] Build error handling
+- [x] Build error handling
   - Comprehensive error events
   - Error recovery strategies
   - Debug mode with logging
 
 #### Deliverables:
-- Heartbeat mechanism
-- Message buffering
-- Robust error handling
+- [x] Heartbeat mechanism
+- [ ] Message buffering (deferred)
+- [x] Robust error handling
+
+### Phase 6: Connection Management ✅ COMPLETE (Added 2025-10-26)
+**Goal:** Production-ready connection lifecycle management
+**Status:** Complete with comprehensive test suite
+**Tag:** v0.6.0-socket-fix
+
+#### Implemented Features:
+- [x] **Server-side heartbeat** (`05_heartbeat.bb`)
+  - Configurable ping intervals (default: 30s)
+  - Configurable timeout detection (default: 60s)
+  - Automatic dead connection cleanup
+  - Telemetry events for monitoring
+
+- [x] **Client state tracking** (`06_state_tracking.bb`)
+  - 6-state machine: closed, connecting, open, closing, reconnecting, failed
+  - State change callbacks
+  - Auto-pong response to server pings
+  - Send validation (only works in :open state)
+
+- [x] **Auto-reconnection** (`07_reconnection.bb`)
+  - Exponential backoff: `initial-delay * (multiplier ^ attempt)`
+  - Jitter: ±25% randomness (prevents thundering herd)
+  - Max attempts tracking → :failed state
+  - Graceful vs unexpected close detection
+
+- [x] **Subscription restoration** (`08_subscription_restoration.bb`)
+  - Subscriptions tracked in client state
+  - Auto-restore on reconnection
+  - `subscribe!`, `unsubscribe!`, `get-subscriptions` API
+
+- [x] **Integration test** (`09_integration.bb`)
+  - 12 test scenarios covering all features
+  - Multiple disconnect/reconnect cycles
+  - Multiple independent clients
+  - State consistency validation
+
+#### Architecture:
+```clojure
+;; Managed WebSocket client with all features
+(def client
+  (wsm/create-managed-client
+   {:uri "ws://localhost:3000/"
+    :on-state-change (fn [old new] ...)
+    :on-message (fn [msg] ...)
+    :heartbeat {:auto-pong true}           ; Auto-respond to pings
+    :reconnect {:enabled true              ; Auto-reconnect on loss
+                :max-attempts 5
+                :initial-delay-ms 1000
+                :backoff-multiplier 2}}))
+
+;; Full API
+((:connect! client))
+((:disconnect! client))
+((:send! client) message)
+((:subscribe! client) "channel-id")
+((:unsubscribe! client) "channel-id")
+((:get-state client))           ; => :open
+((:get-subscriptions client))   ; => #{"channel-id"}
+```
+
+#### Test Results:
+- **22 total tests** across all phases
+- **100% pass rate** (0 failures)
+- **Complete coverage** of connection lifecycle
+- **Production-ready** architecture validated
+
+#### Deliverables:
+- [x] Server heartbeat with dead connection detection
+- [x] Client state machine with callbacks
+- [x] Exponential backoff reconnection
+- [x] Subscription restoration
+- [x] Comprehensive integration test
+- [x] Full documentation in test-use-cases-summary.md
 
 ### Phase 4: Extended Environments (Week 5)
 **Goal:** Support for nbb and JVM Clojure
@@ -620,7 +695,87 @@ await page.evaluate(() => window.senteState);
 5. **Create BB echo example** - Complete BB-to-BB communication test
 6. **Write BB test suite** - Tests that run entirely in Babashka
 
+## Current Status (2025-10-26)
+
+### ✅ COMPLETED
+
+**Phase 0: Telemere-lite Foundation**
+- ✅ Core telemetry library (`telemere-lite/core.cljc`)
+- ✅ Async handlers with performance benchmarks (24.5x improvement)
+- ✅ File-based logging with structured output
+- ✅ Event filtering and routing
+- ✅ Timbre integration
+- ✅ Complete test suite (6 tests passing)
+
+**Phase 6: Connection Management** (Production-Ready)
+- ✅ Server heartbeat with dead connection detection
+- ✅ Client state tracking (6 states: closed, connecting, open, closing, reconnecting, failed)
+- ✅ Auto-reconnection with exponential backoff
+- ✅ Subscription restoration after reconnect
+- ✅ Integration test (12/12 scenarios passing)
+- ✅ Complete test suite (22 tests total)
+
+**WebSocket Foundation**
+- ✅ HTTP-Kit server (`org.httpkit.server`)
+- ✅ Native BB client (`babashka.http-client.websocket`)
+- ✅ Channel system with pub/sub
+- ✅ Message broadcasting
+- ✅ RPC patterns
+- ✅ Wire format system (JSON, EDN, Transit)
+
+**Recent Enhancements (v0.6.0)**
+- ✅ Socket binding race condition identified and documented
+- ✅ Test environment fix (50ms delay after server startup)
+- ✅ Ephemeral port support (port 0) with 3 discovery methods
+- ✅ Enhanced telemetry (requested-port, actual-port, ephemeral?)
+- ✅ Production-ready architecture decisions
+
+### 🚧 IN PROGRESS
+
+**Testing Architecture**
+- ✅ Single-process tests (server + client in same BB)
+- 📋 Multi-process tests (separate BB processes) - PLANNED in FUTURE-ENHANCEMENTS.md
+
+### 📋 PLANNED
+
+See `doc/FUTURE-ENHANCEMENTS.md` for detailed roadmap:
+- Multi-process testing (HIGH priority)
+- Authentication & authorization
+- Browser client (Scittle)
+- nREPL integration
+- Performance optimizations
+
+---
+
 ## Updates Log
+
+### 2025-10-26 - Connection Management Complete & Port Discovery
+**Tag:** `v0.6.0-socket-fix`
+
+- ✅ **Phase 6 Complete**: Full connection management suite
+  - Server heartbeat (configurable intervals, timeouts)
+  - Client state machine (6 states with callbacks)
+  - Auto-reconnection with exponential backoff + jitter
+  - Subscription restoration after reconnection
+  - Integration test with 12 scenarios
+
+- ✅ **Socket Binding Investigation**: Root cause identified
+  - http-kit returns in ~14ms, socket ready in ~10-20ms
+  - Test environment fix: 50ms delay after server startup
+  - Production unaffected: clients use service discovery with natural delays
+  - Architecture decision: NO server changes, client reconnection handles edge cases
+
+- ✅ **Ephemeral Port Support**: Port 0 for flexible deployment
+  - `(server/get-server-port)` function
+  - `get-server-stats` includes `:actual-port`, `:requested-port`, `:ephemeral?`
+  - Server state atom includes `:actual-port`
+  - Telemetry events track both ports
+  - Use cases: testing, containers, development, service discovery
+
+- 📋 **Multi-Process Testing**: Documented future enhancement
+  - 6 test scenarios defined
+  - Implementation approaches outlined
+  - Estimated effort: 15-25 hours
 
 ### 2025-10-24 - Initial Plan
 - Created comprehensive implementation plan
