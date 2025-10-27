@@ -430,14 +430,19 @@
      #?(:bb
         (let [server (http/run-server (http-handler merged-config)
                                       {:port (:port merged-config)
-                                       :host (:host merged-config)})]
+                                       :host (:host merged-config)})
+              ;; Get actual bound port (supports ephemeral port 0)
+              actual-port (:local-port (meta server))]
 
           (reset! server-state {:server server
                                 :config merged-config
+                                :actual-port actual-port
                                 :start-time (System/currentTimeMillis)})
 
-          (tel/event! ::server-started {:port (:port merged-config)
-                                        :host (:host merged-config)})
+          (tel/event! ::server-started {:requested-port (:port merged-config)
+                                        :actual-port actual-port
+                                        :host (:host merged-config)
+                                        :ephemeral? (zero? (:port merged-config))})
 
           ;; Start heartbeat task
           (start-heartbeat-task! merged-config)
@@ -470,6 +475,20 @@
     (tel/event! ::server-stopped {})
     (tel/shutdown-telemetry!)))
 
+(defn get-server-port
+  "Get the actual bound port of the running server.
+   Returns nil if server is not running.
+
+   Useful when using ephemeral ports (port 0) to discover
+   the OS-assigned port number.
+
+   Example:
+     (start-server! {:port 0})  ; Use ephemeral port
+     (get-server-port)          ; => 55123 (actual assigned port)"
+  []
+  (when-let [state @server-state]
+    (:actual-port state)))
+
 (defn get-server-stats
   "Get comprehensive server statistics including channel information"
   []
@@ -478,6 +497,9 @@
         channel-stats (channels/get-channel-stats)]
     {:running? (boolean state)
      :config (:config state)
+     :actual-port (:actual-port state)
+     :requested-port (get-in state [:config :port])
+     :ephemeral? (when state (zero? (get-in state [:config :port])))
      :uptime-ms (when (:start-time state)
                   (- (System/currentTimeMillis) (:start-time state)))
      :connections {:active (count active-conns)

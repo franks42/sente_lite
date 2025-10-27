@@ -793,6 +793,138 @@ Attempt 5: 30000ms + jitter (capped at max-delay)
       - Multiple clients can coexist with independent state
       - Reconnection + subscription restoration work together
 
+#### Test Environment Considerations: Server Socket Binding Race Condition
+
+**Issue**: http-kit's `run-server` returns before socket is fully ready (~10-20ms binding time)
+
+**Impact on Tests**:
+- Test scripts connect immediately after `start-server!` returns
+- Socket not yet ready → connection refused → triggers reconnection logic
+- Production code NOT affected (clients discover servers via service discovery, DNS, config, etc. with much longer delays)
+
+**Solution for Tests**:
+```clojure
+(defn start-test-server! []
+  (server/start-server! {...})
+  ;; TEST ENVIRONMENT ONLY: Wait for socket binding
+  ;; Production clients have natural delays (service discovery, DNS, etc.)
+  ;; Tests connect immediately, so we add 50ms buffer
+  (Thread/sleep 50))
+```
+
+**Why 50ms?**
+- Socket typically ready in 10-20ms
+- 50ms provides safety margin for slower machines
+- Negligible in test context
+- Prevents confusing connection failures and unnecessary reconnection attempts
+
+**Why Not Fix Server Code?**
+- Not a production issue - clients naturally delayed
+- Client auto-reconnection handles edge cases correctly
+- Adding probing/delays in server adds unnecessary overhead
+- Test artifact should be handled in test code
+
+**Architecture Decision**:
+- Server: NO changes needed - returns quickly, socket ready shortly after
+- Client: Auto-reconnection handles connection refused gracefully
+- Tests: Add small delay to avoid testing reconnection when testing other features
+
+**Example**:
+```clojure
+;; WITHOUT delay (tests reconnection logic unintentionally):
+(start-test-server!)
+(def client (wsm/create-managed-client {...}))
+((:connect! client))
+;; → ConnectException → enters :reconnecting → 1+ second delay → success
+
+;; WITH delay (tests intended feature cleanly):
+(start-test-server!)
+(Thread/sleep 50)  ; Socket ready
+(def client (wsm/create-managed-client {...}))
+((:connect! client))
+;; → Immediate success in :open state
+```
+
+**Files Affected**:
+- `test/scripts/bb_client_tests/07_reconnection.bb:45` - 50ms delay added
+- All other test helpers should follow same pattern when needed
+
+#### Ephemeral Port Support (Added 2025-10-26) ✅
+
+**Feature**: Server supports OS-assigned ephemeral ports for flexible deployment
+
+**Implementation**:
+```clojure
+;; Use ephemeral port (OS assigns available port)
+(def server (server/start-server! {:port 0}))
+
+;; Discover actual assigned port - Three ways:
+;; 1. Function: get-server-port
+(def port (server/get-server-port))
+;; => 55123
+
+;; 2. Server stats: get-server-stats
+(def stats (server/get-server-stats))
+;; => {:actual-port 55123
+;;     :requested-port 0
+;;     :ephemeral? true
+;;     ...}
+
+;; 3. Server state atom (if needed)
+@sente-lite.server/server-state
+;; => {:actual-port 55123, ...}
+```
+
+**Telemetry Events**:
+```clojure
+;; ::server-started event includes both ports
+{:requested-port 0
+ :actual-port 55123
+ :host "localhost"
+ :ephemeral? true}
+```
+
+**Use Cases**:
+- **Testing**: Avoids port conflicts in concurrent test runs
+- **Containerized deployments**: Let orchestrator assign ports
+- **Development**: Multiple instances on same machine
+- **Service discovery**: Announce actual port to registry
+
+**Example: Test with Ephemeral Port**
+```clojure
+(defn start-test-server! []
+  ;; Request ephemeral port
+  (server/start-server! {:port 0
+                         :telemetry {:enabled true
+                                     :handler-id :test}})
+
+  ;; Get actual assigned port for clients
+  (def actual-port (server/get-server-port))
+
+  ;; Wait for socket binding (test environment only)
+  (Thread/sleep 50)
+
+  ;; Return port for client configuration
+  actual-port)
+
+;; Use in test
+(def port (start-test-server!))
+(def client (wsm/create-managed-client
+             {:uri (str "ws://localhost:" port "/")}))
+```
+
+**Implementation Details**:
+- HTTP-Kit's `run-server` returns stop function with metadata
+- Metadata contains `:local-port` with actual bound port
+- `get-server-port` extracts from metadata
+- Stats include `:requested-port`, `:actual-port`, `:ephemeral?`
+- Works seamlessly with fixed ports (port > 0)
+
+**Files Modified**:
+- `src/sente_lite/server.cljc:435-450` - Capture and store actual port
+- `src/sente_lite/server.cljc:478-490` - Add `get-server-port` function
+- `src/sente_lite/server.cljc:492-510` - Update `get-server-stats` with port info
+
 ### Additional Test (Not in Runner)
 
 12. **test_wire_formats.bb** - Wire Format System

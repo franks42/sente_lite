@@ -37,7 +37,12 @@
                         :handler-id :reconnection-test}
             :heartbeat {:enabled false}
             :channels {:auto-create false}}))
-  (Thread/sleep 1000)) ; Wait for server to be ready
+  ;; TEST ENVIRONMENT ONLY: http-kit's run-server returns before socket is fully
+  ;; ready to accept connections (~10-20ms). In production, clients discover the
+  ;; server after much longer delays (service discovery, DNS, etc.) so this is
+  ;; never an issue. Tests connect immediately, so we add 50ms to avoid confusing
+  ;; connection failures that trigger unnecessary reconnection attempts.
+  (Thread/sleep 50))
 
 ;; Helper to stop server
 (defn stop-test-server! []
