@@ -67,6 +67,27 @@ Since this is a library without build configuration files, there are no standard
 - Integration with Timbre for formatting
 - Full observability across client and server
 
+### Memory Storage (MCP)
+**ALWAYS use proper array format for tags** - String format will fail and waste tokens.
+
+**CORRECT FORMAT:**
+```clojure
+(mcp__memory__store_memory
+  {:content "Your content here"
+   :metadata {:tags ["tag1", "tag2", "tag3"]}})
+```
+
+**INCORRECT FORMAT (WILL FAIL):**
+```clojure
+;; ❌ WRONG - This will fail with "is not of type 'array'" error
+(mcp__memory__store_memory
+  {:content "Your content here"
+   :metadata {:tags "tag1,tag2,tag3"}})
+```
+
+**Common mistake**: Using comma-separated string instead of array
+**Fix**: Always use `["tag1", "tag2"]` NOT `"tag1,tag2"`
+
 ### Terminology
 - **"snapshot"**: When mentioned, this means to commit, push, and tag the current changes to the repository
 
