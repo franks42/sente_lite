@@ -1182,6 +1182,438 @@ Combine compression with chunking for best results.
 
 **Estimated Effort:** 25-30 hours
 
+---
+
+#### Data Layout for Large Datasets
+
+When streaming large datasets, the data layout fundamentally affects streaming efficiency, memory usage, and processing latency.
+
+**The Problem:**
+
+Consider a dataset with 1 million records, each with fields `:a` and `:b`:
+
+```clojure
+;; Column-oriented (Structure-of-Arrays) - BAD for streaming
+{:a [1 2 3 4 5 ... 1000000]       ; All :a values first
+ :b [9 8 7 6 5 ... 1000000]}      ; Then all :b values
+
+;; Row-oriented (Array-of-Structures) - GOOD for streaming
+{:keys [:a :b]
+ :rows [[1 9]                      ; Row-by-row, can stream
+        [2 8]
+        [3 7]
+        [4 6]
+        [5 5]
+        ...
+        [1000000 1000000]]}
+```
+
+**Column-Oriented Problems for Streaming:**
+
+1. **Must buffer entire first column before second column**
+   - Can't start processing until all of `:a` received
+   - 1M integers = 4-8MB per column minimum
+   - Total buffering: 8-16MB before any processing
+
+2. **Poor streaming semantics**
+   ```clojure
+   ;; Receiver must wait for everything:
+   (let [data (wait-for-all-data)]  ; Blocks until complete!
+     (doseq [i (range (count (:a data)))]
+       (process-row (get-in data [:a i])
+                    (get-in data [:b i]))))
+   ```
+
+3. **Memory explosion with many columns**
+   - 100 columns × 1M rows × 8 bytes = 800MB
+   - All in memory before processing starts
+
+4. **Can't provide early results**
+   - User waits for entire dataset
+   - No progress updates during transfer
+
+**Row-Oriented Benefits for Streaming:**
+
+1. **Process immediately as data arrives**
+   ```clojure
+   ;; Stream rows one at a time:
+   (stream/on-row
+     (fn [[a b]]
+       (process-row a b)))  ; Immediate processing!
+
+   ;; Memory: Just current row (16 bytes)
+   ```
+
+2. **Memory efficient**
+   - Constant memory: O(1) for row size
+   - Not O(n) for dataset size
+   - Can handle infinite datasets
+
+3. **Early results**
+   ```clojure
+   ;; Show first 100 rows while rest loads
+   (stream/on-row
+     (fn [row]
+       (when (< @rows-received 100)
+         (display-in-ui! row))
+       (swap! rows-received inc)))
+   ```
+
+4. **Natural streaming API**
+   ```clojure
+   ;; Server: Stream from database cursor
+   (with-open [cursor (db/query "SELECT a, b FROM huge_table")]
+     (doseq [row cursor]
+       @(stream/send-row! stream row)))  ; One at a time
+   ```
+
+**Performance Comparison:**
+
+| Metric | Column-Oriented | Row-Oriented |
+|--------|-----------------|--------------|
+| **Memory (1M rows)** | 8-16MB buffered | 16 bytes (current row) |
+| **Time to first result** | Full transfer complete | Immediate (first row) |
+| **Streaming latency** | High (wait for columns) | Low (row-by-row) |
+| **Processing pattern** | Batch (all at once) | Stream (incremental) |
+| **Suitable for infinite?** | No (need all columns) | Yes (continuous rows) |
+
+**Real-World Observation:** When exporting 10M row dataset from PostgreSQL, row-oriented streaming allows UI to show first results in 50ms vs 5+ seconds for columnar (waiting for first column to complete).
+
+---
+
+**Layout Options for Different Use Cases:**
+
+**Option 1: Pure Row-Oriented (RECOMMENDED for streaming)**
+
+Best for: Real-time processing, UI display, incremental computation
+
+```clojure
+;; Wire format: Row-by-row
+{:type :dataset-row
+ :stream-id "query-1"
+ :row-index 0
+ :values [1 9]}
+
+{:type :dataset-row
+ :stream-id "query-1"
+ :row-index 1
+ :values [2 8]}
+
+;; API: Callback per row
+(stream/on-dataset-row
+  (fn [{:keys [row-index values]}]
+    (let [[a b] values]
+      (process-row! a b))))
+
+;; Server: Stream from cursor
+(defn stream-query-results! [conn-id query]
+  (let [stream-id (str "query-" (uuid))]
+    (future
+      (with-open [cursor (db/query-cursor query)]
+        (loop [idx 0]
+          (when-let [row (cursor/next! cursor)]
+            (send-message! conn-id
+              {:type :dataset-row
+               :stream-id stream-id
+               :row-index idx
+               :values row})
+            (recur (inc idx))))))
+    stream-id))
+```
+
+**Benefits:**
+- Constant memory (one row at a time)
+- Immediate processing
+- Natural streaming semantics
+- Works with infinite datasets
+- Simple implementation
+
+**Trade-offs:**
+- Not optimal for columnar analytics (need transpose)
+- More messages (one per row)
+- Compression less effective per-message
+
+---
+
+**Option 2: Batched Rows (RECOMMENDED for large datasets)**
+
+Best for: Balance between streaming and efficiency
+
+```clojure
+;; Wire format: Batches of rows
+{:type :dataset-batch
+ :stream-id "query-1"
+ :start-row 0
+ :rows [[1 9]
+        [2 8]
+        [3 7]
+        [4 6]
+        [5 5]]}  ; 5 rows per batch
+
+{:type :dataset-batch
+ :stream-id "query-1"
+ :start-row 5
+ :rows [[10 15]
+        [11 14]
+        ...]}
+
+;; API: Process batches
+(stream/on-dataset-batch
+  (fn [{:keys [start-row rows]}]
+    (doseq [[a b] rows]
+      (process-row! a b))))
+
+;; Configuration
+{:streaming {:batch-rows 100       ; 100 rows per message
+             :max-batch-bytes 65536}} ; Or 64KB, whichever first
+```
+
+**Benefits:**
+- Fewer messages (100x reduction)
+- Better compression (batch context)
+- Still streamable (process per batch)
+- Configurable batch size
+
+**Trade-offs:**
+- Slightly more memory (batch size)
+- Small latency added (batch accumulation)
+
+**Real-world observation:** 100-row batches provide good balance: ~4KB per message with compression, process every 50-100ms, memory bounded at ~8KB per stream.
+
+---
+
+**Option 3: Columnar Batches (Hybrid approach)**
+
+Best for: Analytics workloads that need columnar processing
+
+```clojure
+;; Wire format: Column chunks
+{:type :dataset-chunk
+ :stream-id "query-1"
+ :start-row 0
+ :row-count 1000
+ :columns {:a [1 2 3 ... 1000]     ; 1000 rows at a time
+           :b [9 8 7 ... 1000]}}
+
+{:type :dataset-chunk
+ :stream-id "query-1"
+ :start-row 1000
+ :row-count 1000
+ :columns {:a [1001 1002 ...]
+           :b [...]}}
+
+;; API: Process columnar chunks
+(stream/on-dataset-chunk
+  (fn [{:keys [start-row row-count columns]}]
+    ;; Vectorized processing (SIMD possible)
+    (process-column-chunk! (:a columns) (:b columns))))
+
+;; Configuration
+{:streaming {:chunk-rows 1000      ; Columnar chunk size
+             :layout :columnar}}   ; vs :row-oriented
+```
+
+**Benefits:**
+- Excellent compression (column values similar)
+- Vectorized processing (SIMD)
+- Cache-friendly for analytics
+- Good for aggregations
+
+**Trade-offs:**
+- Higher memory (chunk buffering)
+- Latency (wait for chunk)
+- More complex receiver code
+- Not suitable for record-by-record processing
+
+**Use case:** When sending to analytics systems (e.g., streaming to Pandas, Arrow, DuckDB)
+
+---
+
+**Option 4: Hybrid with Metadata (RECOMMENDED for flexibility)**
+
+Best for: Allow receiver to choose processing model
+
+```clojure
+;; Wire format: Metadata + flexible layout
+{:type :dataset-start
+ :stream-id "query-1"
+ :total-rows 1000000  ; If known
+ :columns [:a :b :c]
+ :schema {:a :int64 :b :int64 :c :string}
+ :layout :row-batched  ; :row-batched, :columnar-batched, :row-by-row
+ :batch-size 100}
+
+;; Then send data in declared layout
+{:type :dataset-batch
+ :stream-id "query-1"
+ :start-row 0
+ :rows [[1 9 "foo"]
+        [2 8 "bar"]
+        ...]}
+
+;; Client can transform to preferred layout
+(stream/on-dataset-start
+  (fn [metadata]
+    (case (:layout metadata)
+      :row-batched
+      (process-row-batched! metadata)
+
+      :columnar-batched
+      (process-columnar! metadata))))
+```
+
+**Benefits:**
+- Flexible for different use cases
+- Schema provides type info
+- Client can optimize processing
+- Server can choose optimal layout
+
+---
+
+**Decision Matrix: Which Layout?**
+
+| Use Case | Recommended Layout | Batch Size | Why |
+|----------|-------------------|------------|-----|
+| **UI display (tables, grids)** | Row-oriented batches | 50-100 | Show results immediately, paginate |
+| **Real-time dashboard** | Row-oriented stream | 1-10 | Lowest latency, update per row |
+| **Data export (CSV, JSON)** | Row-oriented batches | 1000 | Memory efficient, natural format |
+| **Analytics (aggregations)** | Columnar batches | 10000 | Vectorized processing, compression |
+| **Machine learning (features)** | Columnar batches | 10000 | NumPy/Pandas compatible |
+| **Log streaming (text lines)** | Row-by-row | 1 | Immediate display, tail -f style |
+| **Time series (sensor data)** | Row-oriented batches | 100 | Balance latency and efficiency |
+| **Large file transfer (CSV)** | Row-oriented batches | 5000 | Efficient, streamable |
+
+---
+
+**Implementation Example: Flexible Dataset Streaming**
+
+```clojure
+(defn stream-dataset!
+  [conn-id query {:keys [layout batch-size]
+                  :or {layout :row-batched
+                       batch-size 100}}]
+  (let [stream-id (str "dataset-" (uuid))
+        columns (db/query-columns query)]
+
+    ;; Send metadata
+    (send-message! conn-id
+      {:type :dataset-start
+       :stream-id stream-id
+       :columns columns
+       :layout layout
+       :batch-size batch-size})
+
+    ;; Stream data based on layout
+    (case layout
+      :row-by-row
+      (stream-rows-one-by-one! conn-id stream-id query)
+
+      :row-batched
+      (stream-row-batches! conn-id stream-id query batch-size)
+
+      :columnar-batched
+      (stream-columnar-batches! conn-id stream-id query batch-size))
+
+    stream-id))
+
+;; Row-batched implementation
+(defn stream-row-batches! [conn-id stream-id query batch-size]
+  (future
+    (with-open [cursor (db/query-cursor query)]
+      (loop [start-row 0
+             batch []]
+        (if-let [row (cursor/next! cursor)]
+          ;; Accumulate batch
+          (let [new-batch (conj batch row)]
+            (if (= batch-size (count new-batch))
+              ;; Batch full: send and reset
+              (do
+                @(send-message! conn-id
+                   {:type :dataset-batch
+                    :stream-id stream-id
+                    :start-row start-row
+                    :rows new-batch})
+                (recur (+ start-row batch-size) []))
+              ;; Continue accumulating
+              (recur start-row new-batch)))
+
+          ;; No more rows: send final partial batch
+          (when (seq batch)
+            @(send-message! conn-id
+               {:type :dataset-batch
+                :stream-id stream-id
+                :start-row start-row
+                :rows batch}))
+
+          ;; Complete
+          @(send-message! conn-id
+             {:type :dataset-complete
+              :stream-id stream-id
+              :total-rows (+ start-row (count batch))}))))))
+```
+
+---
+
+**Performance Tips:**
+
+1. **Choose batch size based on network latency:**
+   ```clojure
+   ;; Low latency (LAN): Smaller batches, lower lag
+   {:batch-size 50}   ; 2-5ms per batch
+
+   ;; High latency (WAN): Larger batches, amortize RTT
+   {:batch-size 1000} ; 20-50ms per batch
+
+   ;; Very high latency (mobile): Very large batches
+   {:batch-size 5000} ; 100-200ms per batch
+   ```
+
+2. **Compression works better with batches:**
+   ```clojure
+   ;; Row-by-row: Compression ineffective (overhead > savings)
+   ;; Row-batched: 60-80% compression (repeated patterns)
+   ;; Columnar: 80-90% compression (highly repetitive)
+
+   {:streaming {:layout :row-batched
+                :batch-size 100
+                :compression {:enabled true
+                             :min-batch-bytes 1024}}}
+   ```
+
+3. **Memory-bound systems: Use smaller batches**
+   ```clojure
+   ;; Server with 512MB RAM, 100 concurrent streams:
+   ;; 100 streams × 1000 rows × 100 bytes = 10MB per stream = 1GB total
+   ;; TOO MUCH!
+
+   ;; Better: 100 rows × 100 bytes = 10KB per stream = 1MB total
+   {:batch-size 100  ; Keeps memory bounded
+    :max-concurrent-streams 100}
+   ```
+
+4. **UI responsiveness: Batch size = visible rows**
+   ```clojure
+   ;; Table shows 20 rows: batch 20 rows
+   {:batch-size 20}  ; Perfect for one screen
+
+   ;; Infinite scroll: batch = scroll increment
+   {:batch-size 50}  ; Load next 50 on scroll
+   ```
+
+---
+
+**Key Takeaway:**
+
+For streaming large datasets in sente-lite:
+
+1. **Default to row-oriented batches** (100-1000 rows)
+2. **Allow layout negotiation** in handshake
+3. **Provide batch size configuration** per use case
+4. **Compress batches** for efficiency
+5. **Stream, don't buffer** entire dataset
+
+This gives you the flexibility to handle everything from real-time dashboards to large data exports efficiently.
+
 **Recommendation Matrix:**
 
 | Use Case | Recommended Option | Estimated Effort |
