@@ -36,7 +36,11 @@
    {:id "05"
     :name "Process Failure"
     :script (str script-dir "/05_process_failure.bb")
-    :description "Kill client, server cleanup"}])
+    :description "Kill client, server cleanup"}
+   {:id "06"
+    :name "Stress Test"
+    :script (str script-dir "/06_stress_test.bb")
+    :description "20 clients, high message throughput"}])
 
 (def results (atom []))
 
