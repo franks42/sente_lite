@@ -286,6 +286,53 @@ sente_lite/
 **Goal:** Unified telemetry library for BB and Scittle with maximum code sharing
 **Status:** Production-ready, all tests passing
 
+#### Recent Updates (v0.7.0 - v0.7.4, October 2025)
+
+**v0.7.0 - Major Improvements**
+- [x] **Shutdown Hook** - Automatic async handler cleanup on JVM exit
+- [x] **Regex Pre-compilation** - 2-10x faster namespace/event-ID filtering
+- [x] **Customizable Error Handler** - `set-error-handler!` for custom error handling
+- [x] **Tests**: 14 tests, 43 assertions covering all improvements
+
+**v0.7.1 - Bugfix**
+- [x] **Event-ID Filtering Fix** - Corrected keyword→string conversion bug
+
+**v0.7.4 - Documentation Sprint 1**
+- [x] **30-Second Quick Start** - Working code example first
+- [x] **Troubleshooting Section** - Step-by-step debugging help
+- [x] **Complete API Reference** - 100% coverage with inspection functions
+- [x] **Performance Benchmarks** - Real test data (2x regex speedup documented)
+- [x] **Updated Comparison Table** - Highlights v0.7.0+ features vs Telemere
+
+**Architectural Review (October 2025)**
+- ✅ **Production-ready**: Functionality complete, tests passing, performance good
+- ✅ **Thread safety**: Non-daemon threads are SAFE due to shutdown hook (documented in code)
+- ✅ **Single-file design**: Intentional for Scittle convenience (648 LOC acceptable)
+- ⚠️ **Global mutable state**: Acknowledged, low priority for current use case
+- ⚠️ **JSON structure complexity**: Noted for potential future cleanup
+
+#### Outstanding Work
+
+**Testing Gaps (Medium Priority)**
+- [ ] **Backpressure Tests** - Verify async handler behavior under load:
+  - [ ] `:blocking` mode - Verify signals wait when buffer full
+  - [ ] `:dropping` mode - Verify signals dropped when buffer full
+  - [ ] `:sliding` mode - Verify oldest signals removed when buffer full
+  - [ ] Buffer overflow scenarios (queue full, rapid signals)
+  - [ ] Graceful degradation under extreme load
+  - [ ] Stats tracking accuracy (`:queued`, `:processed`, `:dropped`, `:errors`)
+
+**Architecture Improvements (Low Priority)**
+- [ ] Namespace refactoring (if multi-file becomes necessary)
+- [ ] Replace global state with runtime configuration map
+- [ ] Simplify JSON output structure (remove dual context locations)
+- [ ] Move inline "PHASE:" comments to documentation
+
+**Future Enhancements**
+- [ ] Sampling/rate limiting for high-volume scenarios
+- [ ] Additional handler ecosystem (beyond files, stdout, custom)
+- [ ] Browser → Server telemetry batching (Scittle → BB)
+
 #### Strategy: Platform-Agnostic Core + Platform-Specific Backends
 Create a shared API that works in both BB and Scittle, with minimal platform-specific code.
 
