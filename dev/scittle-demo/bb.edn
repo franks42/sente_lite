@@ -1,8 +1,16 @@
 {:deps {io.github.babashka/sci.nrepl
         {:git/sha "4f7f6d652a71b5bdc0c110313a4908d956e7a97d"}
         io.github.babashka/http-server
-        {:git/sha "b38c1f16ad2c618adae2c3b102a5520c261a7dd3"}}
- :tasks {http-server {:doc "Starts http server for serving static files"
+        {:git/sha "b38c1f16ad2c618adae2c3b102a5520c261a7dd3"}
+        babashka/nrepl-client
+        {:git/url "https://github.com/babashka/nrepl-client"
+         :git/sha "19fbef2525e47d80b9278c49a545de58f48ee7cf"}}
+
+ :tasks {;; ============================================================================
+         ;; Server Management Tasks
+         ;; ============================================================================
+
+         http-server {:doc "Starts http server for serving static files"
                       :requires ([babashka.http-server :as http])
                       :task (do (http/serve {:port 1341 :dir "."})
                                 (println "Serving static assets at http://localhost:1341"))}
@@ -19,5 +27,115 @@
 
          -dev {:depends [http-server browser-nrepl bb-nrepl]}
 
-         dev {:task (do (run '-dev {:parallel true})
-                        (deref (promise)))}}}
+         dev {:doc "Start all 4 services (ports 1338, 1339, 1340, 1341)"
+              :task (do (run '-dev {:parallel true})
+                        (deref (promise)))}
+
+         ;; ============================================================================
+         ;; Evaluation Tasks
+         ;; ============================================================================
+
+         eval-bb {:doc "Eval code in BB server (port 1338). Usage: bb eval-bb '(+ 1 2 3)'"
+                  :requires ([babashka.nrepl-client :as nrepl])
+                  :task (let [code (first *command-line-args*)]
+                          (when-not code
+                            (println "Usage: bb eval-bb '<code>'")
+                            (System/exit 1))
+                          (let [result (nrepl/eval-expr {:port 1338 :expr code})]
+                            (println (:vals result))))}
+
+         eval-browser {:doc "Eval code in browser (port 1339). Usage: bb eval-browser '(+ 1 2 3)'"
+                       :requires ([babashka.nrepl-client :as nrepl])
+                       :task (let [code (first *command-line-args*)]
+                               (when-not code
+                                 (println "Usage: bb eval-browser '<code>'")
+                                 (System/exit 1))
+                               (let [result (nrepl/eval-expr {:port 1339 :expr code})]
+                                 (println (:vals result))))}
+
+         ;; ============================================================================
+         ;; File Loading Tasks
+         ;; ============================================================================
+
+         load-bb {:doc "Load file in BB server. Usage: bb load-bb <file-path>"
+                  :requires ([babashka.nrepl-client :as nrepl]
+                             [clojure.java.io :as io])
+                  :task (let [file-path (first *command-line-args*)]
+                          (when-not file-path
+                            (println "Usage: bb load-bb <file-path>")
+                            (System/exit 1))
+                          (when-not (.exists (io/file file-path))
+                            (println "Error: File not found:" file-path)
+                            (System/exit 1))
+                          (println "Loading" file-path "into BB server...")
+                          (let [code (slurp file-path)
+                                result (nrepl/eval-expr {:port 1338 :expr code})]
+                            (if (:ex result)
+                              (do (println "❌ Error:" (:ex result))
+                                  (System/exit 1))
+                              (do (println "✅ Loaded successfully")
+                                  (when-let [vals (:vals result)]
+                                    (println "Result:" vals))))))}
+
+         load-browser {:doc "Load file in browser. Usage: bb load-browser <file-path>"
+                       :requires ([babashka.nrepl-client :as nrepl]
+                                  [clojure.java.io :as io])
+                       :task (let [file-path (first *command-line-args*)]
+                               (when-not file-path
+                                 (println "Usage: bb load-browser <file-path>")
+                                 (System/exit 1))
+                               (when-not (.exists (io/file file-path))
+                                 (println "Error: File not found:" file-path)
+                                 (System/exit 1))
+                               (println "Loading" file-path "into browser...")
+                               (let [code (slurp file-path)
+                                     result (nrepl/eval-expr {:port 1339 :expr code})]
+                                 (if (:ex result)
+                                   (do (println "❌ Error:" (:ex result))
+                                       (System/exit 1))
+                                   (do (println "✅ Loaded successfully")
+                                       (when-let [vals (:vals result)]
+                                         (println "Result:" vals))))))}
+
+         load-both {:doc "Load file in BOTH BB server and browser. Usage: bb load-both <file-path>"
+                    :task (let [file-path (first *command-line-args*)]
+                            (when-not file-path
+                              (println "Usage: bb load-both <file-path>")
+                              (System/exit 1))
+                            (println "\n📦 Loading into BB server...")
+                            (run 'load-bb {:parallel false})
+                            (println "\n📦 Loading into browser...")
+                            (run 'load-browser {:parallel false})
+                            (println "\n✅ Loaded in both environments"))}
+
+         ;; ============================================================================
+         ;; Health Check Tasks
+         ;; ============================================================================
+
+         check-bb {:doc "Check if BB server is responding"
+                   :requires ([babashka.nrepl-client :as nrepl])
+                   :task (try
+                           (let [result (nrepl/eval-expr {:port 1338 :expr "(+ 1 1)" :timeout-ms 2000})]
+                             (if (= ["2"] (:vals result))
+                               (println "✅ BB server (port 1338) is responding")
+                               (println "⚠️  BB server responded but with unexpected result:" result)))
+                           (catch Exception e
+                             (println "❌ BB server (port 1338) not responding:" (.getMessage e))
+                             (System/exit 1)))}
+
+         check-browser {:doc "Check if browser is responding"
+                        :requires ([babashka.nrepl-client :as nrepl])
+                        :task (try
+                                (let [result (nrepl/eval-expr {:port 1339 :expr "(+ 1 1)" :timeout-ms 2000})]
+                                  (if (= ["2"] (:vals result))
+                                    (println "✅ Browser (port 1339) is responding")
+                                    (println "⚠️  Browser responded but with unexpected result:" result)))
+                                (catch Exception e
+                                  (println "❌ Browser (port 1339) not responding:" (.getMessage e))
+                                  (System/exit 1)))}
+
+         check-all {:doc "Check if both BB server and browser are responding"
+                    :task (do
+                            (run 'check-bb {:parallel false})
+                            (run 'check-browser {:parallel false})
+                            (println "\n✅ All services operational"))}}}
