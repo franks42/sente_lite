@@ -13,7 +13,11 @@
       "Bash(git commit:*)",
       "Bash(./run_tests.bb:*)",
       "Bash(git push:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(pkill:*)",
+      "Bash(lsof:*)",
+      "Bash(bb:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

@@ -24,7 +24,7 @@
     :wire-format :edn  ; Default EDN for Clojure-to-Clojure
     :telemetry {:enabled true}
     :heartbeat {:enabled true
-                :ping-interval-ms 5000}  ; Send ping every 5 seconds
+                :interval-ms 5000}  ; Send ping every 5 seconds
     :channels {:auto-create true}}))
 
 (def actual-port (server/get-server-port))
