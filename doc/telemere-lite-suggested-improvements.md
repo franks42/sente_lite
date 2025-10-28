@@ -8,61 +8,105 @@
 
 ---
 
-## TL;DR - Do These Two Things Now
+## TL;DR - Implementation Status & Next Steps
 
-**Current Assessment:** Code is production-ready (8/10) but missing two critical improvements.
+**Review Date:** October 27, 2025  
+**Implementation Status:** ✅ Critical fixes completed, bugs discovered and fixed
 
-### 🔴 CRITICAL: Add Shutdown Hook (15 minutes)
+### ✅ COMPLETED: Critical Fixes Implemented
 
-**Why:** Without this, your async handler threads leak on server restart/shutdown.
+**1. Shutdown Hook** ✅ (Implemented)
+- Prevents async handler thread leaks on server restart/shutdown
+- JVM shutdown hook registered on first async handler
+- **Status:** Shipped in recent commits
 
-```clojure
-;; Add after line 413 (in async-handler-wrapper or at top level):
-(defonce shutdown-hook-installed? (atom false))
+**2. Regex Pre-compilation** ✅ (Implemented)  
+- Patterns compiled once at filter-set time (10-50x faster)
+- Changed from runtime compilation to pre-compiled Pattern storage
+- **Status:** Shipped in recent commits
 
-(defn- ensure-shutdown-hook! []
-  "Ensure async handlers cleanup on JVM shutdown"
-  (when (compare-and-set! shutdown-hook-installed? false true)
-    (.addShutdownHook (Runtime/getRuntime)
-                     (Thread. ^Runnable shutdown-telemetry!))))
+**3. Error Handler** ✅ (Implemented)
+- Configurable error handler with full stack traces
+- Fallback error handling if custom handler fails
+- **Status:** Shipped in recent commits
 
-;; Call in add-handler! when first async handler is added (line ~470):
-(defn add-handler! [handler-id handler-fn opts]
-  (when (:async opts)
-    (ensure-shutdown-hook!))  ;; <-- ADD THIS LINE
-  ...)
-```
+### 🔴 CRITICAL BUGS DISCOVERED & FIXED
 
-### 🟡 HIGH PRIORITY: Pre-compile Regex Patterns (30 minutes)
+**Bug #1: Event-ID Lost in Signal Map** ✅ (Fixed in v0.7.1)
+- **Problem:** `:event-id` was buried in `:msg` context, not at signal top level
+- **Impact:** Handlers received `nil`, event-ID filtering couldn't work
+- **Fix:** Event-ID now preserved at signal top level
+- **Commit:** 4eac9b8 - "fix: Add filtering behavior tests and fix critical event-id bug"
 
-**Why:** Currently recompiling patterns on EVERY log check = 10-50x slower.
+**Bug #2: Filtering Not Validated** ✅ (Fixed in v0.7.1)
+- **Problem:** Tests only checked filter structure, never validated actual blocking
+- **Impact:** Broken filtering shipped without detection
+- **Fix:** Added behavioral tests for namespace and event-ID filtering
+- **Tests Added:** `ns-filter-behavior-test`, `event-id-filter-behavior-test`
 
-```clojure
-;; Replace ns-filter definition (line ~103):
-(defonce ns-filter 
-  (atom {:allow-re [(re-pattern ".*")]
-         :deny-re []}))
+### 🔴 URGENT: Complete Behavioral Test Coverage (Do Today - 2.5 hours)
 
-;; Update set-ns-filter! (line ~288):
-(defn set-ns-filter! [{:keys [allow disallow]}]
-  (let [compile-patterns (fn [patterns]
-          (mapv #(re-pattern (str/replace (str %) "*" ".*")) 
-                (if (coll? patterns) patterns [patterns])))
-        allow-re (compile-patterns (or allow "*"))
-        deny-re (compile-patterns (or disallow []))]
-    (reset! ns-filter {:allow-re allow-re :deny-re deny-re})))
+The filtering bug revealed that **complex code paths lack end-to-end validation**. Async handlers have similar risk.
 
-;; Update ns-allowed? (line ~116):
-(defn- ns-allowed? [ns-str]
-  (let [{:keys [allow-re deny-re]} @ns-filter
-        denied? (some #(re-matches % ns-str) deny-re)
-        allowed? (some #(re-matches % ns-str) allow-re)]
-    (and (not denied?) allowed?)))
+**Remaining Phase 1 Tests:**
 
-;; Same pattern for event-id-filter
-```
+**3. Async Backpressure Tests** (60 min) - HIGHEST PRIORITY
+- Test dropping mode (signals dropped when queue full)
+- Test blocking mode (caller blocks until space available)
+- Test sliding mode (oldest signals dropped)
+- **Why Critical:** Complex state management, high risk of data flow bugs like filtering
 
-**Impact:** Do both fixes = 1 hour work, prevents thread leaks + major performance win.
+**4. Handler Failure Isolation** (30 min)
+- Verify one handler failure doesn't stop other handlers
+- Test error recovery paths
+- **Why Critical:** Production reliability depends on this
+
+**5. Serialization Edge Cases** (45 min)
+- Test circular references (don't stack overflow)
+- Test deep nesting (1000+ levels)
+- Test special types (atoms, functions, classes)
+- **Why Critical:** Recursive code can crash production
+
+**Expected Results:**
+- ✅ 75-80% test coverage (from current 70%)
+- ✅ High confidence in async handler correctness
+- ✅ Production-ready error handling validated
+- ✅ No serialization crashes in production
+
+**Why This Is Urgent:**
+
+The filtering bug pattern:
+1. ❌ Complex code path (filtering with regexes)
+2. ❌ Structure tests only (verified Pattern objects exist)
+3. ❌ No behavioral validation (never checked if filtering actually worked)
+4. ❌ **Bug shipped to production** (event-ID lost, filtering broken)
+
+Async handlers are **more complex** than filtering:
+- Multiple threads, shared state, three backpressure modes
+- **Same risk profile** - needs behavioral testing, not just structure
+
+### Test Results Summary
+
+**Before Bug Fixes:**
+- Tests: 12, Assertions: 39
+- Failures: 2 (filtering didn't work!)
+- Coverage: ~60%
+
+**After Bug Fixes (v0.7.1):**
+- Tests: 14, Assertions: 43
+- Failures: 0 ✅
+- Coverage: ~70%
+
+**After Phase 1 Tests (Target):**
+- Tests: ~17-18
+- Assertions: ~55-60
+- Coverage: 75-80%
+- **Confidence:** High for production use
+
+**Git Status:**
+- Latest: v0.7.1-filtering-bugfix
+- Commit: 4eac9b8
+- Status: Pushed to origin/main
 
 ---
 
@@ -72,7 +116,19 @@ The telemere-lite library is a well-structured telemetry solution that provides 
 
 **IMPORTANT:** This review has been updated to account for Babashka's SCI (Small Clojure Interpreter) limitations, including restricted Java interop and runtime constraints.
 
-**Revised Overall Assessment:** 8/10 - Well-designed for Babashka with minor improvements needed.
+**Overall Assessment:** 8.5/10 - Well-designed for Babashka with critical fixes completed and bugs discovered/fixed.
+
+**Implementation Progress:**
+- ✅ Phase 1 Critical Fixes: **COMPLETE** (shutdown hook, regex, error handler)
+- ✅ Bug Discovery: **2 critical bugs found and fixed** (event-ID, filtering validation)
+- ⏳ Phase 1 Testing: **2 of 5 tests complete** (need async, isolation, serialization tests)
+- ⏳ Phase 2 Improvements: **Not started** (sampling, batching, context propagation)
+
+**Current Status:**
+- Production-ready for basic use ✅
+- Critical bugs fixed (v0.7.1) ✅
+- **Needs:** Behavioral tests for async handlers (2.5 hours) ⚠️
+- **Then:** Ready for high-confidence production deployment
 
 ---
 
@@ -143,20 +199,13 @@ For **sente-lite WebSocket server** use:
 
 ## Critical Issues (Fix Immediately)
 
-### 1. Race Condition in Dynamic Var Mutation
+### ✅ 1. Race Condition in Dynamic Var Mutation - ADDRESSED
 
 **Severity:** MEDIUM (Downgraded - `alter-var-root` acceptable in Babashka)  
 **Location:** Lines 103, 120, 133, 295, 301, 307, 313
+**Status:** ✅ **DECISION: Keep current implementation**
 
 **Babashka Context:** While `alter-var-root` works in Babashka (unlike pure SCI), it's still not ideal for concurrent scenarios. However, given Babashka's typical single-script usage patterns, this may be acceptable.
-
-**Problem:** Multiple handlers and filters use `alter-var-root` on dynamic vars during runtime.
-
-```clojure
-;; Current (works in BB, but not ideal):
-(def ^:dynamic *ns-filter* {:allow #{"*"} :deny #{}})
-(alter-var-root #'*ns-filter* (constantly {:allow allow-patterns :deny disallow-patterns}))
-```
 
 **Analysis:**
 - ✅ Works in Babashka (not pure SCI limitation)
@@ -164,183 +213,191 @@ For **sente-lite WebSocket server** use:
 - ✅ Typical BB scripts are single-threaded, so may not be an issue in practice
 - ⚠️ Server applications (like your sente_lite) DO use threads
 
-**Recommendation for Server Use:** Replace with atoms:
-
-```clojure
-;; BB-compatible fix (atoms work perfectly in BB):
-(defonce ns-filter (atom {:allow #{"*"} :deny #{}}))
-(defonce event-id-filter (atom {:allow #{"*"} :deny #{}}))
-(defonce telemetry-enabled (atom true))
-
-;; Update functions to use reset!/swap!:
-(defn set-ns-filter! [{:keys [allow disallow]}]
-  (let [allow-patterns (if (coll? allow) (set allow) #{allow})
-        disallow-patterns (if (coll? disallow) (set disallow) #{disallow})]
-    (reset! ns-filter {:allow allow-patterns :deny disallow-patterns})))
-
-(defn set-enabled! [enabled?]
-  #?(:bb (reset! telemetry-enabled enabled?)
-     :scittle (set! *telemetry-enabled* enabled?)))
-
-;; Update checks to deref atoms:
-(defn- ns-allowed? [ns-str]
-  (let [{:keys [allow deny]} @ns-filter
-        ...]
-    ...))
-```
-
-**Decision:** For a library used in server contexts (WebSocket handlers, concurrent requests), atoms are safer. For simple scripts, current implementation is fine.
+**Decision:** For a library used in server contexts (WebSocket handlers, concurrent requests), atoms are safer. However, **current implementation is acceptable** given low frequency of filter changes. Monitor for issues in production.
 
 ---
 
-### 2. Resource Leak: Async Handlers Not Auto-Cleaned
+### ✅ 2. Resource Leak: Async Handlers Not Auto-Cleaned - FIXED
 
 **Severity:** HIGH  
 **Location:** Lines 413-461 (async-handler-wrapper)
+**Status:** ✅ **IMPLEMENTED** (Shipped in recent commits)
 
-**Babashka Context:** The current implementation uses `java.util.concurrent.Executors` which IS available in Babashka's allowed Java classes.
-
-**Problem:** `async-handler-wrapper` creates thread pools (`ExecutorService`) that are only cleaned up if `shutdown-telemetry!` is explicitly called.
-
-**Current Code Analysis:**
+**Implementation:**
 ```clojure
-;; This WORKS in Babashka:
-(java.util.concurrent.Executors/newFixedThreadPool n-threads)
-```
-
-✅ `Executors`, `ExecutorService`, `LinkedBlockingQueue` are all allowed in BB  
-✅ `.submit`, `.shutdown`, `.awaitTermination` work  
-⚠️ No shutdown hook means resource leak on JVM exit
-
-**BB-Compatible Fix:** Add shutdown hook (works in Babashka):
-
-```clojure
+;; Line 115: State tracking
 (defonce shutdown-hook-installed? (atom false))
 
-(defn- ensure-shutdown-hook! []
-  "Add JVM shutdown hook to cleanup async handlers. BB-compatible."
+;; Line 562-567: Hook installation
+(defn- ensure-shutdown-hook!
+  "Add JVM shutdown hook to cleanup async handlers on exit"
+  []
   (when (compare-and-set! shutdown-hook-installed? false true)
-    #?(:bb
-       (.addShutdownHook (Runtime/getRuntime)
-                        (Thread. ^Runnable shutdown-telemetry!))
-       :scittle nil)))
+    (.addShutdownHook (Runtime/getRuntime)
+                      (Thread. ^Runnable shutdown-telemetry!))))
 
-;; Call in add-handler! when first async handler is added:
-(defn add-handler! [handler-id handler-fn opts]
-  (when (:async opts)
-    (ensure-shutdown-hook!))
-  ...)
+;; Line 485: Called when adding async handler
+(when (:async opts)
+  (ensure-shutdown-hook!))
 ```
 
-✅ This is **fully Babashka-compatible** - Runtime/getRuntime and Thread constructor work in BB
-
-**IMPORTANT:** Do NOT try to use `proxy` for custom ThreadFactory - that won't work in BB:
-
-```clojure
-;; ❌ DOES NOT WORK IN BABASHKA (proxy not available in SCI):
-(proxy [java.util.concurrent.ThreadFactory] []
-  (newThread [r] ...))
-
-;; ✅ WORKS - use simple Thread constructor:
-(Thread. ^Runnable runnable-fn)
-```
+**Verdict:** ✅ **Production-ready** - Fully BB-compatible, prevents thread leaks
 
 ---
 
-### 3. Performance: Inefficient Pattern Matching
+### ✅ 3. Performance: Inefficient Pattern Matching - FIXED
 
 **Severity:** HIGH  
 **Location:** Lines 116-127, 138-149
+**Status:** ✅ **IMPLEMENTED** (Shipped in recent commits)
 
-**Problem:** `ns-allowed?` and `event-id-allowed?` recompile regex patterns on every signal check:
-
+**Implementation:**
 ```clojure
-(some #(re-matches (re-pattern (clojure.string/replace % "*" ".*")) ns-str) deny)
-```
+;; Pre-compiled regex storage
+#?(:bb (def ^:dynamic *ns-filter* 
+         {:allow-re [(re-pattern ".*")] :deny-re []}))
 
-**Issue:** For a high-throughput logging system (1000s of signals/sec), this creates:
-- Massive overhead from regex compilation
-- Unnecessary string allocations
-- Poor cache locality
-
-**Benchmark Impact:** Estimated 10-50x slowdown on filtering checks.
-
-**Fix:** Pre-compile patterns when filters are set:
-
-```clojure
-(defn- wildcard->regex [pattern]
-  "Convert wildcard pattern (* notation) to compiled regex"
+;; Helper function
+(defn- wildcard->regex
+  "Convert wildcard pattern to compiled regex"
+  [pattern]
   (re-pattern (str/replace (str pattern) "*" ".*")))
 
+;; Filter setter with pre-compilation
 (defn set-ns-filter! [{:keys [allow disallow]}]
   (let [allow-patterns (if (coll? allow) allow [allow])
         disallow-patterns (if (coll? disallow) disallow [disallow])
-        ;; Pre-compile patterns
         allow-re (mapv wildcard->regex allow-patterns)
-        disallow-re (mapv wildcard->regex disallow-patterns)]
-    (reset! ns-filter
-            {:allow-patterns allow-re
-             :disallow-patterns disallow-re})))
-
-(defn- ns-allowed? [ns-str]
-  (let [{:keys [allow-patterns disallow-patterns]} @ns-filter
-        denied? (some #(re-matches % ns-str) disallow-patterns)
-        allowed? (some #(re-matches % ns-str) allow-patterns)]
-    (and (not denied?) allowed?)))
+        deny-re (mapv wildcard->regex disallow-patterns)]
+    (alter-var-root #'*ns-filter*
+                    (constantly {:allow-re allow-re :deny-re deny-re}))))
 ```
 
-**Expected Improvement:** 10-50x faster filtering for typical workloads.
+**Performance Impact:** Measured 2-50x speedup (test: `regex-precompilation-performance-test`)
+
+**Verdict:** ✅ **Production-ready** - Major performance improvement
 
 ---
 
-### 4. Inconsistent Error Handling
+### ✅ 4. Inconsistent Error Handling - IMPROVED
 
 **Severity:** MEDIUM  
 **Location:** Multiple locations (lines 178, 395, 487, 494, 505, etc.)
+**Status:** ✅ **IMPLEMENTED** (Shipped in recent commits)
 
-**Problem:** Error handling swallows exceptions with just `println`, making debugging difficult:
-
+**Implementation:**
 ```clojure
-(catch Exception e
-  (binding [*out* *err*]
-    (println "Handler" handler-id "failed:" (.getMessage e))))
-```
+;; Configurable error handler with stack traces
+#?(:bb
+   (defonce error-handler
+     (atom (fn [error context]
+             (binding [*out* *err*]
+               (println "Telemetry error:" context)
+               (.printStackTrace error *err*))))))
 
-**Issues:**
-- Stack traces are lost
-- No way to customize error behavior
-- Can't test error conditions
-- Errors printed to stderr may be missed in production
-
-**Fix:** Provide a configurable error handler:
-
-```clojure
-(defonce error-handler 
-  (atom (fn [error context]
-          (binding [*out* *err*]
-            (println "Telemetry error:" context)
-            #?(:bb (.printStackTrace error *err*)
-               :scittle (js/console.error error))))))
-
-(defn set-error-handler! 
-  "Set custom error handler. Handler receives [error context-map]"
-  [handler-fn]
+(defn set-error-handler! [handler-fn]
   (reset! error-handler handler-fn))
 
-;; Usage:
-(try
-  (handler-fn signal)
-  (catch Exception e
-    (@error-handler e {:handler-id handler-id 
-                       :signal signal
-                       :phase :dispatch})))
+(defn- handle-telemetry-error! [error context]
+  (try
+    (@error-handler error context)
+    (catch Exception e
+      ;; Fallback if error handler itself fails
+      (binding [*out* *err*]
+        (println "Error handler failed:" (.getMessage e))
+        (.printStackTrace error *err*)))))
 ```
 
-**Benefits:**
-- Testable error conditions
-- Custom error reporting (alerts, metrics, etc.)
-- Better debugging with full stack traces
-- Can route errors to dedicated telemetry
+**Verdict:** ✅ **Good improvement** - Full stack traces now available, customizable
+
+**Recommendation:** Apply `handle-telemetry-error!` to more error paths for consistency
+
+---
+
+### 🔴 5. CRITICAL BUG DISCOVERED: Event-ID Lost in Signal Map - FIXED
+
+**Severity:** CRITICAL  
+**Location:** Lines 179-185 (log-with-location!)
+**Status:** ✅ **FIXED** in v0.7.1 (commit 4eac9b8)
+**Discovered:** During behavioral testing implementation
+
+**The Bug:**
+```clojure
+;; OLD CODE (BROKEN):
+(let [signal {:timestamp (now)
+              :level level
+              :ns ns-str
+              :msg [msg enhanced-context]  ; event-id buried here!
+              :context nil}]
+  ;; Handlers received signal WITHOUT :event-id at top level
+  ;; Filter check got nil: (event-id-allowed? (:event-id context))
+  ...)
+
+;; NEW CODE (FIXED):
+(let [event-id (:event-id context)  ; Extract before building signal
+      signal (cond-> {:timestamp (now)
+                      :level level
+                      :ns ns-str
+                      :msg [msg enhanced-context]
+                      :context nil}
+               event-id (assoc :event-id event-id))]  ; Preserve at top!
+  ;; Now handlers see event-id, filtering works
+  ...)
+```
+
+**Impact:**
+- ❌ Event-ID filtering completely broken
+- ❌ Event correlation impossible (handlers never saw event-id)
+- ❌ Shipped to production without detection
+
+**Root Cause:** Tests only verified filter **structure**, never tested actual **behavior**
+
+**Fix:** v0.7.1-filtering-bugfix
+- Event-ID now preserved at signal top level
+- Added behavioral tests to prevent regression
+
+---
+
+### 🔴 6. CRITICAL GAP DISCOVERED: Filtering Not Validated - FIXED
+
+**Severity:** CRITICAL  
+**Location:** test/telemere_lite/improvements_test.cljc
+**Status:** ✅ **FIXED** in v0.7.1 (commit 4eac9b8)
+**Discovered:** During code review
+
+**The Problem:**
+```clojure
+;; OLD TESTS (INSUFFICIENT):
+(deftest ns-filter-correctness-test
+  (testing "Namespace filtering structure"
+    (let [filter @#'tel/*ns-filter*]
+      (is (instance? java.util.regex.Pattern (first (:allow-re filter))))
+      ;; ✅ This passed - regexes exist
+      ;; ❌ But filtering was BROKEN - never checked if it worked!
+      )))
+
+;; NEW TESTS (PROPER BEHAVIORAL VALIDATION):
+(deftest ns-filter-behavior-test
+  (testing "Namespace filtering actually blocks/allows signals"
+    (tel/set-ns-filter! {:allow ["test.*"] :disallow ["test.blocked.*"]})
+    
+    ;; Actually emit signals and verify behavior
+    (tel/log! :info "Should appear")      ; From test.allowed
+    (tel/log! :info "Should NOT appear")  ; From test.blocked.ns
+    
+    ;; Verify only allowed signal appears
+    (let [entries (read-log-entries)]
+      (is (= 1 (count entries))
+          "Only allowed namespace should appear")
+      (is (= "Should appear" (first (get (first entries) "msg")))))))
+```
+
+**Impact:**
+- ❌ Broken filtering shipped without detection
+- ❌ False confidence from passing tests
+- ✅ Behavioral tests now prevent regression
+
+**Fix:** Added `ns-filter-behavior-test` and `event-id-filter-behavior-test`
 
 ---
 
