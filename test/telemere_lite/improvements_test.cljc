@@ -195,6 +195,88 @@
              (str "Pre-compiled regexes should be at least 2x faster (actual: "
                   (format "%.1fx" speedup) ")"))))))
 
+#?(:bb
+   (deftest ns-filter-behavior-test
+     (testing "Namespace filtering actually blocks/allows signals"
+       ;; Track what signals reach the handler
+       (def received-signals (atom []))
+
+       ;; Add test handler
+       (tel/add-handler! :ns-filter-test
+                         (fn [signal]
+                           (swap! received-signals conj signal))
+                         {})
+
+       ;; Test 1: Allow this namespace (telemere-lite.improvements-test)
+       (tel/set-ns-filter! {:allow ["telemere-lite.*"]
+                            :disallow []})
+
+       (tel/log! :info "Should be allowed - matching namespace")
+
+       ;; Wait for async processing
+       (Thread/sleep 100)
+
+       ;; Verify signal was allowed
+       (is (= 1 (count @received-signals))
+           "Signal from allowed namespace should reach handler")
+
+       ;; Reset
+       (reset! received-signals [])
+
+       ;; Test 2: Deny this namespace
+       (tel/set-ns-filter! {:allow ["*"]
+                            :disallow ["telemere-lite.improvements-test"]})
+
+       (tel/log! :info "Should be denied - explicit deny")
+
+       ;; Wait for async processing
+       (Thread/sleep 100)
+
+       ;; Verify signal was blocked
+       (is (= 0 (count @received-signals))
+           "Signal from denied namespace should be blocked")
+
+       ;; Cleanup
+       (tel/remove-handler! :ns-filter-test)
+       (tel/set-ns-filter! {:allow ["*"] :disallow []}))))
+
+#?(:bb
+   (deftest event-id-filter-behavior-test
+     (testing "Event-ID filtering actually blocks/allows events"
+       ;; Track what events reach the handler
+       (def received-events (atom []))
+
+       ;; Add test handler
+       (tel/add-handler! :event-id-filter-test
+                         (fn [signal]
+                           (swap! received-events conj signal))
+                         {})
+
+       ;; Set filter: Allow :app.* but deny :app.internal.*
+       (tel/set-id-filter! {:allow [:app.*]
+                            :disallow [:app.internal.*]})
+
+       ;; Emit events with different IDs
+       (tel/event! :app.user-action {:action "click"})
+       (tel/event! :app.internal.debug {:debug "info"})
+       (tel/event! :system.startup {:system "init"})
+
+       ;; Wait for async processing
+       (Thread/sleep 100)
+
+       ;; Verify: Should only have 1 event (app.user-action)
+       (is (= 1 (count @received-events))
+           "Only events with allowed IDs should reach handler")
+
+       (when (= 1 (count @received-events))
+         (let [event (first @received-events)]
+           (is (= :app.user-action (:event-id event))
+               "Event should have :app.user-action ID")))
+
+       ;; Cleanup
+       (tel/remove-handler! :event-id-filter-test)
+       (tel/set-id-filter! {:allow ["*"] :disallow []}))))
+
 ;; =============================================================================
 ;; Error Handler Tests
 ;; =============================================================================

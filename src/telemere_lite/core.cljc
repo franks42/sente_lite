@@ -176,11 +176,13 @@
     (let [location {:file file :line line :ns ns-str}
           safe-context (serialize-for-json (or context {}))
           enhanced-context (assoc safe-context :location location)
-          signal {:timestamp (now)
-                  :level level
-                  :ns ns-str
-                  :msg [msg enhanced-context]
-                  :context nil}]
+          event-id (:event-id context)
+          signal (cond-> {:timestamp (now)
+                          :level level
+                          :ns ns-str
+                          :msg [msg enhanced-context]
+                          :context nil}
+                   event-id (assoc :event-id event-id))]
       #?(:bb (let [custom-handlers @*handlers*]
                ;; Send to configured handlers (now async-capable)
                (doseq [[handler-id {:keys [handler enabled?]}] custom-handlers]
