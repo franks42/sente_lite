@@ -2,6 +2,30 @@
 
 A lightweight telemetry library inspired by [Telemere](https://github.com/taoensso/telemere), designed specifically for Babashka and Scittle/SCI environments.
 
+## 30-Second Quick Start
+
+```clojure
+;; 1. Require the library
+(require '[telemere-lite.core :as tel])
+
+;; 2. Initialize (logs Babashka version info)
+(tel/startup!)
+
+;; 3. Add an output destination
+(tel/add-stdout-handler!)
+
+;; 4. Start logging!
+(tel/log! :info "Hello telemetry!" {:user-id 123 :action "login"})
+;; => {"timestamp":"2025-10-27T10:30:00Z","level":"info","ns":"user",
+;;     "msg":["Hello telemetry!",{"data":{"user-id":123,"action":"login"},...}]}
+
+;; That's it! Your telemetry is working.
+```
+
+**Next Steps**: See [Core Features](#core-features) for filtering, routing, and advanced usage.
+
+---
+
 ## The Need
 
 Modern Clojure applications require comprehensive telemetry solutions for observability, debugging, and monitoring. [Peter Taoussanis's Telemere](https://www.taoensso.com/telemere) represents the state-of-the-art in Clojure telemetry—it's thoughtfully designed, feature-rich, and production-ready.
@@ -38,9 +62,11 @@ A streamlined telemetry implementation that:
 | **Platform Support** | JVM Clojure, ClojureScript | Babashka, Scittle/SCI | Different target platforms |
 | **Signal-based API** | ✅ Full | ✅ Compatible | Same core concepts |
 | **Basic Logging** | ✅ | ✅ | `log!`, `error!`, `event!` |
-| **Filtering** | ✅ Advanced | ✅ Core features | Level, namespace, event-ID |
-| **Async Handlers** | ✅ Built-in | ✅ v0.7.0+ | Backpressure support |
-| **Performance** | Up to 4.2M signals/sec | Optimized for BB | Pre-compiled filters |
+| **Filtering** | ✅ Advanced | ✅ Core features | Level, namespace, event-ID (v0.7.0+) |
+| **Async Handlers** | ✅ Built-in | ✅ v0.7.0+ | Backpressure support (blocking/dropping) |
+| **Shutdown Hook** | ✅ Built-in | ✅ v0.7.0+ | Automatic async handler cleanup |
+| **Error Handling** | ✅ Built-in | ✅ v0.7.0+ | Customizable error handler |
+| **Performance** | Up to 4.2M signals/sec | Optimized for BB | Pre-compiled filters (v0.7.0+, 2x speedup) |
 | **Handler Ecosystem** | ✅ Rich (OpenTelemetry, Slack, etc.) | Basic (files, stdout, custom) | Extensible via custom handlers |
 | **Sampling/Rate Limiting** | ✅ Built-in | ❌ Custom handlers | Can implement manually |
 | **Production Maturity** | ✅ Production-hardened | ✅ Tested, improving | Active development |
@@ -307,6 +333,84 @@ Custom error handlers for telemetry failures:
 (tel/set-error-handler!
   (fn [error context]
     (send-to-monitoring error context)))
+```
+
+### Inspection Functions
+
+#### `get-filters` - Inspect Current Filters
+```clojure
+(tel/get-filters)
+;; => {:min-level :info
+;;     :ns-filter {:allow #{"*"} :disallow #{}}
+;;     :event-id-filter {:allow #{"*"} :disallow #{}}
+;;     :ns-min-levels {}
+;;     :enabled? true}
+```
+
+Returns a map of all active filter configurations. Useful for debugging filter issues.
+
+#### `clear-filters!` - Reset All Filters
+```clojure
+(tel/clear-filters!)
+```
+
+Resets all filters to defaults:
+- Min level: `:trace` (everything passes)
+- Namespace filter: Allow all (`"*"`)
+- Event-ID filter: Allow all (`"*"`)
+- Enabled: `true`
+
+**Use case**: Debugging when signals aren't appearing as expected.
+
+#### `get-handlers` - List Registered Handlers
+```clojure
+(tel/get-handlers)
+;; => {:stdout #<handler-fn>, :file-log #<handler-fn>}
+```
+
+Returns map of handler-id → handler-fn for all registered handlers.
+
+#### `clear-handlers!` - Remove All Handlers
+```clojure
+(tel/clear-handlers!)
+```
+
+Removes all registered handlers. Useful for testing or reconfiguration.
+
+**Note**: Shutdown hook for async handlers remains installed (harmless).
+
+#### `get-min-level` - Get Current Minimum Level
+```clojure
+(tel/get-min-level)
+;; => :info
+```
+
+Returns current minimum log level as keyword.
+
+#### `get-enabled?` - Check If Telemetry Is Enabled
+```clojure
+(tel/get-enabled?)
+;; => true
+```
+
+Returns boolean indicating whether telemetry is globally enabled.
+
+### Handler Helper Functions
+
+#### `file-handler` - Create File Handler Function
+```clojure
+(tel/file-handler "path/to/file.log")
+;; => #<handler-fn>
+```
+
+Returns a handler function that writes JSON Lines to specified file. Used with `add-handler!` for custom configurations.
+
+**Example**:
+```clojure
+;; Create async file handler with custom options
+(tel/add-handler! :custom-file
+  (tel/file-handler "app.log")
+  {:async {:mode :blocking :buffer-size 5000}})
 ```
 
 ## Filtering
@@ -615,6 +719,249 @@ Perfect for sente-lite WebSocket debugging and monitoring:
                    {:module module-name :error e})
         (throw e)))))
 ```
+
+## Performance Benchmarks
+
+Real-world performance data from telemere-lite's test suite running on Babashka.
+
+### Regex Pre-compilation Performance ⭐ NEW
+
+Namespace and event-ID filtering uses pre-compiled regular expressions for significant performance improvements.
+
+**Benchmark**: 10,000 namespace checks against pattern `"foo.*"`
+
+```
+Old approach (runtime compilation): 4.91ms
+New approach (pre-compiled):       2.46ms
+Speedup:                           2.0x faster
+```
+
+**Impact**: For high-volume applications (1,000+ signals/sec), pre-compiled filters eliminate regex compilation overhead on the hot path. The speedup is consistent across different pattern complexities.
+
+**Implementation**: Filters are compiled once during `set-ns-filter!` and `set-id-filter!` calls, then reused for all subsequent signal filtering.
+
+### Async Handler Throughput
+
+Async handlers provide non-blocking signal dispatch with configurable backpressure control.
+
+**Blocking Mode** (`:mode :blocking`):
+- **Behavior**: Waits when buffer is full, guarantees delivery
+- **Throughput**: Limited by handler processing speed
+- **Use case**: Critical telemetry where signal loss is unacceptable
+- **Buffer sizing**: Recommended 1000-5000 for typical workloads
+
+**Dropping Mode** (`:mode :dropping`):
+- **Behavior**: Discards signals when buffer is full
+- **Throughput**: Maintains application performance under signal spikes
+- **Use case**: High-frequency debugging, development environments
+- **Buffer sizing**: Recommended 100-500 for non-critical signals
+
+**Example Configuration**:
+```clojure
+;; Production: Critical error logging - no loss
+(tel/add-handler! :error-log
+  (tel/file-handler "logs/errors.log")
+  {:async {:mode :blocking :buffer-size 5000}})
+
+;; Development: Debug logging - performance first
+(tel/add-handler! :debug-log
+  (tel/file-handler "logs/debug.log")
+  {:async {:mode :dropping :buffer-size 500}})
+```
+
+### Performance Tuning Guidelines
+
+#### High-Volume Servers (>1,000 signals/sec)
+
+**Recommended**:
+- Use async handlers in `:blocking` mode for critical logs
+- Use async handlers in `:dropping` mode for debug/trace
+- Pre-compile filters with specific patterns (avoid `"*"` when possible)
+- Set appropriate minimum log level (`:info` or `:warn` for production)
+- Use namespace filters to exclude noisy libraries
+
+**Example**:
+```clojure
+;; High-volume production setup
+(tel/set-min-level! :info)
+(tel/set-ns-filter! {:allow #{"myapp.*"}
+                     :disallow #{"myapp.debug.*" "myapp.metrics.*"}})
+
+(tel/add-handler! :app-log
+  (tel/file-handler "logs/app.log")
+  {:async {:mode :blocking :buffer-size 5000}})
+```
+
+#### Low-Volume Applications (<100 signals/sec)
+
+**Recommended**:
+- Synchronous handlers are fine (simpler, no buffering needed)
+- Use `:debug` level during development
+- Broad namespace filters acceptable (`"*"`)
+
+**Example**:
+```clojure
+;; Low-volume development setup
+(tel/set-min-level! :debug)
+(tel/add-stdout-handler!)  ; Synchronous is fine
+```
+
+#### WebSocket Servers (Variable Load)
+
+**Recommended**:
+- Use `:dropping` mode for per-connection debug telemetry
+- Use `:blocking` mode for connection lifecycle events (connect/disconnect)
+- Filter by event-ID to focus on specific scenarios during debugging
+
+**Example**:
+```clojure
+;; WebSocket telemetry
+(tel/add-handler! :ws-debug
+  (tel/file-handler "logs/websocket-debug.log")
+  {:async {:mode :dropping :buffer-size 1000}})
+
+(tel/add-handler! :ws-lifecycle
+  (tel/file-handler "logs/websocket-lifecycle.log")
+  {:async {:mode :blocking :buffer-size 500}})
+
+;; Focus on connection events only
+(tel/set-id-filter! {:allow #{":sente/client-connected"
+                              ":sente/client-disconnected"}})
+```
+
+## Troubleshooting
+
+### Common Issues
+
+#### Signals Not Appearing in Logs
+
+**Problem**: Calling `(tel/log! :info "message")` but nothing appears in output.
+
+**Checklist**:
+1. Verify telemetry is enabled:
+   ```clojure
+   (tel/get-enabled?)  ; Should return true
+   ```
+
+2. Check minimum log level:
+   ```clojure
+   (tel/get-min-level)  ; If :warn, then :info won't appear
+   ```
+
+3. Check namespace filters:
+   ```clojure
+   (tel/get-filters)
+   ;; Verify your namespace is in :allow and not in :disallow
+   ```
+
+4. Verify handlers are registered:
+   ```clojure
+   (tel/get-handlers)  ; Should show at least one handler
+   ```
+
+**Quick Fix**:
+```clojure
+;; Reset everything to defaults
+(tel/clear-filters!)
+(tel/set-enabled! true)
+(tel/add-stdout-handler!)
+(tel/log! :info "Test message")  ; Should now appear
+```
+
+---
+
+#### Async Handlers Dropping Signals
+
+**Problem**: Using async handlers with `:dropping` mode and losing signals.
+
+**Symptoms**:
+- Signals appear intermittently
+- High-volume logging shows gaps in logs
+- No error messages
+
+**Solutions**:
+
+1. **Increase buffer size**:
+   ```clojure
+   (tel/add-handler! :async-file
+     file-handler-fn
+     {:async {:mode :dropping
+              :buffer-size 10000}})  ; Increase from default 1000
+   ```
+
+2. **Switch to blocking mode** (signals wait instead of dropping):
+   ```clojure
+   {:async {:mode :blocking
+            :buffer-size 1000}}
+   ```
+
+**When to use each mode**:
+- **Blocking**: Critical telemetry (errors, audit logs) - never lose data
+- **Dropping**: High-volume metrics (performance counters) - tolerate loss
+
+---
+
+#### Filtering Not Working as Expected
+
+**Problem**: Signals appear despite namespace or event-ID filters.
+
+**Debug Steps**:
+
+1. **Verify filter syntax**:
+   ```clojure
+   ;; WRONG - filters don't use keywords for namespaces
+   (tel/set-ns-filter! {:allow #{:myapp.*}})  ; ❌ Won't work
+
+   ;; CORRECT - use strings
+   (tel/set-ns-filter! {:allow #{"myapp.*"}})  ; ✅ Works
+   ```
+
+2. **Check wildcard patterns**:
+   ```clojure
+   ;; Wildcards only at end
+   "myapp.*"     ; ✅ Matches myapp.core, myapp.api.users
+   "*.myapp"     ; ❌ Won't work as expected
+   "myapp.*.api" ; ❌ Won't work as expected
+   ```
+
+3. **Test filters in isolation**:
+   ```clojure
+   ;; Clear all filters
+   (tel/clear-filters!)
+
+   ;; Add one filter at a time
+   (tel/set-ns-filter! {:allow #{"myapp.*"}})
+   (tel/log! :info "Test from myapp.core")
+
+   ;; Verify behavior before adding more filters
+   ```
+
+---
+
+### Getting Help
+
+1. **Check current configuration**:
+   ```clojure
+   (tel/get-filters)   ; All active filters
+   (tel/get-handlers)  ; All registered handlers
+   (tel/get-min-level) ; Minimum log level
+   (tel/get-enabled?)  ; Global enable/disable
+   ```
+
+2. **Enable debug logging**:
+   ```clojure
+   (tel/set-min-level! :trace)  ; See everything
+   (tel/set-ns-filter! {:allow #{"*"}})  ; No namespace filtering
+   ```
+
+3. **Test with minimal setup**:
+   ```clojure
+   ;; Start fresh
+   (tel/clear-handlers!)
+   (tel/clear-filters!)
+   (tel/add-stdout-handler!)
+   (tel/log! :info "Minimal test")
+   ```
 
 ## Limitations
 
