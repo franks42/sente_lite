@@ -1,15 +1,35 @@
 # Telemere-lite: Lightweight Telemetry for Babashka
 
-A lightweight telemetry library that provides structured logging with Telemere-compatible APIs, designed specifically for Babashka and Scittle environments.
+A lightweight telemetry library inspired by [Telemere](https://github.com/taoensso/telemere), designed specifically for Babashka and Scittle/SCI environments.
 
-## Overview
+## The Need
 
-Telemere-lite is a streamlined implementation of telemetry functionality that:
-- **Matches official Telemere API signatures** for easy migration
-- **Leverages Babashka's built-in libraries** (Timbre, Cheshire, tools.logging)
+Modern Clojure applications require comprehensive telemetry solutions for observability, debugging, and monitoring. [Peter Taoussanis's Telemere](https://www.taoensso.com/telemere) represents the state-of-the-art in Clojure telemetry—it's thoughtfully designed, feature-rich, and production-ready.
+
+**We love Telemere's approach**, but unfortunately it doesn't yet work on Babashka or Scittle/SCI environments. These lightweight Clojure interpreters power a growing ecosystem of scripts, tools, and browser-based applications that need structured telemetry just as much as JVM Clojure does.
+
+## Our Approach
+
+**Telemere-lite addresses this gap** with a telemetry solution that:
+
+- **Is inspired and guided by Telemere** - We follow Telemere's signal-based architecture and filtering model
+- **Stays close to Telemere's API** - API-compatible where possible for easier future migration
+- **Is less ambitious in features** - Focused on core telemetry needs rather than full parity
+- **Works today on BB and Scittle** - Leverages built-in libraries (Timbre, Cheshire, tools.logging)
+- **Provides a migration path** - When Telemere officially supports BB/Scittle, migrating should be straightforward
+
+**Our expectation**: Telemere-lite is a bridge, not a destination. Once Telemere works on Babashka and Scittle/SCI, we fully expect and encourage migration to the official implementation.
+
+## What Telemere-lite Provides
+
+A streamlined telemetry implementation that:
+- **Matches Telemere API signatures** where feasible for future compatibility
 - **Supports cross-platform development** (BB server + Scittle browser)
-- **Provides AI-visible logging** through structured JSON output
-- **Enables flexible routing** to multiple destinations
+- **Provides structured JSON logging** for observability and AI-assisted debugging
+- **Enables flexible routing** to multiple destinations (files, stdout, custom handlers)
+- **Includes async handlers** with backpressure control and automatic shutdown
+- **Pre-compiles filters** for high-performance namespace and event-ID filtering
+- **Offers event correlation** via event-ID based tracking and filtering
 
 ## Table of Contents
 
@@ -892,14 +912,40 @@ The gap analysis shows that **telemere-lite now provides excellent coverage** (a
 - **WebSocket Routing**: Browser → Server telemetry pipeline
 - **Session-based Logging**: Separate files per browser session
 
-### Potential Official Telemere Migration
-When Babashka supports official Telemere dependencies:
+### Migration to Official Telemere
+
+When Babashka and Scittle/SCI officially support Telemere dependencies, migration should be straightforward due to API compatibility:
+
 ```clojure
-;; Minimal code changes needed due to API compatibility
-(require '[taoensso.telemere :as tel])  ; Just change require
-;; All existing telemere-lite code continues to work
+;; Step 1: Change require
+(require '[taoensso.telemere :as tel])  ; Instead of telemere-lite.core
+
+;; Step 2: Existing code continues to work
+(tel/log! :info "message" data)        ; ✅ Compatible
+(tel/error! exception)                  ; ✅ Compatible
+(tel/event! ::user-action {:data "x"}) ; ✅ Compatible
+(tel/set-min-level! :warn)             ; ✅ Compatible
+(tel/add-handler! :id handler-fn)      ; ✅ Compatible
+
+;; Step 3: Optionally enhance with official Telemere features
+(tel/trace! (performance-critical-code))       ; New capability
+(tel/set-sampling! 0.1)                        ; New capability
 ```
+
+**We encourage migration** when official Telemere support becomes available. Telemere's full feature set, production hardening, and ongoing development make it the superior long-term choice.
 
 ---
 
-**Telemere-lite provides essential telemetry functionality with Telemere API compatibility, making it ideal for Babashka-based applications that need structured logging and flexible routing without the complexity of the full Telemere ecosystem.**
+## Acknowledgments
+
+**Telemere-lite is built on the shoulders of giants:**
+
+- **[Peter Taoussanis](https://www.taoensso.com/)** for [Telemere](https://github.com/taoensso/telemere), which inspired this library's design, API, and philosophy. His thoughtful approach to telemetry architecture guides our implementation.
+- **[Michiel Borkent](https://github.com/borkdude)** for [Babashka](https://babashka.org/), which makes Clojure scripting practical and includes the essential libraries (Timbre, Cheshire) that power telemere-lite.
+- **The Clojure community** for fostering an ecosystem where building on each other's work is celebrated.
+
+**Telemere-lite is a bridge solution** - we provide Telemere-inspired telemetry for Babashka and Scittle today, while looking forward to the day when official Telemere support makes this library obsolete. That will be a success, not a failure.
+
+---
+
+**Telemere-lite provides essential telemetry functionality with Telemere API compatibility, making it ideal for Babashka and Scittle applications that need structured logging and flexible routing today, with a clear migration path to official Telemere tomorrow.**
