@@ -2,6 +2,36 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Context Recovery After Compacting or New Instance
+
+**CRITICAL: When starting a new session or after context compacting:**
+
+1. **Check most recently changed files FIRST** to understand current work:
+   ```bash
+   # Find recently modified files across entire project
+   find . -type f -name "*.md" -o -name "*.clj*" -o -name "*.bb" | \
+     xargs ls -lt | head -20
+
+   # Or more specifically for documentation
+   find . -name "*.md" -type f -exec ls -lt {} + | head -20
+   ```
+
+2. **Read the most recent files** to understand:
+   - What was being worked on
+   - Current state of implementation
+   - Any blockers or issues discovered
+
+3. **Check git status** for uncommitted changes:
+   ```bash
+   git status
+   git diff --stat
+   ```
+
+4. **NEVER assume** context from old documentation or distant commits
+5. **NEVER read files based on guesses** - let timestamps guide you
+
+**Rationale**: The most recently modified files reveal the actual current work, not what we planned to work on or what's documented in older files.
+
 ## Project Overview
 
 sente-lite is a lightweight WebSocket library for Babashka (bb), Node Babashka (nbb), and Scittle/SCI environments that provides Sente-like functionality without the heavy dependencies. It's designed for constrained environments where core.async and JVM/ClojureScript features aren't available.
@@ -223,3 +253,76 @@ sente_lite/
 - No Ajax fallback (WebSockets only)
 - No complex protocol negotiation or message batching
 - ~500 LOC implementation vs Sente's ~1500 LOC
+
+## CRITICAL: Scittle nREPL Environment Restart Sequence
+
+**Location**: `dev/scittle-demo/`
+
+**THE PROBLEM**: When BB server restarts, OLD processes remain running with ports allocated and browser connected to dead instance.
+
+**THE RULE**: When ANYTHING doesn't work or needs restart → START FROM SCRATCH. DO NOT CHEAT. DO NOT LIE.
+
+### Mandatory Restart Sequence
+
+**1. KILL EVERYTHING FIRST**
+```bash
+pkill -9 bb
+pkill -9 node
+```
+
+**2. VERIFY PORTS ARE FREE**
+```bash
+lsof -i :1338 :1339 :1340 :1341 :1342
+# Should show NOTHING. If ports are in use, restart sequence failed.
+```
+
+**3. START BB SERVER FRESH**
+```bash
+cd dev/scittle-demo && bb dev
+```
+Starts 4 services:
+- Port 1338: Direct BB nREPL (eval Clojure in BB)
+- Port 1339: Browser nREPL gateway (eval ClojureScript in browser)
+- Port 1340: WebSocket for browser nREPL connection
+- Port 1341: HTTP static file server
+
+**4. START PLAYWRIGHT BROWSER FRESH**
+```bash
+cd dev/scittle-demo && npm run interactive
+```
+Opens browser with DevTools, connects to NEW BB instance on port 1340.
+
+**5. RE-UPLOAD ALL CODE** (lost from memory!)
+- Upload server code to BB via port 1338 nREPL
+- Upload client code to browser via port 1339 nREPL
+- Start any additional services (e.g., WebSocket on port 1342)
+
+### What Gets Lost on Restart
+- ALL code uploaded to BB server memory
+- ALL code uploaded to browser memory
+- ALL WebSocket connections
+- ALL server instances created via nREPL
+
+### Architecture
+```
+BB Process (4 services):
+├─ Port 1338: BB nREPL → eval Clojure in BB server
+├─ Port 1339: Browser Gateway → bencode ↔ EDN → Port 1340
+├─ Port 1340: WebSocket → Browser nREPL server
+└─ Port 1341: HTTP → Static files
+
+Browser (Playwright):
+└─ Connects to Port 1340 → Runs nREPL server in browser via Scittle
+```
+
+### Common Mistakes
+1. ❌ Restarting BB without killing old processes
+2. ❌ Browser connected to old BB instance
+3. ❌ Forgetting to re-upload code after restart
+4. ❌ Pretending things work when they don't
+5. ❌ Not verifying ports are free before starting
+
+### If Something Doesn't Work
+**DO NOT TRY TO FIX IT. START FROM SCRATCH.**
+
+Run the 5-step sequence again. Every time.
