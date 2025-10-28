@@ -1,0 +1,14 @@
+{
+  "name": "scittle-nrepl-demo",
+  "version": "1.0.0",
+  "description": "Playwright tests for Scittle nREPL browser connection",
+  "type": "module",
+  "scripts": {
+    "test": "node playwright-test.mjs",
+    "interactive": "node playwright-interactive.mjs",
+    "install-playwright": "npm install && npx playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.40.0"
+  }
+}

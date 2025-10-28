@@ -1,0 +1,23 @@
+{:deps {io.github.babashka/sci.nrepl
+        {:git/sha "4f7f6d652a71b5bdc0c110313a4908d956e7a97d"}
+        io.github.babashka/http-server
+        {:git/sha "b38c1f16ad2c618adae2c3b102a5520c261a7dd3"}}
+ :tasks {http-server {:doc "Starts http server for serving static files"
+                      :requires ([babashka.http-server :as http])
+                      :task (do (http/serve {:port 1341 :dir "."})
+                                (println "Serving static assets at http://localhost:1341"))}
+
+         browser-nrepl {:doc "Start browser nREPL (gateway to browser)"
+                        :requires ([sci.nrepl.browser-server :as bp])
+                        :task (bp/start! {})}
+
+         bb-nrepl {:doc "Start direct BB nREPL server on port 1338"
+                   :requires ([babashka.nrepl.server :as nrepl])
+                   :task (do (nrepl/start-server! {:host "127.0.0.1" :port 1338})
+                             (println "BB nREPL server started on port 1338")
+                             (deref (promise)))}
+
+         -dev {:depends [http-server browser-nrepl bb-nrepl]}
+
+         dev {:task (do (run '-dev {:parallel true})
+                        (deref (promise)))}}}

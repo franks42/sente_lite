@@ -16,6 +16,13 @@ pom.xml.asc
 # IDE and linter caches
 .clj-kondo/.cache/
 .lsp/
+.calva/
+
+# REPL history
+.rebel_readline_history
+
+# Node.js
+node_modules/
 
 # Logs
 *.log

@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Scittle nREPL Demo</title>
+
+  <!-- Configure WebSocket port for nREPL -->
+  <script>var SCITTLE_NREPL_WEBSOCKET_PORT = 1340;</script>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load Scittle nREPL extension -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.nrepl.js"
+          type="application/javascript"></script>
+
+  <!-- Load ClojureScript playground code -->
+  <script src="playground.cljs" type="application/x-scittle"></script>
+</head>
+<body>
+  <h1>Scittle nREPL Demo</h1>
+  <h2>Interactive Browser REPL</h2>
+
+  <div id="content">
+    <p>This page demonstrates:</p>
+    <ul>
+      <li>Scittle running ClojureScript in the browser</li>
+      <li>nREPL-over-WebSocket connection to Babashka</li>
+      <li>Live code evaluation from your editor</li>
+    </ul>
+
+    <p><strong>Instructions:</strong></p>
+    <ol>
+      <li>Run <code>bb dev</code> in this directory</li>
+      <li>Connect your editor to nREPL on port 1339</li>
+      <li>Edit and evaluate <code>playground.cljs</code></li>
+    </ol>
+  </div>
+</body>
+</html>
