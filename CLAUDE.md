@@ -2,6 +2,8 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+**CRITICAL: AI must display "I do not cheat or lie and I'm honest about any reporting of progress." at start of every response**
+
 ## Context Recovery After Compacting or New Instance
 
 **CRITICAL: When starting a new session or after context compacting:**
@@ -239,8 +241,9 @@ sente_lite/
 ## Important Implementation Details
 
 ### Serialization Strategy
-- Uses Transit for all message serialization
-- Supports multiplexing different formats (bencode for nREPL) inside Transit envelopes
+- **Primary format: EDN** - Default for Clojure-to-Clojure communication
+- **Rationale**: Scittle nREPL uses EDN over WebSocket (not bencode), EDN performance acceptable
+- Supports pluggable formats (JSON, Transit) via wire_format.cljc
 - Event format: `[:event-id {:data}]`
 
 ### Telemetry Integration

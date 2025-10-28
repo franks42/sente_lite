@@ -13,7 +13,8 @@ sente-lite is a lightweight WebSocket library providing ~85% Sente API compatibi
 ## Core Architecture Decisions
 
 ### 1. Technology Stack
-- **Serialization:** Transit-json primary, JSON fallback
+- **Serialization:** EDN primary (Clojure-to-Clojure default), JSON/Transit available
+- **Rationale:** Scittle nREPL uses EDN over WebSocket, EDN performance acceptable for primary use case
 - **Async Model:** Callbacks/promises (no core.async)
 - **Telemetry:** Alternative to Telemere (custom BB-compatible solution)
 - **WebSocket Libraries:**
@@ -65,7 +66,7 @@ sente_lite/
 │   ├── sente_lite/
 │   │   └── shared/              # Shared functionality (no dependencies)
 │   │       ├── core.cljc        # Common utilities, protocols (BB & Scittle)
-│   │       ├── codec.cljc       # Transit/JSON serialization (shared)
+│   │       ├── wire_format.cljc # EDN/JSON/Transit serialization (pluggable formats)
 │   │       ├── router.cljc      # Event routing and dispatch (shared)
 │   │       └── state.cljc       # Connection state management (shared)
 │   │
@@ -413,7 +414,7 @@ Create a shared API that works in both BB and Scittle, with minimal platform-spe
 #### Tasks:
 - [ ] **Shared Foundation** (`sente-lite/shared/`)
   - `core.clj` - Protocols, utilities, constants (with telemere-lite integration)
-  - `codec.clj` - Transit/JSON serialization (with logging)
+  - `wire_format.cljc` - EDN/JSON/Transit serialization (pluggable formats with logging)
   - `router.clj` - Event dispatch system (with event metrics)
   - `state.clj` - Connection state management (with state change logging)
 
@@ -3854,6 +3855,33 @@ Before deploying features to production:
   - Enables resilient testing and production deployments
 
 - ✅ **Production-Ready**: All tests passing, comprehensive coverage of distributed scenarios
+
+### 2025-10-28 - EDN as Primary Serialization Format
+**Status:** Documentation updated, implementation in progress
+
+**Architecture Decision:**
+- **Primary format: EDN** (Clojure-to-Clojure communication)
+- **Rationale**:
+  - Scittle nREPL uses EDN over WebSocket (not bencode as initially assumed)
+  - nREPL gateway converts bencode ↔ EDN before WebSocket
+  - EDN performance acceptable for primary use case
+  - Simpler than Transit for Clojure-to-Clojure
+- **Alternative formats remain available**: JSON, Transit via pluggable wire_format.cljc
+
+**Implementation Tasks:**
+- [ ] Update server.cljc default `:wire-format` from `:json` to `:edn`
+- [ ] Update client_scittle.cljs to use EDN by default (already implemented)
+- [ ] Add wire format configuration examples to documentation
+- [ ] Test EDN format across all environments (BB server ↔ Scittle client)
+- [ ] Document when to use JSON (interop) vs EDN (Clojure) vs Transit (rich types)
+- [ ] Update all example code to use EDN by default
+
+**Files affected:**
+- `src/sente_lite/server.cljc` - Change default `:wire-format :json` → `:edn`
+- `src/sente_lite/client_scittle.cljs` - Verify EDN usage (already correct)
+- `doc/examples/` - Update all examples to use EDN
+- `CLAUDE.md` - ✅ Updated
+- `doc/plan.md` - ✅ Updated
 
 ### 2025-10-26 (Later) - Phase 3 Performance Features Specification
 **Status:** Planning complete, implementation pending
