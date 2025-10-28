@@ -7,5 +7,6 @@
            :redundant-let {:level :off}
            :single-operand-logical {:level :off}
            :single-logical-operand {:level :off}
-           :redundant-ignore {:level :off}}
+           :redundant-ignore {:level :off}
+           :namespace-name-mismatch {:level :off}}  ; Demo files loaded via nREPL
  :output {:langs [:clj :cljc]}}
