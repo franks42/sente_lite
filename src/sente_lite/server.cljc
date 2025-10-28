@@ -17,7 +17,7 @@
 (def default-config
   {:port 3000
    :host "localhost"
-   :wire-format :json  ; Default to JSON for backward compatibility
+   :wire-format :edn  ; Default to EDN for Clojure-to-Clojure communication
    :telemetry {:enabled true
                :handler-id :sente-lite-server}
    :websocket {:max-connections 1000
