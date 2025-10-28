@@ -1,7 +1,7 @@
 # Scittle nREPL Demo - Deployment Protocol
 
-**Version:** 1.2
-**Date:** 2025-10-28 (Updated with convenience tasks)
+**Version:** 1.3
+**Date:** 2025-10-28 (Updated with http-kit API compatibility warning)
 **Location:** `/Users/franksiebenlist/Development/sente_lite/dev/scittle-demo/`
 
 ---
@@ -368,13 +368,35 @@ Should return: `[4]`
 
 #### 5C. Start additional services (e.g., WebSocket on port 1342)
 
-**Start http-kit WebSocket server:**
+**⚠️ CRITICAL: http-kit API Compatibility**
+
+When loading WebSocket server code via BB nREPL, you MUST use the correct http-kit API:
+
+- ✅ **CORRECT:** `http/as-channel` (http-kit v2.4.0+)
+- ❌ **WRONG:** `with-channel` + separate `on-receive` calls (deprecated, causes nREPL eval to fail silently)
+
+**Why this matters:**
+- The deprecated `with-channel` + `on-receive` pattern causes BB nREPL evaluation to stop silently
+- No error messages are produced
+- The server never starts listening
+- This issue is specific to nREPL evaluation, not regular script execution
+
+**See full technical details:** `dev/scittle-demo/DIAGNOSIS-nrepl-http-kit.md`
+
+**Start http-kit WebSocket server (CORRECT API):**
 ```bash
 bb eval-bb '(do
   (require (quote [org.httpkit.server :as http]))
-  (def test-server (http/run-server
-    (fn [req] {:status 200 :body "OK"})
-    {:port 1342})))'
+  (defn ws-handler [req]
+    (http/as-channel req
+      {:on-open (fn [ch]
+                  (println "Client connected"))
+       :on-receive (fn [ch msg]
+                     (println "Received:" msg)
+                     (http/send! ch (str "Echo: " msg)))
+       :on-close (fn [ch status]
+                   (println "Client disconnected"))}))
+  (def test-server (http/run-server ws-handler {:port 1342})))'
 ```
 
 **Verification:**
@@ -576,6 +598,40 @@ Honesty and verification are more valuable than speed.
 ---
 
 ## Changelog
+
+### Version 1.3 (2025-10-28)
+
+**Added critical http-kit API compatibility warning** - Prevents silent nREPL failures!
+
+**Problem discovered:**
+- Using http-kit's deprecated `with-channel` + separate `on-receive` API causes BB nREPL evaluation to fail silently
+- No error messages produced
+- Server never starts listening
+- Issue specific to nREPL evaluation (works fine in regular scripts)
+
+**Changes to Step 5C:**
+1. **Added critical warning section** about API compatibility
+2. **Clear API comparison:**
+   - ✅ CORRECT: `as-channel` (http-kit v2.4.0+)
+   - ❌ WRONG: `with-channel` + `on-receive` (deprecated)
+3. **Updated example code** to show correct `as-channel` pattern with all callbacks in options map
+4. **Referenced DIAGNOSIS-nrepl-http-kit.md** for full technical details
+
+**Why this matters:**
+- Prevents hours of debugging silent failures
+- Ensures WebSocket servers work correctly when loaded via nREPL
+- Documents critical edge case for future reference
+
+**Discovery method:**
+- Used telemere-lite telemetry logging to trace execution
+- Binary search approach to isolate failing construct
+- API comparison testing to find working solution
+
+**Files created:**
+- `dev/scittle-demo/DIAGNOSIS-nrepl-http-kit.md` - Full technical diagnosis
+- `examples/ws-telemetry-server-fixed.clj` - Working example using `as-channel`
+
+**Implementation:** v0.12.0-websocket-telemetry
 
 ### Version 1.2 (2025-10-28)
 
