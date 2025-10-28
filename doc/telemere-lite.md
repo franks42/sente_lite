@@ -31,6 +31,26 @@ A streamlined telemetry implementation that:
 - **Pre-compiles filters** for high-performance namespace and event-ID filtering
 - **Offers event correlation** via event-ID based tracking and filtering
 
+## Quick Comparison
+
+| Feature | Telemere | Telemere-lite | Notes |
+|---------|----------|---------------|-------|
+| **Platform Support** | JVM Clojure, ClojureScript | Babashka, Scittle/SCI | Different target platforms |
+| **Signal-based API** | ✅ Full | ✅ Compatible | Same core concepts |
+| **Basic Logging** | ✅ | ✅ | `log!`, `error!`, `event!` |
+| **Filtering** | ✅ Advanced | ✅ Core features | Level, namespace, event-ID |
+| **Async Handlers** | ✅ Built-in | ✅ v0.7.0+ | Backpressure support |
+| **Performance** | Up to 4.2M signals/sec | Optimized for BB | Pre-compiled filters |
+| **Handler Ecosystem** | ✅ Rich (OpenTelemetry, Slack, etc.) | Basic (files, stdout, custom) | Extensible via custom handlers |
+| **Sampling/Rate Limiting** | ✅ Built-in | ❌ Custom handlers | Can implement manually |
+| **Production Maturity** | ✅ Production-hardened | ✅ Tested, improving | Active development |
+| **Dependencies** | Telemere ecosystem | BB built-ins (Timbre, Cheshire) | Lightweight |
+| **Migration Path** | N/A | → Telemere when available | API-compatible |
+
+**Bottom line**: Telemere-lite provides ~80% of Telemere's core functionality for Babashka/Scittle today, with clear migration path to full Telemere when platform support arrives.
+
+For detailed feature comparison, see [Gap Analysis vs Official Telemere](#gap-analysis-vs-official-telemere).
+
 ## Table of Contents
 
 - [Installation](#installation)
