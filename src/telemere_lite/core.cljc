@@ -448,6 +448,10 @@
      [handler-fn {:keys [mode buffer-size n-threads]
                   :or {mode :dropping buffer-size 1024 n-threads 1}}]
      (let [queue (java.util.concurrent.LinkedBlockingQueue. buffer-size)
+           ;; NOTE: Non-daemon threads are SAFE here due to shutdown hook
+           ;; ensure-shutdown-hook! (line 597) installs JVM shutdown hook that calls
+           ;; shutdown-telemetry! which properly terminates all executors before JVM exit
+           ;; This prevents process hanging while ensuring graceful signal flushing
            executor (java.util.concurrent.Executors/newFixedThreadPool n-threads)
            stats (atom {:queued 0 :processed 0 :dropped 0 :errors 0})
            running? (atom true)]
