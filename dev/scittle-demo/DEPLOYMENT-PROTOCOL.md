@@ -1,7 +1,7 @@
 # Scittle nREPL Demo - Deployment Protocol
 
-**Version:** 1.1
-**Date:** 2025-10-28 (Updated after successful test)
+**Version:** 1.2
+**Date:** 2025-10-28 (Updated with convenience tasks)
 **Location:** `/Users/franksiebenlist/Development/sente_lite/dev/scittle-demo/`
 
 ---
@@ -319,55 +319,97 @@ Expected: `{:vals ["6"]}` (note: string "6", not number)
 
 #### 5A. Upload sente-lite SERVER code to BB (port 1338)
 
-**Method 1: Using load-sente-server.bb script**
+**Using convenience task (RECOMMENDED):**
 ```bash
-cd /Users/franksiebenlist/Development/sente_lite/dev/scittle-demo
-./load-sente-server.bb
+bb load-bb ../../src/sente_lite/server.cljc
 ```
 
-Expected output: (depends on what's in the script)
+Expected output:
+```
+Loading ../../src/sente_lite/server.cljc into BB server...
+✅ Loaded successfully
+Result: [...]
+```
 
-**Method 2: Manual upload via nREPL**
+**Alternative - Manual nREPL client:**
 ```bash
-# Load server namespace
-bb -Sdeps '{...}' -e '
+bb -Sdeps '{:deps {babashka/nrepl-client {:git/url "https://github.com/babashka/nrepl-client" :git/sha "19fbef2525e47d80b9278c49a545de58f48ee7cf"}}}' -e '
 (require (quote [babashka.nrepl-client :as nrepl]))
 (nrepl/eval-expr {:port 1338 :expr "(load-file \"../../src/sente_lite/server.cljc\")"})'
 ```
 
-**Verification:**
-- Check for any error messages
-- Eval should return success or namespace loaded
+**Verification - Test server code loaded:**
+```bash
+bb eval-bb '(+ 1 2 3)'
+```
+
+Should return: `[4]`
 
 #### 5B. Upload sente-lite CLIENT code to browser (port 1339)
 
+**Using convenience task (RECOMMENDED):**
 ```bash
-# Load client namespace in browser
-bb -Sdeps '{...}' -e '
-(require (quote [babashka.nrepl-client :as nrepl]))
-(nrepl/eval-expr {:port 1339 :expr "(load-file \"path-to-client-code\")"})'
+bb load-browser ../../src/sente_lite/client.cljs
 ```
+
+Expected output:
+```
+Loading ../../src/sente_lite/client.cljs into browser...
+✅ Loaded successfully
+Result: [...]
+```
+
+**Verification - Test client code loaded:**
+```bash
+bb eval-browser '(+ 1 2 3)'
+```
+
+Should return: `[4]`
 
 #### 5C. Start additional services (e.g., WebSocket on port 1342)
 
+**Start http-kit WebSocket server:**
 ```bash
-# Start http-kit WebSocket server in BB
-bb -Sdeps '{...}' -e '
-(require (quote [babashka.nrepl-client :as nrepl]))
-(nrepl/eval-expr {:port 1338 :expr "
-(do
+bb eval-bb '(do
   (require (quote [org.httpkit.server :as http]))
   (def test-server (http/run-server
-    (fn [req] {:status 200 :body \"OK\"})
-    {:port 1342})))"})'
+    (fn [req] {:status 200 :body "OK"})
+    {:port 1342})))'
 ```
 
 **Verification:**
 ```bash
-lsof -i :1342
+lsof -i :1342 || netstat -an | grep 1342 | grep LISTEN
 ```
 
 Should show bb process listening on port 1342.
+
+#### Quick Commands Reference
+
+**Load files:**
+```bash
+bb load-bb <file>          # Load into BB server
+bb load-browser <file>     # Load into browser
+bb load-both <file>        # Load into BOTH
+```
+
+**Eval code:**
+```bash
+bb eval-bb '<code>'        # Eval in BB
+bb eval-browser '<code>'   # Eval in browser
+```
+
+**Health checks:**
+```bash
+bb check-bb                # Check BB responding
+bb check-browser           # Check browser responding
+bb check-all               # Check both services
+```
+
+**List all tasks:**
+```bash
+bb tasks                   # Shows all available commands
+```
 
 **SUCCESS = All code uploaded without errors, all expected services running**
 
@@ -534,6 +576,33 @@ Honesty and verification are more valuable than speed.
 ---
 
 ## Changelog
+
+### Version 1.2 (2025-10-28)
+
+**Added convenience bb tasks** - Step 5 now MUCH easier!
+
+**New in Step 5:**
+1. **Simple commands instead of long nREPL client invocations**
+   - OLD: `bb -Sdeps '{:deps {...}}' -e '(require ...) (nrepl/eval-expr ...)'`
+   - NEW: `bb load-bb <file>` or `bb eval-bb '<code>'`
+
+2. **Added Quick Commands Reference section**
+   - All 12 convenience tasks documented
+   - Load files: `bb load-bb`, `bb load-browser`, `bb load-both`
+   - Eval code: `bb eval-bb`, `bb eval-browser`
+   - Health checks: `bb check-bb`, `bb check-browser`, `bb check-all`
+   - Discovery: `bb tasks` lists all available commands
+
+3. **Benefits:**
+   - Step 5 reduced from complex multi-line commands to simple one-liners
+   - Self-documenting (`bb tasks` shows everything)
+   - Faster iteration during development
+   - Less error-prone (no typing long dependency declarations)
+
+**Implementation:** v0.9.0-convenience-tasks
+- Added 12 bb tasks to dev/scittle-demo/bb.edn
+- All tasks tested and verified working
+- nrepl-client dependency now in project :deps
 
 ### Version 1.1 (2025-10-28)
 
