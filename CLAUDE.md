@@ -259,6 +259,19 @@ sente_lite/
 **Location**: `dev/scittle-demo/`
 **Complete Documentation**: `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md`
 
+### CRITICAL: Keep Documentation Current
+
+**WHENEVER you discover:**
+- A better way to perform any deployment step
+- An edge case or failure mode not documented
+- A verification method that works better
+- Additional troubleshooting steps
+- Any improvement or clarification
+
+**YOU MUST immediately update `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md`**
+
+The deployment protocol is a living document that MUST stay current with actual working practices. Stale documentation is dangerous documentation.
+
 ### FUNDAMENTAL RULE: NO CHEATING, NO LYING
 
 **WHEN TESTING DEPLOYMENT STEPS:**

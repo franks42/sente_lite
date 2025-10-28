@@ -6,6 +6,31 @@
 
 ---
 
+## 🔴 CRITICAL: Keep This Document Current
+
+**This is a LIVING document that MUST be updated as we learn.**
+
+**UPDATE THIS DOCUMENT whenever you discover:**
+- ✅ A better way to perform any step
+- ✅ An edge case or failure mode not covered
+- ✅ Better verification commands or methods
+- ✅ Additional troubleshooting steps that work
+- ✅ Any improvement or clarification to the process
+
+**Why this matters:**
+- Stale documentation is worse than no documentation
+- Future sessions depend on this being accurate
+- Incorrect steps waste time and cause frustration
+- This protocol is critical for development workflow
+
+**When updating:**
+1. Update the relevant section with new information
+2. Update the "Version" and "Date" at the top
+3. Commit with clear description of what changed
+4. Tag if it's a significant protocol improvement
+
+---
+
 ## FUNDAMENTAL RULE: NO CHEATING, NO LYING
 
 **IF SOMETHING DOESN'T WORK → STOP AND SAY IT DOESN'T WORK**
