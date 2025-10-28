@@ -254,75 +254,73 @@ sente_lite/
 - No complex protocol negotiation or message batching
 - ~500 LOC implementation vs Sente's ~1500 LOC
 
-## CRITICAL: Scittle nREPL Environment Restart Sequence
+## CRITICAL: Scittle nREPL Deployment Protocol
 
 **Location**: `dev/scittle-demo/`
+**Complete Documentation**: `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md`
 
-**THE PROBLEM**: When BB server restarts, OLD processes remain running with ports allocated and browser connected to dead instance.
+### FUNDAMENTAL RULE: NO CHEATING, NO LYING
 
-**THE RULE**: When ANYTHING doesn't work or needs restart → START FROM SCRATCH. DO NOT CHEAT. DO NOT LIE.
+**WHEN TESTING DEPLOYMENT STEPS:**
+- If something doesn't work → STOP AND SAY IT DOESN'T WORK
+- If a port is still in use → SAY IT'S STILL IN USE
+- If a process won't die → SAY IT WON'T DIE
+- If a connection fails → SAY IT FAILED
+- If you see an error → REPORT THE FULL ERROR
+- If you're not sure → SAY YOU'RE NOT SURE
 
-### Mandatory Restart Sequence
+**DO NOT:**
+- Pretend things work when they don't
+- Skip verification steps
+- Assume success without checking
+- Move forward when something fails
+- Use optimistic language ("should work", "probably fine") without proof
 
-**1. KILL EVERYTHING FIRST**
-```bash
-pkill -9 bb
-pkill -9 node
-```
+### The 5-Step Kill/Restart Sequence (Summary)
 
-**2. VERIFY PORTS ARE FREE**
-```bash
-lsof -i :1338 :1339 :1340 :1341 :1342
-# Should show NOTHING. If ports are in use, restart sequence failed.
-```
+**See DEPLOYMENT-PROTOCOL.md for complete details, verification steps, and troubleshooting.**
 
-**3. START BB SERVER FRESH**
-```bash
-cd dev/scittle-demo && bb dev
-```
-Starts 4 services:
-- Port 1338: Direct BB nREPL (eval Clojure in BB)
-- Port 1339: Browser nREPL gateway (eval ClojureScript in browser)
-- Port 1340: WebSocket for browser nREPL connection
-- Port 1341: HTTP static file server
+1. **KILL EVERYTHING** → `pkill -9 bb && pkill -9 node`
+   - Verify with: `ps aux | grep -E "bb|node"`
+   - Must show NO processes
 
-**4. START PLAYWRIGHT BROWSER FRESH**
-```bash
-cd dev/scittle-demo && npm run interactive
-```
-Opens browser with DevTools, connects to NEW BB instance on port 1340.
+2. **VERIFY PORTS FREE** → `lsof -i :1338 :1339 :1340 :1341 :1342`
+   - Must show NO output (all ports free)
+   - If ports in use → GO BACK TO STEP 1
 
-**5. RE-UPLOAD ALL CODE** (lost from memory!)
-- Upload server code to BB via port 1338 nREPL
-- Upload client code to browser via port 1339 nREPL
-- Start any additional services (e.g., WebSocket on port 1342)
+3. **START BB SERVER** → `cd dev/scittle-demo && bb dev`
+   - Starts 4 services (ports 1338, 1339, 1340, 1341)
+   - Verify with: `lsof -i :1338 :1339 :1340 :1341`
+   - Must show all 4 ports listening
 
-### What Gets Lost on Restart
-- ALL code uploaded to BB server memory
-- ALL code uploaded to browser memory
-- ALL WebSocket connections
-- ALL server instances created via nREPL
+4. **START BROWSER** → `npm run interactive`
+   - Opens Playwright browser with DevTools
+   - Verify: Check console for WebSocket connection, no errors
+   - Test: Eval `(+ 1 2 3)` via port 1339 nREPL
 
-### Architecture
-```
-BB Process (4 services):
-├─ Port 1338: BB nREPL → eval Clojure in BB server
-├─ Port 1339: Browser Gateway → bencode ↔ EDN → Port 1340
-├─ Port 1340: WebSocket → Browser nREPL server
-└─ Port 1341: HTTP → Static files
+5. **RE-UPLOAD ALL CODE** (everything lost from memory!)
+   - Upload server code to BB via port 1338
+   - Upload client code to browser via port 1339
+   - Start additional services (port 1342 if needed)
+   - Verify each upload completes without errors
 
-Browser (Playwright):
-└─ Connects to Port 1340 → Runs nREPL server in browser via Scittle
-```
+### When to Run This Sequence
 
-### Common Mistakes
-1. ❌ Restarting BB without killing old processes
-2. ❌ Browser connected to old BB instance
-3. ❌ Forgetting to re-upload code after restart
-4. ❌ Pretending things work when they don't
-5. ❌ Not verifying ports are free before starting
+**ALWAYS run full 5-step sequence when:**
+- Starting fresh development session
+- Something doesn't work
+- Need to restart any service
+- Port conflicts occur
+- Browser loses connection
 
-### If Something Doesn't Work
-**DO NOT TRY TO FIX IT. START FROM SCRATCH.**
+**NEVER try to:**
+- Restart just one service
+- "Fix" individual components
+- Skip verification steps
+- Proceed when something fails
 
-Run the 5-step sequence again. Every time.
+### Rule: If It Doesn't Work → START FROM SCRATCH
+
+**DO NOT TRY TO FIX IT. RUN THE 5-STEP SEQUENCE.**
+
+Every time. No exceptions. No shortcuts.
