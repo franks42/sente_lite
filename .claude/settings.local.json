@@ -25,7 +25,10 @@
       "Bash(do lsof -i :$port)",
       "Bash(done)",
       "Bash(chmod:*)",
-      "Bash(/tmp/bb-subscriber.bb)"
+      "Bash(/tmp/bb-subscriber.bb)",
+      "Bash(pgrep:*)",
+      "Bash(do lsof -i tcp:$port)",
+      "Bash(cljfmt check:*)"
     ],
     "deny": [],
     "ask": []

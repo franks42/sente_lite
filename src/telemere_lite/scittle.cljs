@@ -34,13 +34,19 @@
     (log! :info \"message\" {:key \"value\"})"
   ([level]
    `(log-with-location! ~level "" {}
-                        ~(str *file*) ~(:line (meta &form)) ~(str *ns*)))
+                        ~(str #_{:clj-kondo/ignore [:unresolved-symbol]} *file*)
+                        ~(:line (meta &form))
+                        ~(str *ns*)))
   ([level msg]
    `(log-with-location! ~level ~msg {}
-                        ~(str *file*) ~(:line (meta &form)) ~(str *ns*)))
+                        ~(str #_{:clj-kondo/ignore [:unresolved-symbol]} *file*)
+                        ~(:line (meta &form))
+                        ~(str *ns*)))
   ([level msg data]
    `(log-with-location! ~level ~msg ~data
-                        ~(str *file*) ~(:line (meta &form)) ~(str *ns*))))
+                        ~(str #_{:clj-kondo/ignore [:unresolved-symbol]} *file*)
+                        ~(:line (meta &form))
+                        ~(str *ns*))))
 
 (defn startup!
   "Log browser startup with system info"

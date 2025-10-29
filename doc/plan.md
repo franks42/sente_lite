@@ -3986,16 +3986,21 @@ Before deploying features to production:
   - `:on-reconnect` callback for application-controlled restoration
   - `set-reconnect!` function to control reconnection
 - ✅ **Code Quality**: Zero linting errors, zero warnings, formatted
+- ✅ **Manual Testing**: End-to-end browser reconnection test passed
+  - Exponential backoff pattern verified (1s, 2s, 8s, 30s)
+  - Connection re-established after 5 attempts
+  - Full functionality confirmed after reconnection
+  - Application-controlled subscription restoration working
 
 **Testing:**
 - ✅ All BB-to-BB tests passing (10 unit tests + 6 multi-process scenarios)
 - ✅ Pub/sub verified in all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser
+- ✅ Browser auto-reconnect manually tested and verified
 
 **Future Enhancements Added:**
 - UUIDv7 for conn-id (better uniqueness and sortability)
 
 **Next Steps:**
-- Browser auto-reconnect manual testing (requires browser interaction)
 - Consider extracting shared message handling between BB and browser
 
 ### 2025-10-27 - Multi-Process Testing Suite Complete
