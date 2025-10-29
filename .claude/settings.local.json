@@ -17,7 +17,15 @@
       "Bash(pkill:*)",
       "Bash(lsof:*)",
       "Bash(bb:*)",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npm run interactive:*)",
+      "Bash(timeout 15 bb eval-browser:*)",
+      "WebFetch(domain:cdn.jsdelivr.net)",
+      "Bash(for:*)",
+      "Bash(do lsof -i :$port)",
+      "Bash(done)",
+      "Bash(chmod:*)",
+      "Bash(/tmp/bb-subscriber.bb)"
     ],
     "deny": [],
     "ask": []
