@@ -21,8 +21,7 @@
 
     (sente/send! client [:my/event {:data \"value\"}])
     (sente/close! client)"
-  (:require [telemere-lite.scittle :as tel]
-            [cljs.reader]))
+  (:require [telemere-lite.scittle :as tel]))
 
 ;;; State Management
 
@@ -39,6 +38,9 @@
    :ws nil
    :status :disconnected
    :reconnect-count 0
+   :reconnect-enabled? (get config :auto-reconnect? true)  ; default true
+   :reconnect-delay (get config :reconnect-delay 1000)     ; default 1s
+   :max-reconnect-delay (get config :max-reconnect-delay 30000)  ; default 30s
    :last-connect-attempt nil
    :message-count-sent 0
    :message-count-received 0})
@@ -61,19 +63,29 @@
 
 (defn- handle-open [client-state event]
   (let [client-id (:id client-state)
-        config (:config client-state)]
-    (log-client-event! client-id "connected"
+        config (:config client-state)
+        is-reconnect? (> (:reconnect-count client-state) 0)]
+    (log-client-event! client-id (if is-reconnect? "reconnected" "connected")
                        {:url (:url config)
-                        :ready-state (.. event -target -readyState)})
+                        :ready-state (.. event -target -readyState)
+                        :reconnect-count (:reconnect-count client-state)})
     (swap! clients assoc-in [client-id :status] :connected)
-    (when-let [on-open (:on-open config)]
-      (on-open))))
+
+    ;; Call appropriate callback
+    (if is-reconnect?
+      (when-let [on-reconnect (:on-reconnect config)]
+        (tel/info! "Calling :on-reconnect callback" {:client-id client-id})
+        (on-reconnect))
+      (when-let [on-open (:on-open config)]
+        (tel/info! "Calling :on-open callback" {:client-id client-id})
+        (on-open)))))
 
 (defn- parse-message
   "Parse message - expects EDN format for now"
   [raw-data]
   (try
-    (cljs.reader/read-string raw-data)
+    #_{:clj-kondo/ignore [:unresolved-symbol]}
+    (read-string raw-data)  ; read-string available in Scittle via SCI
     (catch js/Error e
       (tel/warn! "Failed to parse message" {:raw-data raw-data :error (.-message e)})
       {:error :parse-failed :raw raw-data})))
@@ -97,33 +109,104 @@
                        {:ready-state (.-readyState ws)
                         :event event})))
 
+(declare attempt-reconnect!)  ; forward declaration
+
 (defn- handle-close [client-state event]
   (let [client-id (:id client-state)
         config (:config client-state)
         code (.-code event)
         reason (.-reason event)
-        was-clean (.-wasClean event)]
+        was-clean (.-wasClean event)
+        reconnect-enabled? (:reconnect-enabled? client-state)]
     (swap! clients assoc-in [client-id :status] :disconnected)
     (log-client-event! client-id "disconnected"
                        {:code code
                         :reason reason
-                        :was-clean was-clean})
+                        :was-clean was-clean
+                        :will-reconnect? reconnect-enabled?})
     (when-let [on-close (:on-close config)]
-      (on-close event))))
+      (on-close event))
+
+    ;; Auto-reconnect if enabled
+    (when reconnect-enabled?
+      (let [current-client-state (get @clients client-id)
+            delay-ms (:reconnect-delay current-client-state)
+            reconnect-count (:reconnect-count current-client-state)]
+        (tel/info! "Scheduling reconnect"
+                   {:client-id client-id
+                    :delay-ms delay-ms
+                    :reconnect-count reconnect-count})
+        (js/setTimeout #(attempt-reconnect! client-id) delay-ms)))))
+
+;;; Reconnection Logic
+
+(defn- attempt-reconnect! [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (when (:reconnect-enabled? client-state)
+      (let [config (:config client-state)
+            url (:url config)
+            reconnect-count (:reconnect-count client-state)
+            new-reconnect-count (inc reconnect-count)]
+
+        (tel/info! "Attempting reconnection"
+                   {:client-id client-id
+                    :reconnect-count new-reconnect-count
+                    :url url})
+
+        (try
+          ;; Increment reconnect count BEFORE creating WebSocket
+          (swap! clients update-in [client-id :reconnect-count] inc)
+
+          ;; Calculate exponential backoff for NEXT reconnection
+          (let [base-delay (:reconnect-delay client-state)
+                max-delay (:max-reconnect-delay client-state)
+                next-delay (min (* base-delay (Math/pow 2 new-reconnect-count)) max-delay)]
+            (swap! clients assoc-in [client-id :reconnect-delay] next-delay))
+
+          ;; Create new WebSocket
+          (let [ws (js/WebSocket. url)
+                updated-client-state (get @clients client-id)]
+
+            ;; Store new ws in client state
+            (swap! clients assoc-in [client-id :ws] ws)
+
+            ;; Setup handlers with updated client state
+            (set! (.-onopen ws) (partial handle-open updated-client-state))
+            (set! (.-onmessage ws) (partial handle-message updated-client-state))
+            (set! (.-onerror ws) (partial handle-error updated-client-state))
+            (set! (.-onclose ws) (partial handle-close updated-client-state))
+
+            (tel/debug! "Reconnection attempt initiated" {:client-id client-id}))
+
+          (catch js/Error e
+            (log-client-error! client-id "reconnection-failed"
+                               {:error (.-message e)
+                                :reconnect-count new-reconnect-count})
+            ;; Failed reconnect - try again after delay if still enabled
+            (when (get-in @clients [client-id :reconnect-enabled?])
+              (let [retry-delay (get-in @clients [client-id :reconnect-delay])]
+                (tel/info! "Scheduling retry after error"
+                           {:client-id client-id
+                            :retry-delay retry-delay})
+                (js/setTimeout #(attempt-reconnect! client-id) retry-delay)))))))))
 
 ;;; Public API
 
 (defn make-client!
-  "Create and connect a WebSocket client with telemetry.
+  "Create and connect a WebSocket client with auto-reconnect and telemetry.
 
   Config options:
-    :url          - WebSocket URL (required, e.g. \"ws://localhost:3000/ws\")
-    :on-open      - Called when connection established
-    :on-message   - Called with parsed message (fn [msg])
-    :on-close     - Called when connection closes (fn [event])
-    :on-error     - Called on error (fn [event])
+    :url                  - WebSocket URL (required, e.g. \"ws://localhost:3000/ws\")
+    :on-open              - Called on initial connection (fn [])
+    :on-reconnect         - Called after reconnection (fn [])
+    :on-message           - Called with parsed message (fn [msg])
+    :on-close             - Called when connection closes (fn [event])
+    :on-error             - Called on error (fn [event])
+    :auto-reconnect?      - Enable auto-reconnect (default: true)
+    :reconnect-delay      - Initial reconnect delay in ms (default: 1000)
+    :max-reconnect-delay  - Maximum reconnect delay in ms (default: 30000)
 
-  Returns client handle for send!/close! operations."
+  Returns client-id handle for send!/close!/set-reconnect! operations."
   [config]
   (let [client-state (make-client-state config)
         client-id (:id client-state)
@@ -210,3 +293,18 @@
   "List all active client IDs."
   []
   (keys @clients))
+
+(defn set-reconnect!
+  "Enable or disable auto-reconnect for a client.
+  Useful for stopping reconnection attempts when shutting down."
+  [client-id enabled?]
+  (if-let [client-state (get @clients client-id)]
+    (do
+      (swap! clients assoc-in [client-id :reconnect-enabled?] enabled?)
+      (tel/info! "Reconnect setting updated"
+                 {:client-id client-id
+                  :enabled? enabled?})
+      true)
+    (do
+      (tel/warn! "Cannot set reconnect - invalid client-id" {:client-id client-id})
+      false)))

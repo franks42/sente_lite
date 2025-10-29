@@ -140,7 +140,7 @@
     (case (keyword msg-type)
       ;; Ping/pong for connection health
       :ping
-      {:type "pong"
+      {:type :pong
        :timestamp (System/currentTimeMillis)
        :original-timestamp (:timestamp parsed-message)}
 
@@ -149,7 +149,7 @@
         ;; Update last-pong timestamp when client responds
         (when-let [channel (get @connection-index conn-id)]
           (update-connection-pong! channel))
-        {:type "pong-ack"
+        {:type :pong-ack
          :timestamp (System/currentTimeMillis)})
 
       ;; Channel operations
@@ -163,7 +163,7 @@
                                                  (get-in config [:channels :default-config])))
 
                      (channels/subscribe! conn-id channel-id))]
-        {:type "subscription-result"
+        {:type :subscription-result
          :channel-id channel-id
          :success (:success result)
          :reason (:reason result)
@@ -173,7 +173,7 @@
       :unsubscribe
       (let [channel-id (:channel-id parsed-message)
             result (channels/unsubscribe! conn-id channel-id)]
-        {:type "unsubscription-result"
+        {:type :unsubscription-result
          :channel-id channel-id
          :success result})
 
@@ -187,7 +187,7 @@
         ;; Actually broadcast the message to subscribers
         (when (:success result)
           (broadcast-to-channel! channel-id message-data))
-        {:type "publish-result"
+        {:type :publish-result
          :channel-id channel-id
          :success (:success result)
          :message-id (:message-id result)
@@ -199,7 +199,7 @@
             timeout-ms (:timeout-ms parsed-message 30000)
             result (channels/send-rpc-request! conn-id target-channel-id request-data
                                                :timeout-ms timeout-ms)]
-        {:type "rpc-request-result"
+        {:type :rpc-request-result
          :request-id (:request-id result)
          :channel-id target-channel-id
          :delivery (:delivery result)})
@@ -209,20 +209,20 @@
             response-data (:data parsed-message)
             error? (:error? parsed-message false)
             result (channels/send-rpc-response! request-id response-data :error? error?)]
-        {:type "rpc-response-result"
+        {:type :rpc-response-result
          :request-id request-id
          :success (:success result)})
 
       :list-channels
-      {:type "channel-list"
+      {:type :channel-list
        :channels (channels/list-channels)}
 
       :get-subscriptions
-      {:type "subscription-list"
+      {:type :subscription-list
        :subscriptions (vec (channels/get-subscriptions conn-id))}
 
       ;; Default echo for testing
-      {:type "echo"
+      {:type :echo
        :original parsed-message
        :conn-id conn-id
        :timestamp (System/currentTimeMillis)})))
@@ -532,9 +532,10 @@
   (let [channel-info (channels/get-channel-info channel-id)]
     (if channel-info
       (let [subscribers (:subscribers channel-info)
-            message-with-meta (assoc message
-                                     :channel-id channel-id
-                                     :broadcast-time (System/currentTimeMillis))
+            message-with-meta {:type :channel-message
+                               :channel-id channel-id
+                               :data message
+                               :broadcast-time (System/currentTimeMillis)}
             delivered (atom 0)
             wire-format (get-wire-format (:config @server-state))]
 

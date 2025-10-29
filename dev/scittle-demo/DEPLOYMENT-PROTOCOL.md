@@ -1,8 +1,18 @@
 # Scittle nREPL Demo - Deployment Protocol
 
-**Version:** 1.3
-**Date:** 2025-10-28 (Updated with http-kit API compatibility warning)
+**Version:** 1.4
+**Date:** 2025-10-28 (Added explicit failure reporting to bb tasks)
 **Location:** `/Users/franksiebenlist/Development/sente_lite/dev/scittle-demo/`
+
+## 🎯 Recent Improvements (v1.4)
+
+**Better Error Reporting in BB Tasks:**
+- `bb load-browser` and `bb eval-browser` now have EXPLICIT failure messages
+- All tasks now show: ❌ FAILED or ✅ SUCCESS - no ambiguity
+- Added 30s timeout for file loads, 10s for evals
+- Progress indicators show what's happening ("📤 Loading...", "📡 Sending X chars...")
+- Catch and report timeout exceptions explicitly
+- **Result:** No more silent failures that get misreported as success
 
 ---
 

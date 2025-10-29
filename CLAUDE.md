@@ -34,6 +34,37 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Rationale**: The most recently modified files reveal the actual current work, not what we planned to work on or what's documented in older files.
 
+## CRITICAL: Testing Strategy - BB-to-BB First, Always
+
+**FUNDAMENTAL RULE: Test BB-to-BB before touching browser code**
+
+When implementing or debugging any feature (especially message handling):
+
+1. **Create COMPLETE BB-to-BB test FIRST**
+   - Test the ENTIRE feature flow end-to-end
+   - Multiple clients if needed (e.g., pub/sub needs 2+ subscribers)
+   - Don't stop at partial tests (e.g., only subscribe without publish/receive)
+   - Make absolutely sure it works 100%
+
+2. **Extract common code to shared CLJC functions**
+   - Identify reusable message handlers
+   - Put shared code in `.cljc` files
+   - Use the SAME code between BB and browser
+
+3. **ONLY THEN go to browser**
+   - Use the proven BB approach
+   - Use the shared CLJC functions
+   - Any bugs found affect both, fix in shared code
+
+**Why this matters:**
+- BB tests are 10x faster to run and debug
+- No browser environment complexity
+- Proves the server works correctly
+- Ensures code reuse between BB and browser
+- Prevents wasted effort debugging browser-specific issues when the real problem is server-side
+
+**Never skip this. Never test browser first. Never create incomplete BB tests.**
+
 ## Project Overview
 
 sente-lite is a lightweight WebSocket library for Babashka (bb), Node Babashka (nbb), and Scittle/SCI environments that provides Sente-like functionality without the heavy dependencies. It's designed for constrained environments where core.async and JVM/ClojureScript features aren't available.

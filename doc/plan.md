@@ -38,6 +38,122 @@ sente-lite is a lightweight WebSocket library providing ~85% Sente API compatibi
 - **State management:** Atom-based with callback notifications
 - **Message size:** 1MB default limit with warnings at 512KB
 
+### 4. Client Identity and Reconnection Architecture
+
+#### Ephemeral Session ID Design
+- **Current Implementation:** Server generates unique `conn-id` per WebSocket connection
+- **Lifecycle:** Created on connect, destroyed on disconnect, never reused
+- **No Persistence:** Subscriptions, state, and identity are NOT restored automatically after reconnection
+- **Rationale:** Keeps infrastructure layer "dumb" about client identity and authentication
+
+#### Security Model
+**Why NO persistent client IDs without authentication:**
+- Persistent client IDs without authentication enable **impersonation attacks**
+- An attacker could reuse a valid UUID to impersonate another client
+- Stable identities require proper authentication (JWT, OAuth, mTLS, etc.)
+
+**Architecture Decision:**
+- **Infrastructure layer:** Identity-agnostic, provides only ephemeral `conn-id`
+- **Application layer:** Responsible for authentication, authorization, and persistent identity
+- **Separation of concerns:** Infrastructure handles connection mechanics, application handles business logic
+
+#### Reconnection Strategy
+**Infrastructure responsibilities:**
+1. Auto-reconnect with exponential backoff
+2. WebSocket connection lifecycle management
+3. Basic health monitoring (ping/pong)
+4. Connection state notifications via hooks
+
+**Application responsibilities:**
+1. Track what subscriptions/state need restoration
+2. Decide what to restore after reconnection
+3. Handle authentication/re-authentication
+4. Manage persistent client identity if needed
+
+**Design Pattern: Application-Controlled Restoration**
+```clojure
+;; Application tracks its own state
+(def app-subscriptions (atom #{}))
+
+;; Infrastructure provides hooks
+{:on-connect (fn [conn-id]
+               ;; Initial setup
+               (subscribe-to-channels! @app-subscriptions))
+
+ :on-reconnect (fn [new-conn-id]
+                 ;; Application decides what to restore
+                 (subscribe-to-channels! @app-subscriptions))
+
+ :on-disconnect (fn [reason]
+                  ;; Cleanup if needed
+                  )}
+```
+
+**Rationale (YAGNI principle):**
+- Don't solve problems we don't have yet
+- Simpler separation of concerns
+- Application knows best what needs restoration
+- Avoids security risks of automatic state restoration
+
+#### API Contract
+**Infrastructure provides:**
+- `:on-connect` - Called when new connection established (initial or reconnection)
+- `:on-reconnect` - Called specifically after reconnecting (not initial connect)
+- `:on-disconnect` - Called when connection lost
+- `:on-error` - Called on connection errors
+- Auto-reconnect mechanics with exponential backoff
+
+**Application provides:**
+- State tracking (subscriptions, preferences, etc.)
+- Restoration logic in `:on-reconnect` hook
+- Authentication/authorization logic
+- Persistent identity management (if needed)
+
+**Example: Complete Reconnection Flow**
+```clojure
+#!/usr/bin/env bb
+;; Application-controlled subscription restoration
+
+;; APPLICATION STATE (not infrastructure)
+(def app-subscriptions (atom #{}))
+(def reconnect-count (atom 0))
+
+;; INFRASTRUCTURE STATE
+(def ws-client (atom nil))
+(def status (atom :disconnected))
+
+(defn subscribe-to-channel! [channel-id]
+  (swap! app-subscriptions conj channel-id)
+  (when @ws-client
+    (ws/send! @ws-client (pr-str {:type :subscribe :channel-id channel-id}))))
+
+(defn attempt-reconnect! []
+  (swap! reconnect-count inc)
+  (let [client (ws/websocket
+                {:uri "ws://localhost:1345/"
+                 :on-open (fn [ws]
+                            (reset! status :connected)
+
+                            ;; APPLICATION decides what to restore
+                            (doseq [channel-id @app-subscriptions]
+                              (ws/send! ws (pr-str {:type :subscribe :channel-id channel-id}))))
+
+                 :on-close (fn [ws status reason]
+                             (reset! status :disconnected)
+                             ;; Auto-reconnect after delay
+                             (Thread/sleep 1000)
+                             (attempt-reconnect!))})]
+    (reset! ws-client client)))
+```
+
+**Security Best Practices:**
+1. Never trust client-provided IDs without authentication
+2. Use ephemeral session IDs for unauthenticated connections
+3. Implement proper authentication for persistent identity
+4. Validate all client actions server-side
+5. Rate-limit reconnection attempts
+6. Log security-relevant events (failed auth, suspicious patterns)
+
 ## Version Requirements
 
 ### Minimum Versions
@@ -3821,6 +3937,7 @@ Before deploying features to production:
 - ✅ Multi-process tests (separate BB processes) - Production-ready
 
 ### 📋 PLANNED - Future Enhancements
+- **UUIDv7 for conn-id**: Replace simple timestamp-based conn-id with UUIDv7 for better uniqueness and sortability
 - **Authentication & Authorization**: Token-based auth, user ID routing
 - **Browser Client (Scittle)**: JavaScript client with same API
 - **nREPL Integration**: Transit multiplexer, bencode validation
@@ -3830,6 +3947,56 @@ Before deploying features to production:
 ---
 
 ## Updates Log
+
+### 2025-10-29 - Auto-Reconnect & Server Bug Fixes Complete
+**Status:** All major bugs fixed, auto-reconnect implemented, all tests passing
+
+**Critical Bug Fixes:**
+- ✅ **Server Type Inconsistency Fixed**: All 10 message types now use keywords consistently (`:ping`, `:subscription-result`, etc.)
+  - Fixed in `server.cljc` lines 143, 152, 166, 176, 190, 202, 212, 217, 221, 225
+  - BB-to-BB tests passing, browser demos working
+- ✅ **Broadcast Envelope Bug Fixed**: Messages now wrapped in proper `{:type :channel-message :data {...}}` envelope
+  - Fixed in `server.cljc` lines 535-538
+  - All 4 pub/sub scenarios tested and working (BB↔BB, Browser↔Browser, BB↔Browser)
+
+**Auto-Reconnect Architecture:**
+- ✅ **Comprehensive Documentation Added** to `doc/plan.md` (lines 41-156):
+  - Ephemeral Session ID Design (security rationale)
+  - Security Model (why persistent IDs without auth enable attacks)
+  - Reconnection Strategy (infrastructure vs application responsibilities)
+  - API Contract (`:on-connect`, `:on-reconnect`, `:on-disconnect` hooks)
+  - Complete implementation examples
+  - Security best practices
+
+**BB Auto-Reconnect:**
+- ✅ **Implementation**: Test file `dev/scittle-demo/examples/test-reconnect-app-controlled.bb`
+- ✅ **Testing**: End-to-end test passed (2 messages received, 1 before + 1 after reconnect)
+- ✅ **Features Verified**:
+  - Auto-reconnect after server disconnect
+  - Exponential backoff (1s, 2s, 4s, ..., max 30s)
+  - Application-controlled subscription restoration
+  - Pub/sub working before and after reconnection
+
+**Browser Auto-Reconnect:**
+- ✅ **Implementation**: Added to `src/sente_lite/client_scittle.cljs`
+- ✅ **Features**:
+  - Config options: `:auto-reconnect?`, `:reconnect-delay`, `:max-reconnect-delay`
+  - `attempt-reconnect!` function with exponential backoff
+  - Differentiates initial connect from reconnect
+  - `:on-reconnect` callback for application-controlled restoration
+  - `set-reconnect!` function to control reconnection
+- ✅ **Code Quality**: Zero linting errors, zero warnings, formatted
+
+**Testing:**
+- ✅ All BB-to-BB tests passing (10 unit tests + 6 multi-process scenarios)
+- ✅ Pub/sub verified in all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser
+
+**Future Enhancements Added:**
+- UUIDv7 for conn-id (better uniqueness and sortability)
+
+**Next Steps:**
+- Browser auto-reconnect manual testing (requires browser interaction)
+- Consider extracting shared message handling between BB and browser
 
 ### 2025-10-27 - Multi-Process Testing Suite Complete
 **Tag:** `v0.6.1-multiprocess-complete`

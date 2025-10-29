@@ -20,23 +20,27 @@
 (defn- handle-heartbeat-message
   "Handle ping/pong messages and auto-respond"
   [msg]
-  (case (:type msg)
-    "ping"
-    (do
-      (swap! ping-count-atom inc)
-      (js/console.log "💓 Received ping #" @ping-count-atom)
-      ;; Auto-pong: send pong response
-      (when-let [client-id @client-atom]
-        (sente/send! client-id {:type "pong"
-                                :timestamp (js/Date.now)})
-        (swap! pong-count-atom inc)
-        (js/console.log "💚 Sent pong #" @pong-count-atom)))
+  (let [msg-type (:type msg)]
+    (case msg-type
+      :ping
+      (do
+        (swap! ping-count-atom inc)
+        (js/console.log "💓 Received ping #" @ping-count-atom)
+        ;; Auto-pong: send pong response
+        (when-let [client-id @client-atom]
+          (sente/send! client-id {:type "pong"
+                                  :timestamp (js/Date.now)})
+          (swap! pong-count-atom inc)
+          (js/console.log "💚 Sent pong #" @pong-count-atom)))
 
-    "pong-ack"
-    (js/console.log "✓ Server acknowledged pong")
+      :pong-ack
+      (js/console.log "✓ Server acknowledged pong")
 
-    ;; Other messages
-    (js/console.log "📨 Received:" (pr-str msg))))
+      :welcome
+      (js/console.log "✓ Welcome message:" msg)
+
+      ;; Default case for other messages
+      (js/console.log "📨 Other message:" (pr-str msg)))))
 
 (defn connect!
   "Establish WebSocket connection with heartbeat monitoring"
@@ -70,9 +74,13 @@
 (defn get-stats
   "Get current heartbeat statistics"
   []
-  {:pings-received @ping-count-atom
-   :pongs-sent @pong-count-atom
-   :connected? (some? @client-atom)})
+  (let [client-id @client-atom
+        actual-status (when client-id
+                        (sente/get-status client-id))]
+    {:pings-received @ping-count-atom
+     :pongs-sent @pong-count-atom
+     :connected? (= actual-status :connected)
+     :status actual-status}))
 
 (defn send-test-message!
   "Send test message (unrelated to heartbeat)"

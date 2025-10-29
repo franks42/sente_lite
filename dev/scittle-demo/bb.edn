@@ -48,10 +48,28 @@
                        :requires ([babashka.nrepl-client :as nrepl])
                        :task (let [code (first *command-line-args*)]
                                (when-not code
+                                 (println "❌ FAILED: No code provided")
                                  (println "Usage: bb eval-browser '<code>'")
                                  (System/exit 1))
-                               (let [result (nrepl/eval-expr {:port 1339 :expr code})]
-                                 (println (:vals result))))}
+                               (try
+                                 (let [result (nrepl/eval-expr {:port 1339 :expr code :timeout-ms 10000})]
+                                   (cond
+                                     (:ex result)
+                                     (do (println "❌ EVAL FAILED:" (:ex result))
+                                         (System/exit 1))
+
+                                     (nil? result)
+                                     (do (println "❌ FAILED: No response from browser")
+                                         (System/exit 1))
+
+                                     :else
+                                     (println (:vals result))))
+                                 (catch java.net.SocketTimeoutException e
+                                   (println "❌ FAILED: TIMEOUT after 10s")
+                                   (System/exit 1))
+                                 (catch Exception e
+                                   (println "❌ FAILED:" (.getMessage e))
+                                   (System/exit 1))))}
 
          ;; ============================================================================
          ;; File Loading Tasks
@@ -82,20 +100,39 @@
                                   [clojure.java.io :as io])
                        :task (let [file-path (first *command-line-args*)]
                                (when-not file-path
+                                 (println "❌ FAILED: No file path provided")
                                  (println "Usage: bb load-browser <file-path>")
                                  (System/exit 1))
                                (when-not (.exists (io/file file-path))
-                                 (println "Error: File not found:" file-path)
+                                 (println "❌ FAILED: File not found:" file-path)
                                  (System/exit 1))
-                               (println "Loading" file-path "into browser...")
-                               (let [code (slurp file-path)
-                                     result (nrepl/eval-expr {:port 1339 :expr code})]
-                                 (if (:ex result)
-                                   (do (println "❌ Error:" (:ex result))
-                                       (System/exit 1))
-                                   (do (println "✅ Loaded successfully")
-                                       (when-let [vals (:vals result)]
-                                         (println "Result:" vals))))))}
+                               (println "📤 Loading" file-path "into browser...")
+                               (try
+                                 (let [code (slurp file-path)
+                                       _ (println "📡 Sending" (count code) "chars to browser nREPL...")
+                                       result (nrepl/eval-expr {:port 1339 :expr code :timeout-ms 30000})]
+                                   (cond
+                                     (:ex result)
+                                     (do (println "❌ FAILED: nREPL returned error")
+                                         (println "Error:" (:ex result))
+                                         (System/exit 1))
+
+                                     (nil? result)
+                                     (do (println "❌ FAILED: No response from browser")
+                                         (System/exit 1))
+
+                                     :else
+                                     (do (println "✅ SUCCESS: Loaded" file-path)
+                                         (when-let [vals (:vals result)]
+                                           (println "Result:" vals))
+                                         (println "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"))))
+                                 (catch java.net.SocketTimeoutException e
+                                   (println "❌ FAILED: TIMEOUT after 30s")
+                                   (println "Browser may not be responding on port 1339")
+                                   (System/exit 1))
+                                 (catch Exception e
+                                   (println "❌ FAILED: Exception:" (.getMessage e))
+                                   (System/exit 1))))}
 
          load-both {:doc "Load file in BOTH BB server and browser. Usage: bb load-both <file-path>"
                     :task (let [file-path (first *command-line-args*)]

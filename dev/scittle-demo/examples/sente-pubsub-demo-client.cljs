@@ -27,14 +27,14 @@
   [msg]
   (let [msg-type (:type msg)]
     (case msg-type
-      "ping"
+      :ping
       (do
         (js/console.log "💓 Ping received, sending pong...")
         (when-let [client-id @client-atom]
-          (sente/send! client-id {:type "pong"
+          (sente/send! client-id {:type :pong
                                   :timestamp (js/Date.now)})))
 
-      "subscription-result"
+      :subscription-result
       (do
         (js/console.log "✓ Subscription result:")
         (js/console.log "  Channel:" (:channel-id msg))
@@ -46,7 +46,7 @@
           (when (seq retained)
             (js/console.log "  Retained messages:" (count retained)))))
 
-      "unsubscription-result"
+      :unsubscription-result
       (do
         (js/console.log "✓ Unsubscription result:")
         (js/console.log "  Channel:" (:channel-id msg))
@@ -54,23 +54,26 @@
         (when (:success msg)
           (swap! subscriptions-atom disj (:channel-id msg))))
 
-      "publish-result"
+      :publish-result
       (js/console.log "✓ Publish result:"
                       " Channel:" (:channel-id msg)
                       " Delivered to:" (:delivered-to msg))
 
-      "channel-message"
+      :channel-message
       (do
         (swap! received-messages-atom conj msg)
         (js/console.log "📨 Channel message:")
         (js/console.log "  Channel:" (:channel-id msg))
         (js/console.log "  Data:" (pr-str (:data msg))))
 
-      "pong-ack"
+      :pong-ack
       nil  ; Ignore pong-ack for cleaner console
 
-      ;; Default
-      (js/console.log "📨 Received:" (pr-str msg)))))
+      :welcome
+      (js/console.log "✓ Welcome message:" msg)
+
+      ;; Default case for other messages
+      (js/console.log "📨 Other message:" (pr-str msg)))))
 
 (defn connect!
   "Establish WebSocket connection"
@@ -104,7 +107,7 @@
   (if-let [client-id @client-atom]
     (do
       (js/console.log "📥 Subscribing to channel:" channel-id)
-      (sente/send! client-id {:type "subscribe"
+      (sente/send! client-id {:type :subscribe
                               :channel-id channel-id}))
     (js/console.error "⚠ Not connected! Call (connect!) first")))
 
@@ -114,7 +117,7 @@
   (if-let [client-id @client-atom]
     (do
       (js/console.log "📤 Unsubscribing from channel:" channel-id)
-      (sente/send! client-id {:type "unsubscribe"
+      (sente/send! client-id {:type :unsubscribe
                               :channel-id channel-id}))
     (js/console.error "⚠ Not connected! Call (connect!) first")))
 
@@ -124,7 +127,7 @@
   (if-let [client-id @client-atom]
     (do
       (js/console.log "📢 Publishing to channel:" channel-id)
-      (sente/send! client-id {:type "publish"
+      (sente/send! client-id {:type :publish
                               :channel-id channel-id
                               :data data
                               :exclude-sender? false}))
