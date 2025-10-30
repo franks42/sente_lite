@@ -1,319 +1,152 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-10-29 (Session 5 - nREPL Gateway BLOCKER RESOLVED ✅)
+**Last Updated**: 2025-10-29 (Session 5 - SCI Limitation Documented ✅)
 
-## 🎉 CURRENT STATUS: nREPL Gateway Working!
+## CURRENT STATUS
 
-**What's working**:
-- ✅ Browser connects to gateway via sente-lite WebSocket
-- ✅ Browser receives and handles messages (no more "nth not supported" error)
-- ✅ Gateway running on ports 1346 (sente WebSocket) and 1347 (nREPL bencode)
-- ✅ All code loads successfully into browser
+**Last Commit**: `3e04d9e` - "docs: Document critical SCI destructuring limitation and fix"
+**Last Tag**: `v0.11.1-sci-limitation-documented`
+**Branch**: `main` - clean working tree, all changes committed and pushed
 
-**What's next**:
-- Test end-to-end nREPL eval flow (editor → gateway → browser → back)
-- Verify message format compatibility between server and client
-- Create snapshot when fully working
+### What Was Accomplished (Session 5)
 
-## ✅ RESOLVED: "nth not supported" Error Fixed!
+✅ **Discovered and documented critical SCI limitation**
+- SCI (Scittle interpreter) does NOT support vector destructuring
+- Affects function parameters AND let bindings
+- Error: "nth not supported on this type function(...)"
 
-### THE PROBLEM (Now Fixed)
+✅ **Fixed the blocker**
+- Changed from destructuring to explicit `first`/`second` calls
+- Browser nREPL client now working correctly
+- All tests passing (0 failures, 0 errors)
 
-**Runtime error in browser when sente-lite client calls on-message callback:**
-```
-nth not supported on this type function(a,b,c,d){this.I=a;this.J=b;this.D=c;this.G=d;this.F=16647951;this.M=401412}
-```
+✅ **Comprehensive documentation**
+- Added 135 lines to `doc/plan.md` (section: "⚠️ CRITICAL: SCI/Scittle Limitations")
+- Added 41 lines to `CLAUDE.md` (coding best practices)
+- Updated `CONTEXT.md` (this file)
+- Includes code examples, coding rules, historical context
 
-**Root Cause**: SCI (Scittle's interpreter) does not support destructuring in function parameters OR in `let` bindings reliably
+✅ **Quality checks**
+- Linting: 0 errors, 0 warnings
+- Formatting: All files correctly formatted
+- Tests: All passing (10 unit tests, 6 multi-process scenarios)
+- Pre-commit hooks: All passing
 
-### THE FIX (Applied Successfully)
+### Files Modified/Added
+- `dev/scittle-demo/examples/sente-nrepl-client.cljs` - Fixed destructuring (NEW)
+- `src/sente_lite/client_scittle.cljs` - Removed debug logging
+- `dev/scittle-demo/sente-nrepl-gateway.clj` - nREPL gateway (NEW, WIP)
+- `dev/scittle-demo/load-sente-nrepl-gateway.bb` - Gateway loader (NEW)
+- `doc/plan.md` - Added SCI limitation documentation
+- `CLAUDE.md` - Added coding best practices for Scittle
 
-**Changed from** (BROKEN - doesn't work in SCI):
+## ⚠️ CRITICAL: SCI/Scittle Limitation (Don't Forget!)
+
+**THE RULE**: NEVER use destructuring in Scittle code
+
+❌ **BROKEN in SCI:**
 ```clojure
-(defn handle-message
-  [[event-type event-data]]  ; ❌ Parameter destructuring fails
-  ...)
-
-;; OR even this fails:
-(defn handle-message
-  [msg]
-  (let [[event-type event-data] msg]  ; ❌ Let destructuring also fails
-    ...))
+(defn f [[a b]] ...)              ; Parameter destructuring
+(let [[a b] msg] ...)             ; Let destructuring
 ```
 
-**Changed to** (WORKS in SCI):
+✅ **WORKS in SCI:**
 ```clojure
-(defn handle-message
-  [msg]
-  (let [event-type (first msg)        ; ✅ Explicit first/second works!
-        event-data (second msg)]
-    ...))
+(let [a (first msg) b (second msg)] ...)  ; Explicit accessors
 ```
 
-**Why this works**: SCI has limitations with destructuring. Using explicit `first` and `second` calls avoids SCI's destructuring issues entirely.
+**Why this matters:**
+- Code works in BB-to-BB tests but fails in browser
+- Error message is cryptic: "nth not supported"
+- Silent failure - no warning, just crashes
 
-**Verified working**: Browser successfully receives and handles messages without "nth not supported" error.
+**Full documentation**: See `doc/plan.md` lines 157-245 and `CLAUDE.md` lines 154-193
 
-### THE FIX OPTIONS (Historical - for reference)
+## Project State
 
-**Option 1**: Change how we call on-message in `client_scittle.cljs:110`:
-```clojure
-;; Instead of:
-(on-message parsed-msg)
+### What's Working
+- ✅ sente-lite core (BB-to-BB and Browser)
+- ✅ Auto-reconnect with exponential backoff (BB and Browser)
+- ✅ Pub/sub (all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser)
+- ✅ All 16 tests passing
+- ✅ Zero linting errors
+- ✅ Browser client connects to gateway via sente-lite
 
-;; Try one of:
-(apply on-message parsed-msg)  ; Unpacks vector as args
-;; OR
-(on-message (first parsed-msg) (second parsed-msg))  ; Pass as two args
-```
+### Work In Progress
+- 🚧 nREPL gateway - Basic connection working, needs end-to-end testing
+  - Gateway running on ports 1346 (sente) and 1347 (nREPL bencode)
+  - Browser connects and receives messages
+  - Next: Test full eval flow (editor → gateway → browser → back)
 
-**Option 2**: Change the function signature in `sente-nrepl-client.cljs:42`:
-```clojure
-;; Instead of:
-(defn handle-message [[event-type event-data]])
+## Key Project Info
 
-;; Use:
-(defn handle-message [msg]
-  (let [[event-type event-data] msg]
-    ...))
-```
-
-**Option 3**: Investigate if this is a SCI-specific destructuring issue and need workaround
-
-### USER'S REQUEST WHEN STOPPED
-
-User said: **"can you log the values of client-state and on-message to get a better picture of what's happening in that handle-message fn, and run the code again to see?"**
-
-**Issue with logging attempt**:
-- Added debug logging to lines 103-108 of client_scittle.cljs
-- Browser never showed the debug logs (code caching issue)
-- Error still reported old line numbers (103 instead of 110 after adding 7 lines)
-
-Then user said: **"why don't you start from scratch - clean slate"**
-
-Started fresh restart sequence, but context compacting caused thrashing.
-
-## What We're Building: nREPL Gateway
-
-**Purpose**: Proxy nREPL messages between editor and browser Scittle REPL using sente-lite
-
-**Architecture** (per user's explicit guidance):
-> "you should be able to send clj-edn as a client thru one of the sente-lite apis, and add context to that message that it will be pickup on the browser side as nrepl request... correct? when the browser repl returns the reply, you should be able to register a handler that pickes up the repl reply and return it thru the gateway to the calling client, correct?"
-
-**Flow**:
-1. Editor → bencode nREPL (port 1347)
-2. Gateway converts bencode → EDN → sente WebSocket (port 1346)
-3. Browser receives EDN: `[:nrepl/eval {:op :eval :code "(+ 1 2 3)" :id "123" :session "abc"}]`
-4. Browser evaluates using `window.scittle.core.eval_string(code)`
-5. Browser sends EDN response: `[:nrepl/response {:value "6" :id "123" :session "abc"}]`
-6. Gateway converts EDN → bencode → Editor
-
-**Key Constraint**: EDN format only on sente channel (not Transit, not bencode)
-
-## Key Files for nREPL Gateway
-
-### 1. `src/sente_lite/client_scittle.cljs`
-**Browser WebSocket client** - The BLOCKER is here
-
-**Line 110 issue** (in `handle-message` function):
-```clojure
-(defn- handle-message [client-state event]
-  (let [client-id (:id client-state)
-        config (:config client-state)
-        raw-data (.-data event)
-        parsed-msg (parse-message raw-data)]  ; Returns [:event-type {:data}]
-
-    (swap! clients update-in [client-id :message-count-received] inc)
-    (log-client-event! client-id "message-received" {...})
-
-    ;; DEBUG LOGGING ADDED (lines 103-108) - but never appeared
-    (js/console.log "DEBUG handle-message:")
-    (js/console.log "  client-state:" (pr-str client-state))
-    (js/console.log "  config:" (pr-str config))
-    (js/console.log "  on-message:" (pr-str (:on-message config)))
-    (js/console.log "  on-message type:" (type (:on-message config)))
-    (js/console.log "  parsed-msg:" (pr-str parsed-msg))
-
-    (when-let [on-message (:on-message config)]
-      (on-message parsed-msg))))  ; <-- LINE 110: ERROR OCCURS HERE
-```
-
-### 2. `dev/scittle-demo/examples/sente-nrepl-client.cljs`
-**Browser nREPL handler** - Receives messages from gateway, evals code
-
-**Line 42-104** (the function that crashes):
-```clojure
-(defn handle-message
-  "Handle messages from sente-websocket"
-  [[event-type event-data]]  ; <-- DOUBLE BRACKET DESTRUCTURING
-  (swap! eval-counter inc)
-  (js/console.log (str "📨 [" @eval-counter "] nREPL message:")
-                  (pr-str event-type))
-
-  (case event-type
-    :nrepl/eval
-    ;; Evaluate code and send response
-    (let [{:keys [op code id session]} event-data]
-      (let [result (eval-code code)]
-        (when-let [client-id @client-atom]
-          (if (:success result)
-            (do
-              (sente/send! client-id [:nrepl/response {:value (:value result) :id id ...}])
-              (sente/send! client-id [:nrepl/response {:status ["done"] :id id ...}]))
-            (do
-              (sente/send! client-id [:nrepl/response {:ex (:ex result) ...}])
-              (sente/send! client-id [:nrepl/response {:status ["eval-error" "done"] ...}]))))))
-
-    :welcome
-    ;; Register as nREPL client
-    (do
-      (js/console.log "✓ Connected to sente-nrepl gateway")
-      (when-let [client-id @client-atom]
-        (sente/send! client-id [:nrepl/register {}])))
-
-    :ping
-    ;; Heartbeat
-    (when-let [client-id @client-atom]
-      (sente/send! client-id {:type :pong :timestamp (js/Date.now)}))
-
-    ;; Default
-    (js/console.log "📨 Other message:" (pr-str event-type) (pr-str event-data))))
-```
-
-**Key function** (lines 22-38):
-```clojure
-(defn eval-code
-  "Evaluate ClojureScript code using Scittle's eval_string"
-  [code-string]
-  (try
-    (let [result (.eval_string (.-core js/window.scittle) code-string)
-          result-str (pr-str result)]
-      (js/console.log "✓ Eval success:" result-str)
-      {:success true
-       :value result-str
-       :ns (str *ns*)})
-    (catch js/Error e
-      (js/console.error "✗ Eval error:" (.-message e))
-      {:success false
-       :error (.-message e)
-       :ex (str (type e))
-       :ns (str *ns*)})))
-```
-
-### 3. `dev/scittle-demo/sente-nrepl-gateway.clj`
-**Standalone gateway** - Converts between bencode (editor) and EDN (browser)
-
-**Ports**:
-- 1346: Sente WebSocket (for browser)
-- 1347: nREPL bencode (for editor)
-
-**Status**: ✅ Gateway starts successfully, browser connects, but crashes on message handling
-
-### 4. `/tmp/test-nrepl-1347-fixed.clj`
-**Test script** - Sends nREPL eval to port 1347
-
-**Fixed bencode handling**:
-```clojure
-(let [socket (java.net.Socket. "localhost" 1347)
-      in (io/input-stream socket)
-      in (java.io.PushbackInputStream. in)  ; Binary streams for bencode
-      out (io/output-stream socket)
-      out (java.io.BufferedOutputStream. out)]
-
-  (let [request {:op "eval"
-                 :code "(+ 1 2 3)"
-                 :id "test-1"
-                 :session "test-session"}]
-    (bencode/write-bencode out request)
-    (.flush out))
-
-  (loop [responses []]
-    (let [response (bencode/read-bencode in)]
-      (if (some #{"done"} (get response "status"))
-        (println "\nTest complete!")
-        (recur (conj responses response))))))
-```
-
-## What Was Working Before Blocker
-
-✅ Gateway starts on ports 1346-1347
-✅ Browser connects to gateway via sente-lite WebSocket
-✅ Browser receives :welcome message
-✅ Browser attempts to call handle-message
-❌ **BLOCKER**: "nth not supported" error when calling user's on-message callback
-
-## The Fresh Start Sequence (When You Resume)
-
-**When starting fresh (from DEPLOYMENT-PROTOCOL.md):**
-
-1. **KILL EVERYTHING**: `pkill -9 bb && pkill -9 node`
-2. **VERIFY PORTS FREE**: `for port in 1338 1339 1340 1341 1342 1346 1347; do lsof -i tcp:$port; done`
-3. **START BB DEV**: `cd /Users/franksiebenlist/Development/sente_lite/dev/scittle-demo && bb dev`
-4. **START GATEWAY**: `cd /Users/franksiebenlist/Development/sente_lite && bb -cp src dev/scittle-demo/sente-nrepl-gateway.clj`
-5. **START BROWSER**: `cd /Users/franksiebenlist/Development/sente_lite/dev/scittle-demo && npm run interactive`
-6. **LOAD CODE IN ORDER**:
-   - `bb load-browser ../../src/telemere_lite/scittle.cljs`
-   - `bb load-browser ../../src/sente_lite/client_scittle.cljs`
-   - `bb load-browser examples/sente-nrepl-client.cljs`
-
-**But BEFORE you load code, FIX THE BLOCKER FIRST!**
-
-## How to Fix the Blocker
-
-**Next Claude instance should**:
-
-1. **Try Option 1** (change how we call on-message):
-   - Edit `src/sente_lite/client_scittle.cljs:110`
-   - Change from `(on-message parsed-msg)` to `(apply on-message parsed-msg)`
-   - This unpacks the vector `[:welcome {...}]` into two arguments
-
-2. **Test the fix**:
-   - Remove debug logging (lines 103-108) to clean up
-   - Run clj-kondo and cljfmt
-   - Do the fresh start sequence
-   - Load the fixed code
-   - Check browser console for success
-
-3. **If Option 1 doesn't work, try Option 2**:
-   - Edit `dev/scittle-demo/examples/sente-nrepl-client.cljs:42`
-   - Change from `[[event-type event-data]]` to `[msg]` with `let` destructuring
-   - Test again
-
-## Port Architecture
-
+### Port Architecture
 **BB Dev Services** (ports 1338-1341):
 - 1338: BB direct nREPL
 - 1339: Browser nREPL proxy
 - 1340: Browser WebSocket
 - 1341: HTTP static server
 
-**Demo Servers** (ports 1343-1345):
-- 1343: Echo demo
-- 1344: Heartbeat demo
-- 1345: Pub/sub demo
-
 **nREPL Gateway** (ports 1346-1347):
 - 1346: Sente WebSocket (EDN to browser)
 - 1347: nREPL bencode (editor connections)
 
-## Critical Rules (Copy from old context)
+### Quick Start Commands
+```bash
+# Run tests
+./run_tests.bb
 
-**DISPLAY THIS AT START OF EVERY RESPONSE:**
+# Start BB dev environment
+cd dev/scittle-demo && bb dev
+
+# Start nREPL gateway
+cd /Users/franksiebenlist/Development/sente_lite
+bb -cp src dev/scittle-demo/sente-nrepl-gateway.clj
+
+# Start browser
+cd dev/scittle-demo && npm run interactive
 ```
-I do not cheat or lie and I'm honest about any reporting of progress.
-```
 
-### Fundamental Principles
+### Fresh Start Sequence (From DEPLOYMENT-PROTOCOL.md)
+1. **Kill everything**: `pkill -9 bb && pkill -9 node`
+2. **Verify ports free**: `lsof -i tcp:1338` etc.
+3. **Start BB dev**: `cd dev/scittle-demo && bb dev`
+4. **Start gateway**: `bb -cp src dev/scittle-demo/sente-nrepl-gateway.clj`
+5. **Start browser**: `npm run interactive`
+6. **Load code**: Use `bb load-browser` for each file
 
-1. **NEVER LIE OR CHEAT**
+## Important Files
+
+**Core Implementation**:
+- `src/sente_lite/server.cljc` - Server (21KB, ~441 lines)
+- `src/sente_lite/client_scittle.cljs` - Browser client (12KB)
+- `src/telemere_lite/core.cljc` - Telemetry
+
+**nREPL Gateway** (Work in Progress):
+- `dev/scittle-demo/sente-nrepl-gateway.clj` - Gateway server
+- `dev/scittle-demo/examples/sente-nrepl-client.cljs` - Browser handler
+- `dev/scittle-demo/load-sente-nrepl-gateway.bb` - Loader script
+
+**Documentation**:
+- `CLAUDE.md` - AI instructions (includes SCI limitation warning)
+- `CONTEXT.md` - This file
+- `doc/plan.md` - Implementation plan (includes SCI limitation section)
+- `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md` - 5-step deployment protocol
+
+## Critical Rules (Always Follow)
+
+**From CLAUDE.md:**
+
+1. **HONESTY ABOVE ALL**
    - If something doesn't work, SAY IT DOESN'T WORK
    - If tests fail, SAY THEY FAIL
    - If you don't know, SAY YOU DON'T KNOW
 
 2. **"COMPACTING IS LOBOTOMY"**
-   - Check recently modified files FIRST to understand actual current work
+   - Check recently modified files FIRST: `find . -type f \( -name "*.md" -o -name "*.clj*" \) | xargs ls -lt | head -20`
    - Read CONTEXT.md and CLAUDE.md before making assumptions
+   - Check git status: `git status && git log --oneline -5`
 
 3. **ALWAYS START FROM PROJECT ROOT**
    - Use full absolute paths: `/Users/franksiebenlist/Development/sente_lite/...`
@@ -323,60 +156,83 @@ I do not cheat or lie and I'm honest about any reporting of progress.
    - Check actual log files
    - Check actual test results
 
-## Project State Before nREPL Work
+5. **CODE QUALITY**
+   - ALWAYS run clj-kondo on changed files: `clj-kondo --lint <file>`
+   - ALWAYS run cljfmt: `cljfmt fix <file>`
+   - NEVER use println - use telemere-lite `(tel/info! ...)` etc.
 
-**Last Good Tag**: `v0.11.0-browser-reconnect-tested` (2025-10-29)
+6. **SCI/SCITTLE CODE**
+   - NEVER use destructuring (parameters or let)
+   - ALWAYS use explicit `first`, `second`, `nth`, `get`
+   - ALWAYS test in actual browser - BB tests aren't enough
 
-**What was working**:
-- ✅ sente-lite core (BB-to-BB and Browser)
-- ✅ Auto-reconnect with exponential backoff (BB and Browser)
-- ✅ Pub/sub (all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser)
-- ✅ All 16 tests passing
-- ✅ Zero linting errors
+7. **TESTING STRATEGY**
+   - Test BB-to-BB FIRST, always
+   - Create complete end-to-end tests
+   - Extract common code to shared CLJC functions
+   - ONLY THEN test in browser
 
-**New work**: nREPL gateway (IN PROGRESS, BLOCKED)
+## Next Steps (For Next Session)
 
-## Documentation References
+**Immediate**:
+- Test end-to-end nREPL eval flow (editor → gateway → browser → back)
+- Create test script that sends nREPL eval request to port 1347
+- Verify browser evaluates code and returns result
+- Fix any message format issues
 
-- **Main instructions**: `CLAUDE.md`
-- **Planning**: `doc/plan.md` (single source of truth)
-- **Deployment protocol**: `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md`
-- **This file**: `CONTEXT.md` (you're reading it)
+**After nREPL Gateway Works**:
+- Create snapshot (commit/tag/push)
+- Update plan.md with completion status
+- Consider additional features or move to next phase
 
-## For Next Claude Instance
+## Common Issues & Solutions
 
-**IMMEDIATE TASK**: Fix the "nth not supported" error
+**Issue**: Browser code not updating
+- **Solution**: Always kill everything and restart (5-step sequence)
 
-**Approach**:
-1. Change `src/sente_lite/client_scittle.cljs:110` to use `apply`
-2. Remove debug logging (lines 103-108)
-3. Run clj-kondo and cljfmt
-4. Test with fresh start sequence
+**Issue**: "nth not supported" error
+- **Solution**: Check for destructuring, use `first`/`second` instead
 
-**Success criteria**:
-- Browser receives :welcome message without error
-- Browser successfully calls handle-message
-- Browser registers as nREPL client
-- No "nth not supported" error in console
+**Issue**: Port already in use
+- **Solution**: `pkill -9 bb && pkill -9 node`, verify with `lsof`
 
-**Then**: Test end-to-end nREPL eval flow with test script
+**Issue**: Tests fail after changes
+- **Solution**: Run `./run_tests.bb`, fix all errors before committing
 
-## Common Mistakes to Avoid
+## Recovery Checklist (Use This After Compacting)
 
-1. **Not starting from project root** - Always use full paths
-2. **Assuming telemetry is broken** - Check `./sente-lite-server.log`
-3. **Not verifying browser is running** - Check browser console output
-4. **Using `timeout` on macOS** - It doesn't exist
-5. **Bash escaping `!`** - Use double quotes: `"(connect!)"`
+When starting a new session:
 
-## Recovery Checklist
-
-When you start fresh:
-
+- [ ] Display "I do not cheat or lie..." at start of response
 - [ ] Read CONTEXT.md (this file)
-- [ ] Read CLAUDE.md for general instructions
-- [ ] Check git status and recent commits
-- [ ] Understand the blocker (nth not supported error)
-- [ ] Apply the fix (use `apply` in client_scittle.cljs:110)
-- [ ] Test with fresh start sequence
-- [ ] Verify end-to-end nREPL flow works
+- [ ] Read CLAUDE.md for instructions
+- [ ] Check recently modified files: `find . -type f \( -name "*.md" -o -name "*.clj*" \) | xargs ls -lt | head -20`
+- [ ] Check git status: `git status && git log --oneline -5`
+- [ ] Understand current state from timestamps, not assumptions
+- [ ] Review SCI limitation (CRITICAL - causes silent failures)
+- [ ] If working with browser code, remember: NO DESTRUCTURING
+
+## Session Log
+
+### Session 5 (2025-10-29) - SCI Limitation Discovery & Documentation
+- **Discovered**: SCI vector destructuring limitation
+- **Fixed**: Browser nREPL client (use first/second)
+- **Documented**: Comprehensive docs in plan.md, CLAUDE.md, CONTEXT.md
+- **Committed**: 3e04d9e "docs: Document critical SCI destructuring limitation and fix"
+- **Tagged**: v0.11.1-sci-limitation-documented
+- **Tests**: All passing (0 failures, 0 errors)
+- **Status**: Clean, committed, pushed to GitHub
+
+### Session 4 (2025-10-29) - nREPL Gateway Work (BLOCKED, then resolved in Session 5)
+- Encountered "nth not supported" blocker
+- Root cause discovered: SCI destructuring limitation
+
+### Session 3 (2025-10-28/29) - Auto-Reconnect Complete
+- **Tag**: v0.11.0-browser-reconnect-tested
+- BB and browser auto-reconnect working
+- All pub/sub scenarios tested
+- Manual browser testing completed
+
+---
+
+**Remember**: This file is your guide after context compacting. Read it carefully, check timestamps on files, and verify actual state before making assumptions. The most recently modified files tell the truth about what was actually being worked on.
