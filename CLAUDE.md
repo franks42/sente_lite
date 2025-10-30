@@ -151,6 +151,47 @@ Since this is a library without build configuration files, there are no standard
 **Common mistake**: Using comma-separated string instead of array
 **Fix**: Always use `["tag1", "tag2"]` NOT `"tag1,tag2"`
 
+### ⚠️ CRITICAL: SCI/Scittle Destructuring Limitation
+**DISCOVERED:** 2025-10-29
+**SEVERITY:** HIGH - Silent production failures
+
+**SCI (Small Clojure Interpreter) does NOT support vector destructuring** - neither in function parameters nor in `let` bindings.
+
+❌ **NEVER DO THIS in Scittle code:**
+```clojure
+;; ❌ BROKEN - Function parameter destructuring
+(defn handle-message [[event-type event-data]] ...)
+
+;; ❌ BROKEN - Let binding destructuring
+(defn handle-message [msg]
+  (let [[event-type event-data] msg] ...))
+```
+
+✅ **ALWAYS DO THIS in Scittle code:**
+```clojure
+;; ✅ WORKS - Use explicit first/second/nth
+(defn handle-message [msg]
+  (let [event-type (first msg)
+        event-data (second msg)]
+    ...))
+```
+
+**Error symptom**: `"nth not supported on this type function(...)"`
+
+**Why this is dangerous:**
+1. Code works in BB-to-BB tests (no SCI)
+2. Code fails mysteriously in browser (uses SCI)
+3. Error message doesn't mention destructuring
+4. Causes complete application crash
+
+**ALWAYS:**
+- Use `first`, `second`, `nth` for vectors
+- Use explicit `get` or keyword access for maps
+- Test browser code in actual browser - BB tests are insufficient
+- Check working demos: `sente-heartbeat-demo-client.cljs`, `sente-pubsub-demo-client.cljs`
+
+**Full documentation:** See `doc/plan.md` section "⚠️ CRITICAL: SCI/Scittle Limitations"
+
 ### Terminology
 - **"snapshot"**: When mentioned, this means to commit, push, and tag the current changes to the repository
 

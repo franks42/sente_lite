@@ -154,6 +154,96 @@ sente-lite is a lightweight WebSocket library providing ~85% Sente API compatibi
 5. Rate-limit reconnection attempts
 6. Log security-relevant events (failed auth, suspicious patterns)
 
+## ⚠️ CRITICAL: SCI/Scittle Limitations
+
+**Date Discovered:** 2025-10-29
+**Severity:** HIGH - Silent runtime failures in production
+
+### The Destructuring Problem
+
+**SCI (Small Clojure Interpreter) used by Scittle does NOT reliably support destructuring:**
+
+❌ **BROKEN - Function parameter destructuring:**
+```clojure
+(defn handle-message
+  [[event-type event-data]]  ; FAILS with "nth not supported on this type function(...)"
+  (case event-type
+    :welcome (do-something event-data)
+    ...))
+```
+
+❌ **BROKEN - Let binding destructuring:**
+```clojure
+(defn handle-message
+  [msg]
+  (let [[event-type event-data] msg]  ; ALSO FAILS with same error
+    (case event-type
+      :welcome (do-something event-data)
+      ...)))
+```
+
+✅ **WORKS - Explicit first/second calls:**
+```clojure
+(defn handle-message
+  [msg]
+  (let [event-type (first msg)        ; ✅ WORKS!
+        event-data (second msg)]
+    (case event-type
+      :welcome (do-something event-data)
+      ...)))
+```
+
+### Why This Matters
+
+1. **Silent Failures:** Code that works in regular Clojure/ClojureScript will fail mysteriously in Scittle
+2. **Cryptic Errors:** Error message "nth not supported on this type function(...)" doesn't clearly indicate destructuring is the issue
+3. **Production Impact:** Can cause complete application failure with no obvious cause
+4. **Testing Gap:** BB-to-BB tests work fine (no SCI), browser tests fail (uses SCI)
+
+### Coding Rules for Scittle/SCI Code
+
+**ALWAYS follow these rules when writing code that will run in Scittle:**
+
+1. **Never use destructuring in function parameters** - Use simple parameters
+2. **Never use destructuring in let bindings** - Use `first`, `second`, `nth`, or explicit accessors
+3. **Test in actual browser** - BB tests won't catch these issues
+4. **Check existing demos** - heartbeat-demo, pubsub-demo use correct patterns
+
+### Map Destructuring Status
+
+**UNKNOWN:** Whether map destructuring (`:keys`) works in SCI. Needs testing:
+```clojure
+;; Needs verification:
+(let [{:keys [op code id]} event-data]  ; Does this work in SCI?
+  ...)
+```
+
+If you encounter issues with map destructuring, use explicit `get` calls instead:
+```clojure
+(let [op (get event-data :op)
+      code (get event-data :code)
+      id (get event-data :id)]
+  ...)
+```
+
+### Historical Context
+
+This limitation was discovered during nREPL gateway implementation (2025-10-29) when browser client crashed with "nth not supported" error. The issue was initially confusing because:
+- BB-to-BB tests worked perfectly
+- The error message was cryptic
+- Parameter destructuring looked identical to working demos
+- The issue was actually in the `let` binding, not the parameter
+
+**Resolution:** Changed from `let` destructuring to explicit `first`/`second` calls. Browser immediately worked.
+
+### References
+
+- Working examples: `dev/scittle-demo/examples/sente-heartbeat-demo-client.cljs`
+- Working examples: `dev/scittle-demo/examples/sente-pubsub-demo-client.cljs`
+- Bug context: `CONTEXT.md` (Session 5 - nREPL Gateway BLOCKER RESOLVED)
+
+---
+
 ## Version Requirements
 
 ### Minimum Versions
@@ -3947,6 +4037,51 @@ Before deploying features to production:
 ---
 
 ## Updates Log
+
+### 2025-10-29 - CRITICAL SCI Limitation Discovered & Documented
+**Status:** nREPL Gateway blocker resolved, critical limitation documented
+
+**The Problem:**
+- ⚠️ **SCI destructuring limitation discovered**: Vector destructuring (in parameters OR let bindings) fails with cryptic "nth not supported on this type function(...)" error
+- 🐛 **Impact**: Browser client for nREPL gateway crashed on every message
+- 😵 **Confusion**: Error message didn't indicate destructuring was the issue
+- ✅ **BB tests passed**: Issue only manifests in SCI/Scittle environment, not BB-to-BB
+
+**Root Cause:**
+```clojure
+;; ❌ BROKEN in SCI:
+(defn handle-message [[event-type event-data]] ...)  ; Parameter destructuring
+(let [[a b] msg] ...)                                 ; Let destructuring
+
+;; ✅ WORKS in SCI:
+(let [a (first msg) b (second msg)] ...)             ; Explicit accessors
+```
+
+**Resolution:**
+- ✅ Changed `sente-nrepl-client.cljs` to use `(first msg)` and `(second msg)` instead of destructuring
+- ✅ Browser immediately started working - no more crashes
+- ✅ Documented limitation in `doc/plan.md` (new section "⚠️ CRITICAL: SCI/Scittle Limitations")
+- ✅ Added coding rules for Scittle/SCI code
+- ✅ Documented in `CONTEXT.md` for next session
+
+**Why This Matters:**
+1. Silent failures - code that works in regular Clojure/ClojureScript fails in Scittle
+2. Cryptic errors - "nth not supported" doesn't mention destructuring
+3. Testing gap - BB-to-BB tests don't catch these issues
+4. Production impact - complete application failure with no obvious cause
+
+**Lesson Learned:**
+- **ALWAYS test browser code in actual browser** - BB tests are insufficient for Scittle code
+- **NEVER use destructuring in Scittle code** - use explicit `first`, `second`, `nth`, `get`
+- **Check working demos for patterns** - heartbeat-demo and pubsub-demo use correct patterns
+
+**Files Modified:**
+- `dev/scittle-demo/examples/sente-nrepl-client.cljs` - Fixed destructuring
+- `src/sente_lite/client_scittle.cljs` - Removed debug logging
+- `doc/plan.md` - Added critical limitation section
+- `CONTEXT.md` - Documented fix for next session
+
+---
 
 ### 2025-10-29 - Auto-Reconnect & Server Bug Fixes Complete
 **Status:** All major bugs fixed, auto-reconnect implemented, all tests passing
