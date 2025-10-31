@@ -16,6 +16,7 @@
 - [Backward Compatibility](#backward-compatibility)
 - [Feature Detection Pattern](#feature-detection-pattern)
 - [Extension Mechanism](#extension-mechanism)
+- [Error Handling](#error-handling)
 - [Summary](#summary)
 
 ## Overview
@@ -46,40 +47,57 @@ Capabilities are not just booleans ("supports X?") but rich data structures that
 
 ## Recommended Approach
 
-### Server-First Declaration with Client Response
+### Hybrid: Sente-Compatible + Optional Client Capabilities
 
-**Why this pattern?**
-- Server initiates WebSocket upgrade, already "speaks first"
-- Existing `:welcome` message is perfect hook for capabilities
-- Client can respond with its capabilities immediately
-- Simple, synchronous, one round-trip
-- No protocol ambiguity about who goes first
+**How Sente does it (for reference):**
+- Server sends `:chsk/handshake [uid nil handshake-data first-handshake?]`
+- Client receives, updates state, **does NOT respond**
+- **No negotiation** - Both sides pre-configured to match
+- Works for Sente because: homogeneous clients, no compression, no service discovery
 
-**Flow:**
+**Why sente-lite needs more:**
+- ✅ Heterogeneous clients (BB vs browser vs embedded)
+- ✅ Compression negotiation (some clients support, some don't)
+- ✅ Service discovery (clients can offer nREPL!)
+- ✅ Dynamic adaptation (server routes based on client capabilities)
+
+**Our approach (Sente-compatible extension):**
 ```
 1. Client connects to server
-2. Server sends :welcome with server-capabilities
-3. Client receives welcome, sends :client-capabilities
-4. Both parties now have complete capability map
+2. Server sends :chsk/handshake with server capabilities (like Sente)
+3. Client receives, stores server capabilities
+4. Client OPTIONALLY sends :chsk/client-info (NEW, backward compatible)
+5. Server assumes defaults if no client-info received (Sente behavior)
 ```
+
+**Why this works:**
+- ✅ Backward compatible (clients that don't send info work like Sente)
+- ✅ Follows Sente's pattern (server-first handshake)
+- ✅ Optional negotiation (clients CAN advertise capabilities)
+- ✅ Zero round-trips for basic clients (like Sente)
+- ✅ One round-trip for advanced clients (service discovery, etc.)
 
 ### Alternative Approaches Considered (and rejected)
 
+**Configuration only (pure Sente)**: Doesn't support service discovery or negotiation
+**Mandatory bidirectional**: Breaks Sente compatibility, more complex
 **HTTP Headers during upgrade**: Limited size, not EDN-friendly
 **Separate HTTP endpoint**: Extra round-trip, more complexity
-**Client-first**: Doesn't match WebSocket connection semantics
 
 ## Capability Data Structure
 
 ### Server Capabilities
 
-Sent in the `:welcome` message:
+Sent in `:chsk/handshake` message (Sente-compatible format):
 
 ```clojure
-{:type :welcome
- :conn-id "conn-1234"
- :server-time 1234567890
- :capabilities {:version "0.12.0"
+;; Sente format: [:chsk/handshake [uid nil handshake-data first-handshake?]]
+;; We use handshake-data for capabilities:
+[:chsk/handshake
+ ["user-123"                    ; uid
+  nil                           ; reserved
+  {:capabilities                ; handshake-data (NEW - our capabilities)
+   {:version "0.12.0"
                 :protocol-version 1
                 :features #{:heartbeat
                            :auto-reconnect
@@ -94,17 +112,18 @@ Sent in the `:welcome` message:
                         :max-connections 1000
                         :heartbeat-interval 30000
                         :max-reconnect-delay 30000}
-                :extensions {}}}  ; User-defined capabilities
+                :extensions {}}}
+  true]}                        ; first-handshake?
 ```
 
 ### Client Capabilities
 
-Sent immediately after receiving `:welcome`:
+**OPTIONAL** - Sent after receiving `:chsk/handshake` (NEW message type):
 
 ```clojure
-{:type :client-capabilities
- :client-id "browser-abc123"
- :capabilities {:version "0.12.0"
+;; NEW: Optional client capability advertisement
+[:chsk/client-info
+ {:capabilities {:version "0.12.0"
                 :protocol-version 1
                 :features #{:auto-reconnect
                            :compression
@@ -114,10 +133,12 @@ Sent immediately after receiving `:welcome`:
                 :compression #{:gzip :none}
                 :limits {:max-message-size (* 512 1024)  ; 512KB browser limit
                         :heartbeat-interval 30000}
-                :services {:nrepl {:port nil  ; WebSocket-based
+                :services {:nrepl {:port nil  ; WebSocket via sente
                                   :ops #{:eval :load-file :clone :describe}}}
                 :extensions {:browser-type "scittle"
-                            :user-agent "Mozilla/5.0 ..."}}}
+                            :user-agent "Mozilla/5.0 ..."}}}]
+
+;; IMPORTANT: If client doesn't send this, server assumes defaults (Sente behavior)
 ```
 
 ### Field Definitions
@@ -172,6 +193,274 @@ Sent immediately after receiving `:welcome`:
 - Map of user-defined capability data
 - For application-specific features
 - No schema restrictions
+
+## Mandatory Features Recommendation
+
+### The Two-Tier Approach
+
+We recommend a two-tier system for mandatory capabilities:
+
+#### Tier 1: Minimal Compliant Implementation (MANDATORY)
+
+Every sente-lite implementation **MUST** support:
+
+```clojure
+{:capabilities
+ {:wire-formats #{:edn}           ; MANDATORY - Clojure native, works everywhere
+  :features #{:handshake          ; MANDATORY - Required for capability negotiation
+              :event}             ; MANDATORY - Basic event messaging
+  :compression #{:none}}}         ; MANDATORY - Baseline (no compression)
+```
+
+**Wire format** (following Sente's approach):
+```clojure
+;; All messages use same format: [event-vector ?callback-uuid]
+[[:user/notification {:msg "Hi"}] nil]              ; One-way
+[[:user/get {:id 123}] "uuid-abc-123"] ; With reply
+```
+
+**Pros:**
+- ✅ Zero dependencies
+- ✅ Works in all environments (BB, Scittle, JVM, Node)
+- ✅ Simplest possible implementation
+- ✅ Guaranteed interoperability
+- ✅ Easy to test and verify
+- ✅ Single wire format (like Sente)
+- ✅ Forward compatible (can add `:reply-fn` later)
+
+**Cons:**
+- ❌ No request/response pattern yet
+- ❌ No reliability features (ping/pong, auto-reconnect)
+
+**When to use:**
+- Learning/experimentation
+- Minimal embedded systems
+- Proof-of-concept implementations
+- When you need absolute minimal footprint
+
+#### Tier 2: Production-Ready Implementation (RECOMMENDED)
+
+Production implementations **SHOULD** support:
+
+```clojure
+{:capabilities
+ {:wire-formats #{:edn}
+  :features #{:handshake
+              :event
+              :reply-fn         ; + Server can reply to events (like Sente)
+              :reconnect        ; + auto-reconnect (already implemented)
+              :ping-pong}       ; + heartbeat for dead connection detection
+  :compression #{:none}}}
+```
+
+**Wire format** (same as Tier 1, just library handles callbacks):
+```clojure
+;; Client sends with callback UUID
+[[:user/get {:id 123}] "uuid-abc-123"]
+
+;; Server replies (includes cb-uuid)
+[{:name "Alice" :id 123} "uuid-abc-123"]
+
+;; Client matches uuid → callback, invokes callback
+```
+
+**Pros:**
+- ✅ Request/response pattern (Sente-style `:reply-fn`)
+- ✅ Message correlation handled by library (transparent to users)
+- ✅ Connection reliability (`:reconnect`, `:ping-pong`)
+- ✅ Production-ready out of the box
+- ✅ Still no external dependencies
+- ✅ Auto-reconnect already implemented in `client-scittle.cljs`
+- ✅ Same wire format as Tier 1 (just adds callback handling)
+- ✅ Follows proven Sente pattern
+
+**Cons:**
+- ❌ More complex than Tier 1 (callback management)
+- ❌ Requires internal state (callback UUID → fn mapping)
+- ❌ Requires heartbeat implementation
+- ❌ Needs timeout handling for callbacks
+
+**When to use:**
+- Production applications
+- Reliable communication requirements
+- Applications that need request/response (RPC-like patterns)
+- Long-lived connections
+
+**API Examples** (Sente-style):
+```clojure
+;; One-way event (no callback)
+(send! client [:user/notification {:msg "Hi"}])
+
+;; Request/response (with callback - Sente style)
+(send! client [:user/get {:id 123}]
+       5000  ; timeout-ms
+       (fn [reply]
+         (if (cb-success? reply)
+           (println "Success:" reply)
+           (println "Error:" reply))))
+
+;; Or promise-based (browser-friendly)
+@(request! client [:user/get {:id 123}]
+           {:timeout 5000})
+```
+
+### Optional Features (Negotiate Dynamically)
+
+These features **MAY** be supported and should be negotiated via capabilities:
+
+```clojure
+{:capabilities
+ {:wire-formats #{:edn :json :transit}    ; Additional serialization formats
+  :features #{:pubsub                     ; Publish/subscribe messaging
+              :broadcast                  ; Server broadcast to all clients
+              :message-retention          ; Offline message queueing
+              :batching}                  ; Batch multiple events (like Sente's :chsk/recv)
+  :compression #{:gzip :deflate}          ; Actual compression algorithms
+  :services {:nrepl {:port 1339}}}}       ; Service discovery (nREPL, etc.)
+```
+
+**Pros:**
+- ✅ Rich feature set for advanced use cases
+- ✅ Backward compatible (negotiated, not required)
+- ✅ Enables sophisticated patterns
+
+**Cons:**
+- ❌ More complex to implement
+- ❌ May require external dependencies (compression, transit)
+- ❌ Not all environments support all features
+
+### Decision Criteria
+
+When deciding what to mandate:
+
+1. **Can communication work without it?**
+   - If NO → Mandatory (Tier 1)
+   - If YES → Optional or Tier 2
+
+2. **Is it universally available?**
+   - If YES → Can be mandatory
+   - If NO → Must be optional (negotiate)
+
+3. **Does it improve reliability significantly?**
+   - If YES → Tier 2 (recommended)
+   - If NO → Optional
+
+4. **Have we implemented and tested it?**
+   - If YES across all targets → Can mandate
+   - If NO → Keep optional until proven
+
+**Examples:**
+- `:edn` → Tier 1 MANDATORY (needed for communication, universal, tested)
+- `:gzip` → Optional (communication works without it, not universal yet)
+- `:ping-pong` → Tier 2 (improves reliability significantly, universal, not yet tested)
+- `:pubsub` → Optional (not all use cases need it)
+
+### Recommendation: Start with Tier 1 Only
+
+**Current state of implementation:**
+- ✅ EDN serialization - WORKING
+- ✅ Basic event send (one-way) - WORKING
+- ✅ Auto-reconnect - WORKING (in `client-scittle.cljs`)
+- ❌ `:reply-fn` feature - NOT IMPLEMENTED (callback handling)
+- ❌ Message correlation (callback UUIDs) - NOT IMPLEMENTED
+- ❌ Timeout handling for callbacks - NOT IMPLEMENTED
+- ❌ Ping/pong heartbeat - NOT IMPLEMENTED
+
+**Therefore:**
+
+Start by mandating only **Tier 1** for now:
+```clojure
+;; MANDATORY for all implementations (v0.12.0)
+;; Following Sente's minimal baseline
+{:capabilities
+ {:wire-formats #{:edn}
+  :features #{:handshake :event}  ; Just basic events
+  :compression #{:none}}}
+```
+
+**Wire format** (Sente-compatible):
+```clojure
+;; Format: [event-vector ?callback-uuid]
+[[:user/notification {:msg "Hi"}] nil]  ; No callback
+```
+
+**Upgrade to Tier 2** once we've implemented and tested:
+- `:reply-fn` feature (server can reply to events)
+- Callback UUID generation and tracking
+- `cbs-waiting_` atom for callback management (like Sente)
+- Callback timeout handling
+- `cb-success?` helper (distinguish timeouts/errors from success)
+- Ping/pong heartbeat mechanism
+
+**Rationale:**
+- Don't mandate features we haven't proven work
+- Keep initial capability system simple
+- **Follow Sente's proven design** (single event format)
+- Easy to add `:reply-fn` later without breaking wire format
+- Backward compatibility maintained through negotiation
+- Same wire format Tier 1 → Tier 2 (just add callback handling)
+
+### Default Capability Maps
+
+Based on this recommendation:
+
+```clojure
+(defn default-server-capabilities
+  "Tier 1 mandatory + features actually implemented (Sente-compatible)"
+  []
+  {:version version
+   :protocol-version 1
+   :features #{:handshake          ; Tier 1 - MANDATORY
+               :event              ; Tier 1 - MANDATORY (Sente-style events)
+               ;; Add when implemented:
+               ;; :reply-fn        ; Tier 2 - Server can reply to events
+               :reconnect          ; Tier 2 - client has it
+               :pub-sub            ; Optional - server has it
+               :echo               ; Optional - for testing
+               :broadcast}         ; Optional - server has it
+   :wire-formats #{:edn}           ; Tier 1 - MANDATORY
+   :compression #{:none}           ; Tier 1 - MANDATORY
+   :limits {:max-message-size (* 1024 1024)
+           :max-connections 1000
+           :heartbeat-interval 30000}
+   :extensions {}})
+
+(defn default-client-capabilities
+  "Tier 1 mandatory + features actually implemented (Sente-compatible)"
+  []
+  {:version version
+   :protocol-version 1
+   :features #{:handshake          ; Tier 1 - MANDATORY
+               :event              ; Tier 1 - MANDATORY (Sente-style events)
+               ;; Add when implemented:
+               ;; :reply-fn        ; Tier 2 - Client supports callbacks
+               :reconnect          ; Tier 2 - IMPLEMENTED in client-scittle
+               :pub-sub}           ; Optional - client has it
+   :wire-formats #{:edn}           ; Tier 1 - MANDATORY
+   :compression #{:none}           ; Tier 1 - MANDATORY
+   :limits {:max-message-size (* 512 1024)
+           :heartbeat-interval 30000}
+   :extensions {}})
+```
+
+### Evolution Path
+
+**v0.12.0** (initial capability system):
+- Mandate: Tier 1 only (`:edn`, `:event`, `:handshake`, `:none`)
+- Wire format: Sente-compatible `[event-vector ?cb-uuid]`
+- Advertise: Features we've implemented (`:reconnect`, `:pub-sub`)
+
+**v0.13.0** (after implementing Tier 2 features):
+- Mandate: Tier 2 (add `:reply-fn`, `:ping-pong`)
+- Implement: Callback UUID tracking (Sente-style `cbs-waiting_`)
+- Add: `cb-success?` helper, timeout handling
+- Wire format: Same as v0.12.0 (backward compatible)
+
+**v0.14.0+** (mature):
+- Mandate: Proven reliable features
+- Advertise: Rich optional feature set (`:batching`, `:message-retention`)
+- Support: Advanced compression, multiple wire formats
+- Full Sente API compatibility (~85%+)
 
 ## API Design
 
@@ -329,76 +618,99 @@ Sent immediately after receiving `:welcome`:
 ### Example 1: Browser with nREPL connects
 
 ```clojure
-;; 1. Server → Client (on connection)
-[:welcome {:type :welcome
-           :conn-id "conn-1234"
-           :server-time 1234567890
-           :capabilities {:features #{:heartbeat :pub-sub :echo}
-                         :wire-formats #{:edn}
-                         :limits {:max-message-size (* 1024 1024)}}}]
+;; 1. Server → Client (on connection, Sente-compatible)
+[:chsk/handshake
+ ["user-123"  ; uid
+  nil         ; reserved
+  {:capabilities {:features #{:handshake :event :reply-fn :pub-sub}
+                  :wire-formats #{:edn}
+                  :compression #{:none}
+                  :limits {:max-message-size (* 1024 1024)}}}
+  true]]      ; first-handshake?
 
-;; 2. Client → Server (immediately after welcome)
-[:client-capabilities
- {:client-id "browser-abc"
-  :capabilities {:features #{:auto-reconnect :nrepl-server}
+;; 2. Client → Server (OPTIONAL - NEW for service discovery)
+[:chsk/client-info
+ {:capabilities {:features #{:event :auto-reconnect :nrepl-server}
                 :services {:nrepl {:ops #{:eval :load-file}}}
                 :extensions {:browser-type "scittle"}
                 :limits {:max-message-size (* 512 1024)}}}]
 
 ;; 3. Server now knows: "This client has nREPL!"
 ;; Server can route nREPL commands to this client
-(when (supports-feature? "conn-1234" :nrepl-server)
-  (register-nrepl-client! "conn-1234"))
+(when (supports-feature? "user-123" :nrepl-server)
+  (register-nrepl-client! "user-123"))
+
+;; NOTE: If client doesn't send :chsk/client-info, server assumes:
+;;       {:features #{:event} :wire-formats #{:edn} :compression #{:none}}
 ```
 
 ### Example 2: Negotiating compression
 
 ```clojure
-;; Server advertises
-{:capabilities {:compression #{:gzip :brotli :none}}}
+;; 1. Server advertises (in handshake)
+[:chsk/handshake
+ ["user-456" nil
+  {:capabilities {:compression #{:gzip :deflate :none}}}
+  true]]
 
-;; Client responds
-{:capabilities {:compression #{:gzip :none}}}  ; No brotli support
+;; 2. Client responds with its capabilities (OPTIONAL)
+[:chsk/client-info
+ {:capabilities {:compression #{:gzip :none}}}]  ; No deflate support
 
-;; Intersection = #{:gzip :none}
-;; Server picks :gzip (best mutual capability)
-(def mutual-compression
-  (set/intersection server-compression client-compression))
+;; 3. Server calculates intersection
+(def server-comp #{:gzip :deflate :none})
+(def client-comp #{:gzip :none})
+(def mutual-comp (set/intersection server-comp client-comp))
+;; => #{:gzip :none}
 
-(def best-compression
-  (first (filter mutual-compression [:brotli :gzip :none])))
+;; 4. Server picks best mutual algorithm
+(def best-comp (first (filter mutual-comp [:deflate :gzip :none])))
 ;; => :gzip
+
+;; 5. Server stores choice for this client
+(swap! clients assoc-in ["user-456" :compression] :gzip)
+
+;; NOTE: If client doesn't send :chsk/client-info,
+;;       server assumes {:compression #{:none}} (Sente default)
 ```
 
 ### Example 3: Protocol version mismatch
 
 ```clojure
-;; Server (protocol v2)
-{:capabilities {:protocol-version 2}}
+;; Server (protocol v2) sends handshake
+[:chsk/handshake
+ ["user-789" nil
+  {:capabilities {:protocol-version 2}}
+  true]]
 
-;; Client (protocol v1)
-{:capabilities {:protocol-version 1}}
+;; Client (protocol v1) responds
+[:chsk/client-info
+ {:capabilities {:protocol-version 1}}]
 
-;; Server rejects connection
+;; Server detects mismatch and rejects
 (when-not (= server-protocol client-protocol)
-  (close-connection! conn-id
-    {:reason :protocol-version-mismatch
-     :server-version 2
-     :client-version 1}))
+  (send! uid [:chsk/close {:reason :protocol-version-mismatch
+                           :server-version 2
+                           :client-version 1}])
+  (close-connection! uid))
+
+;; NOTE: If client doesn't send :chsk/client-info,
+;;       server assumes protocol-version 1 (default)
 ```
 
 ## Implementation Strategy
 
-### Phase 1: Core Capability Exchange
+### Phase 1: Core Capability Exchange (Sente-Compatible)
 
-**Goal**: Basic capability exchange working
+**Goal**: Sente-compatible handshake with optional client capabilities
 
 Tasks:
-- [ ] Add `:capabilities` field to `start-server!` options
-- [ ] Extend `:welcome` message to include server capabilities
-- [ ] Add `:client-capabilities` message type
-- [ ] Store client capabilities in connection state
+- [ ] Add `handshake-data-fn` to `start-server!` options (Sente-compatible)
+- [ ] Send `:chsk/handshake` with capabilities in handshake-data (Sente format)
+- [ ] Add `:chsk/client-info` message handler (NEW, optional)
+- [ ] Store client capabilities in connection state (defaults if not sent)
 - [ ] Add basic query functions (`supports-feature?`, `get-client-capabilities`)
+- [ ] Test with legacy clients (those that don't send :chsk/client-info)
 
 **Estimated effort**: 2-3 hours
 
@@ -444,63 +756,56 @@ Tasks:
 
 ### Problem
 
-Old clients (pre-v0.12.0) won't send `:client-capabilities` message.
+1. **Sente clients** won't send `:chsk/client-info` (they don't know about it)
+2. **Old sente-lite clients** (pre-v0.12.0) won't send it either
 
-### Solution
+### Solution (Better than timeout - instant default)
 
-Assume minimal capabilities after timeout:
+Assume defaults immediately, update if `:chsk/client-info` arrives:
 
 ```clojure
 (defn handle-new-connection
-  "Handle new WebSocket connection with capability exchange"
-  [conn-id ws-connection]
-  ;; Send welcome with server capabilities
-  (send-welcome! conn-id (get-server-capabilities))
+  "Handle new WebSocket connection with Sente-compatible handshake"
+  [uid ws-connection]
+  ;; 1. Store default capabilities immediately (Sente-compatible defaults)
+  (swap! clients assoc uid {:capabilities (default-client-capabilities)})
 
-  ;; Wait for client capabilities (with timeout)
-  (let [result (wait-for-message conn-id
-                                 :client-capabilities
-                                 5000)]  ; 5 second timeout
-    (if result
-      ;; Modern client - has capabilities
-      (do
-        (store-client-capabilities! conn-id (:capabilities result))
-        (log/info "Client capabilities received" {:conn-id conn-id
-                                                  :features (get-in result [:capabilities :features])}))
-      ;; Legacy client - assume minimal capabilities
-      (do
-        (store-client-capabilities! conn-id (legacy-client-capabilities))
-        (log/warn "Client did not send capabilities, assuming legacy"
-                  {:conn-id conn-id})))))
+  ;; 2. Send handshake with server capabilities (Sente format)
+  (send! uid [:chsk/handshake
+              [uid nil
+               {:capabilities (get-server-capabilities)}
+               true]])  ; first-handshake?
 
-(defn legacy-client-capabilities
-  "Minimal capabilities for legacy clients"
+  (log/info "Handshake sent, default capabilities assumed"
+            {:uid uid
+             :defaults (default-client-capabilities)}))
+
+;; Separate handler for optional client-info
+(defn handle-client-info
+  "Handle optional :chsk/client-info from advanced clients"
+  [{:keys [uid ?data]}]
+  (let [capabilities (?data :capabilities)]
+    (swap! clients assoc-in [uid :capabilities] capabilities)
+    (log/info "Client capabilities updated"
+              {:uid uid
+               :features (:features capabilities)})
+
+    ;; Trigger feature-specific logic
+    (when (contains? (:features capabilities) :nrepl-server)
+      (register-nrepl-client! uid))
+
+    (when (contains? (:features capabilities) :compression)
+      (negotiate-compression! uid capabilities))))
+
+(defn default-client-capabilities
+  "Default capabilities for clients that don't send :chsk/client-info
+   These are Sente-compatible minimal capabilities"
   []
-  {:protocol-version 0  ; ← Indicates legacy
-   :features #{:basic-messaging}  ; Minimal set
-   :wire-formats #{:edn}
-   :compression #{:none}
+  {:protocol-version 1         ; Assume current protocol
+   :features #{:event}         ; Sente baseline
+   :wire-formats #{:edn}       ; Sente default
+   :compression #{:none}       ; No compression
    :limits {:max-message-size (* 1024 1024)}})
-
-(defn wait-for-message
-  "Wait for specific message type with timeout"
-  [conn-id msg-type timeout-ms]
-  (let [promise-chan (promise)
-        timeout-chan (timeout timeout-ms)
-
-        ;; Register temporary handler
-        handler-id (register-temp-handler!
-                    conn-id
-                    msg-type
-                    (fn [msg]
-                      (deliver promise-chan msg)))]
-
-    ;; Wait for either message or timeout
-    (let [result (alt!
-                   promise-chan ([msg] msg)
-                   timeout-chan ([_] nil))]
-      (unregister-temp-handler! conn-id handler-id)
-      result)))
 ```
 
 ### Detection Strategy
@@ -630,6 +935,168 @@ Example:
                               :features [:live-cursors :live-presence]}}}
 ```
 
+## Error Handling
+
+### How Sente Handles Unknown Messages
+
+sente-lite follows Sente's error handling strategy to ensure compatibility and robustness.
+
+#### Framework-Level Handling (Sente Core)
+
+**Event Validation:**
+- All events must conform to `[event-id ?event-data]` structure
+- Event IDs must be namespaced keywords (e.g., `:user/notification`, `:chat/message`)
+- Invalid events are wrapped as `[:chsk/bad-event original-event]` and still routed to handlers
+- Malformed messages are logged at warning level with full details
+- No silent drops - all validation failures are visible in logs
+
+**Error Propagation:**
+- When `?reply-fn` calls fail, errors propagate through `truss/try*` blocks with logging
+- Callback UUID mismatches are logged as warnings
+- Network errors trigger reconnection logic (if enabled)
+
+#### Application-Level Handling (Recommended Pattern)
+
+Sente's example applications use **multimethod dispatch** with a `:default` handler for unknown event types:
+
+**Client-Side Pattern:**
+```clojure
+(defmethod -event-msg-handler
+  :default ; Fallback for unhandled events
+  [{:as ev-msg :keys [event]}]
+  (log/debug "Unhandled event: %s" event))
+```
+
+**Server-Side Pattern:**
+```clojure
+(defmethod -event-msg-handler
+  :default
+  [{:as ev-msg :keys [event id ?data ring-req ?reply-fn send-fn]}]
+  (let [session (:session ring-req)
+        uid (:uid session)]
+    (log/debug "Unhandled event: %s" event)
+    ;; Echo back to client if it expects a response
+    (when ?reply-fn
+      (?reply-fn {:unmatched-event-as-echoed-from-server event}))))
+```
+
+### sente-lite Error Handling Strategy
+
+**Framework Level:**
+1. ✅ **Validate event structure** - Ensure `[event-id ?event-data]` format
+2. ✅ **Log validation failures** - Never fail silently
+3. ✅ **Route bad events** - Wrap as `[:chsk/bad-event x]` for application handling
+4. ✅ **Handle missing ?reply-fn** - Check existence before calling
+
+**Application Level (Recommended):**
+1. ✅ **Use multimethod dispatch** - Matches Sente pattern
+2. ✅ **Implement `:default` handler** - Catch unhandled events
+3. ✅ **Log at appropriate level** - Debug for unknown events, warn/error for validation failures
+4. ✅ **Echo back if reply expected** - Return error info to client when `?reply-fn` exists
+
+**Example Implementation:**
+
+```clojure
+;; Server-side event router
+(defmulti handle-event
+  "Dispatch events by event-id (first element of event vector)"
+  (fn [{:keys [event]}] (first event)))
+
+;; Handle specific events
+(defmethod handle-event :user/get
+  [{:keys [event ?reply-fn uid]}]
+  (let [[_ query] event
+        result (fetch-user query)]
+    (when ?reply-fn
+      (?reply-fn {:status :ok :data result}))))
+
+;; Default handler for unknown events
+(defmethod handle-event :default
+  [{:keys [event ?reply-fn uid]}]
+  (log/debug "Unhandled event from client"
+             {:uid uid :event event})
+  (when ?reply-fn
+    (?reply-fn {:status :error
+                :error-type :unhandled-event
+                :message "Server does not handle this event type"
+                :event event})))
+
+;; Bad event handler (framework-routed validation failures)
+(defmethod handle-event :chsk/bad-event
+  [{:keys [event ?reply-fn uid]}]
+  (let [[_ bad-event] event]
+    (log/warn "Received malformed event from client"
+              {:uid uid :bad-event bad-event})
+    (when ?reply-fn
+      (?reply-fn {:status :error
+                  :error-type :malformed-event
+                  :message "Event structure is invalid"}))))
+```
+
+### Capability Negotiation and Error Handling
+
+**Missing Capability Scenarios:**
+
+1. **Client uses unsupported compression:**
+```clojure
+;; Client sends message with :gzip compression
+;; Server doesn't support :gzip (only :none)
+;; → Server logs warning, attempts to decompress anyway, may fail
+;; → Better: Check capabilities first, don't send compressed if unsupported
+
+(defn send-with-capability-check [client event-vec]
+  (let [server-caps (get-server-capabilities client)
+        compression-supported? (contains? (:compression server-caps) :gzip)]
+    (if compression-supported?
+      (send! client event-vec {:compress? true})
+      (send! client event-vec {:compress? false}))))
+```
+
+2. **Client requests feature server doesn't support:**
+```clojure
+;; Client sends [:nrepl/eval code] but server has no nREPL
+;; → Server's :default handler catches it
+;; → Logs at debug level (normal for heterogeneous clients)
+;; → Returns error via ?reply-fn if client expects response
+
+(defmethod handle-event :nrepl/eval
+  [{:keys [?reply-fn uid]}]
+  (if (supports-feature? :nrepl)
+    (do-nrepl-eval ...)
+    (do
+      (log/debug "Client attempted nREPL eval but feature not enabled"
+                 {:uid uid})
+      (when ?reply-fn
+        (?reply-fn {:status :error
+                    :error-type :feature-not-supported
+                    :feature :nrepl})))))
+```
+
+3. **Server sends message in unsupported wire format:**
+```clojure
+;; Prevented at capability negotiation:
+;; Server checks client capabilities before sending
+
+(defn broadcast-to-clients [event-vec]
+  (doseq [[uid client-state] @clients]
+    (let [caps (:capabilities client-state)
+          formats (:wire-formats caps)
+          format (if (contains? formats :transit-json)
+                   :transit-json
+                   :edn)] ; Fall back to mandatory :edn
+      (send! uid event-vec {:format format}))))
+```
+
+### Best Practices
+
+1. ✅ **Always implement `:default` handler** - Catch unknown events
+2. ✅ **Check capabilities before using features** - Don't assume support
+3. ✅ **Return errors via ?reply-fn** - Let clients know what went wrong
+4. ✅ **Log at appropriate levels** - Debug for unknown events, warn/error for problems
+5. ✅ **Never fail silently** - Make errors visible for debugging
+6. ✅ **Use :chsk/bad-event for validation failures** - Framework-level error routing
+7. ✅ **Test with mismatched capabilities** - Ensure graceful degradation
+
 ## Summary
 
 This design provides:
@@ -644,6 +1111,7 @@ This design provides:
 ✅ **Service discovery** - Clients can advertise services (nREPL, etc.)
 ✅ **Format negotiation** - Compression, wire formats, etc.
 ✅ **Resource limits** - Both parties know limits upfront
+✅ **Robust error handling** - Sente-compatible validation, logging, and graceful degradation
 
 ### Next Steps
 
