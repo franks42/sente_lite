@@ -47,42 +47,148 @@ Capabilities are not just booleans ("supports X?") but rich data structures that
 
 ## Recommended Approach
 
-### Hybrid: Sente-Compatible + Optional Client Capabilities
+### Three-Tier Capability Discovery
 
-**How Sente does it (for reference):**
+sente-lite provides **three complementary mechanisms** for capability discovery, ordered from most to least efficient:
+
+#### Tier 1: Implicit Discovery via Default Handler (Always Available, Zero Cost)
+
+**Core Insight:** Event-IDs implicitly declare capabilities. If a peer doesn't handle an event, the `:default` handler catches it.
+
+```clojure
+;; Try to use a feature
+[:nrepl/eval "(+ 1 2 3)"]
+
+;; If peer doesn't support it, default handler responds
+{:status :error
+ :error-type :event-not-supported
+ :message "This event-id is not handled by this peer"
+ :event-id :nrepl/eval}
+
+;; Now you know: peer doesn't support :nrepl/eval
+```
+
+**Properties:**
+- ✅ Always works (requires only `:default` handler implementation)
+- ✅ Zero protocol overhead (uses standard event mechanism)
+- ✅ Lazy discovery (only discover features you actually use)
+- ✅ Self-documenting (event-id ≈ capability)
+- ❌ Requires one round-trip per feature discovery
+- ❌ Can't know capabilities before attempting to use them
+
+**Recursive Property:**
+Even capability query events use this mechanism! If you send `:capabilities/list` and the peer doesn't implement it, you get `:event-not-supported` back, telling you to fall back to trial-error.
+
+#### Tier 2: Explicit Capability Query Events (Optional, On-Demand)
+
+For introspection and avoiding trial-error, peers can implement capability query events:
+
+```clojure
+;; Query all capabilities
+[:capabilities/list]
+→ {:status :ok
+   :capabilities #{:nrepl/eval :nrepl/load-file :chat/send :user/get}}
+
+;; Query specific feature
+[:capabilities/query {:feature :nrepl}]
+→ {:status :ok
+   :supported true
+   :details {:ops #{:eval :load-file :doc}
+            :port 1339}}
+
+;; If peer doesn't implement these events:
+[:capabilities/list]
+→ {:status :error
+   :error-type :event-not-supported}  ; Fall back to Tier 1
+```
+
+**Properties:**
+- ✅ One round-trip gets all capabilities
+- ✅ Know before using (can adapt UI, choose features)
+- ✅ Useful for debugging and introspection
+- ✅ Graceful degradation (if not supported, use Tier 1)
+- ❌ Optional (not all peers implement)
+- ❌ Still requires one round-trip before use
+
+#### Tier 3: Upfront Exchange via Handshake (Optional, Immediate)
+
+For immediate knowledge (service discovery, compression negotiation), exchange capabilities during connection:
+
+```clojure
+;; Server sends on connect (Sente-compatible)
+[:chsk/handshake
+ [uid nil
+  {:capabilities {:compression #{:gzip :none}
+                 :features #{:event :reply-fn}}}
+  true]]
+
+;; Client OPTIONALLY sends info (backward compatible extension)
+[:chsk/client-info
+ {:capabilities {:features #{:event :nrepl-server}
+                :services {:nrepl {:port 1339
+                                  :ops #{:eval :load-file}}}}}]
+
+;; Now both sides know immediately, zero probing needed
+```
+
+**Properties:**
+- ✅ Immediate knowledge (no discovery round-trip)
+- ✅ Essential for service discovery (e.g., nREPL servers on clients)
+- ✅ Enables smart decisions before first message (compression, format)
+- ✅ Backward compatible (optional `:chsk/client-info`)
+- ❌ Requires upfront design (what to include?)
+- ❌ Can't discover dynamically added capabilities
+
+### How Sente Does It (Reference)
+
+**Sente's approach:**
 - Server sends `:chsk/handshake [uid nil handshake-data first-handshake?]`
 - Client receives, updates state, **does NOT respond**
 - **No negotiation** - Both sides pre-configured to match
 - Works for Sente because: homogeneous clients, no compression, no service discovery
 
-**Why sente-lite needs more:**
-- ✅ Heterogeneous clients (BB vs browser vs embedded)
-- ✅ Compression negotiation (some clients support, some don't)
-- ✅ Service discovery (clients can offer nREPL!)
-- ✅ Dynamic adaptation (server routes based on client capabilities)
+**Why sente-lite needs all three tiers:**
+- ✅ Heterogeneous clients (BB vs browser vs embedded) → Different capabilities
+- ✅ Compression negotiation (some clients support, some don't) → Tier 3 avoids probing
+- ✅ Service discovery (clients can offer nREPL!) → Tier 3 for immediate routing
+- ✅ Dynamic capabilities (install handlers at runtime) → Tier 1 & 2 discover new features
+- ✅ Backward compatibility → Tier 1 always works
 
-**Our approach (Sente-compatible extension):**
-```
-1. Client connects to server
-2. Server sends :chsk/handshake with server capabilities (like Sente)
-3. Client receives, stores server capabilities
-4. Client OPTIONALLY sends :chsk/client-info (NEW, backward compatible)
-5. Server assumes defaults if no client-info received (Sente behavior)
-```
+### Decision Matrix: Which Tier to Use?
 
-**Why this works:**
-- ✅ Backward compatible (clients that don't send info work like Sente)
-- ✅ Follows Sente's pattern (server-first handshake)
-- ✅ Optional negotiation (clients CAN advertise capabilities)
-- ✅ Zero round-trips for basic clients (like Sente)
-- ✅ One round-trip for advanced clients (service discovery, etc.)
+| Scenario | Best Tier | Rationale |
+|----------|-----------|-----------|
+| Service discovery (client nREPL) | **Tier 3** | Server needs immediate routing info |
+| Compression negotiation | **Tier 3** | Must know before sending large message |
+| Wire format selection | **Tier 3** | Must agree before first message |
+| Optional features (pub/sub) | **Tier 2** | Query once, use many times |
+| Rarely used features | **Tier 1** | Lazy discovery, simple |
+| Dynamic features (runtime install) | **Tier 1** | Can't know upfront |
+| Debugging/introspection | **Tier 2** | List all capabilities |
+| Legacy/minimal clients | **Tier 1** | Only requires `:default` handler |
+
+### Implementation Requirements
+
+**REQUIRED (All implementations MUST provide):**
+1. `:default` handler that returns `{:error-type :event-not-supported}` when `?reply-fn` exists
+2. This enables Tier 1 (implicit discovery) for free
+
+**RECOMMENDED (Most implementations SHOULD provide):**
+3. `:capabilities/list` event handler (enables Tier 2)
+4. `:chsk/client-info` event handler on server (enables Tier 3)
+
+**OPTIONAL (Advanced implementations MAY provide):**
+5. `:capabilities/query` for fine-grained queries
+6. `:capabilities/install` for dynamic capability installation (via nREPL)
 
 ### Alternative Approaches Considered (and rejected)
 
 **Configuration only (pure Sente)**: Doesn't support service discovery or negotiation
-**Mandatory bidirectional**: Breaks Sente compatibility, more complex
+**Mandatory bidirectional handshake**: Breaks Sente compatibility, more complex
 **HTTP Headers during upgrade**: Limited size, not EDN-friendly
 **Separate HTTP endpoint**: Extra round-trip, more complexity
+**Only implicit discovery**: No way to avoid probing for compression/format negotiation
+**Only explicit exchange**: Can't discover dynamically added capabilities
 
 ## Capability Data Structure
 
@@ -935,6 +1041,146 @@ Example:
                               :features [:live-cursors :live-presence]}}}
 ```
 
+### Dynamic Capability Installation (Advanced)
+
+One of the most powerful patterns enabled by the three-tier approach: **installing new capabilities at runtime via nREPL**.
+
+When a peer advertises an nREPL server (via Tier 3 handshake), other peers can dynamically install new event handlers:
+
+```clojure
+;; 1. Client advertises nREPL capability on connect
+[:chsk/client-info
+ {:capabilities {:features #{:nrepl-server}
+                :services {:nrepl {:port 1339
+                                  :ops #{:eval :load-file}}}}}]
+
+;; 2. Server sees nREPL capability, stores for later use
+;; (via handle-client-info)
+
+;; 3. Later, server installs a new event handler on the client
+[:nrepl/eval
+ "(defmethod handle-event :analytics/track
+    [{:keys [event ?reply-fn]}]
+    (let [[_ data] event]
+      (track-analytics! data)
+      (when ?reply-fn
+        (?reply-fn {:status :ok :tracked true}))))"]
+
+;; 4. Client now supports :analytics/track!
+;; Server can immediately use it:
+[:analytics/track {:page "/home" :user-id "123"}]
+→ {:status :ok :tracked true}
+
+;; 5. Verify with capability query (if client supports it)
+[:capabilities/list]
+→ {:status :ok
+   :capabilities #{:chat/send :analytics/track}}  ; New capability listed!
+```
+
+**Why This Works:**
+
+1. **nREPL as Meta-Capability**: The ability to eval code is a meta-capability that enables all other capabilities
+2. **Zero Deployment**: Install features without restarting or redeploying
+3. **A/B Testing**: Install different handlers on different client cohorts
+4. **Hot-Patching**: Fix bugs or add features to running systems
+5. **Progressive Enhancement**: Start minimal, add features as needed
+
+**Discovery Flow with Dynamic Installation:**
+
+```clojure
+;; Try feature (Tier 1 - implicit discovery)
+[:analytics/track {:page "/login"}]
+→ {:status :error :error-type :event-not-supported}
+
+;; Feature not supported. Check if peer has nREPL (Tier 3)
+(let [client-caps (get-client-capabilities uid)]
+  (when (contains? (:features client-caps) :nrepl-server)
+    ;; Install the feature!
+    (install-event-handler! uid
+      :analytics/track
+      "(defmethod handle-event :analytics/track ...)")))
+
+;; Try again
+[:analytics/track {:page "/login"}]
+→ {:status :ok :tracked true}  ; Now it works!
+```
+
+**Security Considerations:**
+
+⚠️ **CRITICAL**: Dynamic code installation is powerful but dangerous!
+
+1. **Authentication Required**: Only allow trusted peers to install handlers
+2. **Sandbox Evaluation**: Consider using safe-eval or restricted namespaces
+3. **Code Review**: In production, review/approve code before installation
+4. **Rollback Mechanism**: Keep original handlers for rollback
+5. **Audit Logging**: Log all dynamic installations with timestamps and source
+
+**Safe Installation Helper:**
+
+```clojure
+(defn install-event-handler!
+  "Safely install event handler via nREPL with validation"
+  [uid event-id handler-code]
+  ;; 1. Validate peer has nREPL
+  (let [caps (get-client-capabilities uid)]
+    (when-not (contains? (:features caps) :nrepl-server)
+      (throw (ex-info "Peer doesn't support nREPL" {:uid uid}))))
+
+  ;; 2. Validate authentication/authorization
+  (when-not (authorized-to-install? uid)
+    (throw (ex-info "Not authorized to install handlers" {:uid uid})))
+
+  ;; 3. Validate handler code (basic checks)
+  (when-not (valid-handler-code? handler-code)
+    (throw (ex-info "Invalid handler code" {:code handler-code})))
+
+  ;; 4. Send installation request
+  (send! uid [:nrepl/eval handler-code]
+    (fn [response]
+      (if (= (:status response) :ok)
+        (do
+          ;; 5. Log successful installation
+          (log/info "Event handler installed"
+                    {:uid uid :event-id event-id})
+          ;; 6. Update peer's capability cache
+          (swap! clients assoc-in [uid :capabilities :features]
+                 (conj (get-in @clients [uid :capabilities :features])
+                       event-id)))
+        (log/error "Failed to install handler"
+                   {:uid uid :event-id event-id :error response})))))
+```
+
+**Alternative: Capability Installation Event:**
+
+For safer, structured installation without raw code eval:
+
+```clojure
+;; Instead of sending raw code, send structured capability spec
+[:capabilities/install
+ {:event-id :analytics/track
+  :handler-type :analytics
+  :config {:endpoint "https://analytics.example.com"
+          :batch-size 100}}]
+
+;; Client validates and installs from pre-approved handlers
+(defmethod handle-event :capabilities/install
+  [{:keys [event ?reply-fn]}]
+  (let [[_ spec] event
+        {:keys [event-id handler-type config]} spec]
+    (if-let [template (get approved-handler-templates handler-type)]
+      (do
+        ;; Install from approved template
+        (install-templated-handler! event-id template config)
+        (when ?reply-fn
+          (?reply-fn {:status :ok :installed event-id})))
+      (when ?reply-fn
+        (?reply-fn {:status :error
+                    :error-type :unknown-handler-type
+                    :handler-type handler-type})))))
+```
+
+This approach is safer as it only allows installation from pre-approved templates, not arbitrary code execution.
+
 ## Error Handling
 
 ### How Sente Handles Unknown Messages
@@ -1099,32 +1345,59 @@ Sente's example applications use **multimethod dispatch** with a `:default` hand
 
 ## Summary
 
-This design provides:
+This design provides **three complementary tiers** of capability discovery, each solving different problems:
 
-✅ **Clear negotiation** - Server speaks first, client responds
-✅ **Feature discovery** - Both parties know each other's capabilities
+### Tier 1: Implicit Discovery (Always Available)
+✅ **Event-ID ≈ Capability** - Trying an event discovers if it's supported
+✅ **Zero protocol overhead** - Uses standard `:default` handler mechanism
+✅ **Recursive property** - Even capability queries use this (graceful degradation)
+✅ **Always works** - Requires only `:default` handler implementation
+✅ **Lazy discovery** - Only discover features you actually use
+
+### Tier 2: Explicit Query Events (Optional)
+✅ **On-demand introspection** - `:capabilities/list`, `:capabilities/query`
+✅ **One round-trip** - Get all capabilities before use
+✅ **Useful for debugging** - List all supported event-ids
+✅ **Graceful fallback** - If not supported, falls back to Tier 1
+
+### Tier 3: Upfront Exchange (Optional)
+✅ **Immediate knowledge** - Via `:chsk/handshake` and `:chsk/client-info`
+✅ **Service discovery** - Clients advertise nREPL servers, etc.
+✅ **Smart decisions** - Know compression/format support before sending
+✅ **Backward compatible** - Optional `:chsk/client-info` (Sente clients work)
+
+### Additional Features
+
+✅ **Sente compatibility** - Follows Sente's patterns and wire format
+✅ **Dynamic installation** - Install handlers at runtime via nREPL
+✅ **Robust error handling** - Validation, logging, graceful degradation
 ✅ **Extensibility** - `:extensions` map for custom features
-✅ **Backward compatibility** - Legacy clients get minimal capabilities
-✅ **Data-driven** - Capabilities as declarative data
-✅ **Simple API** - `supports-feature?`, `get-capabilities`
-✅ **One round-trip** - Efficient, no multiple handshakes
-✅ **Service discovery** - Clients can advertise services (nREPL, etc.)
-✅ **Format negotiation** - Compression, wire formats, etc.
-✅ **Resource limits** - Both parties know limits upfront
-✅ **Robust error handling** - Sente-compatible validation, logging, and graceful degradation
+✅ **Data-driven** - Capabilities as declarative data structures
+✅ **Simple API** - `supports-feature?`, `get-capabilities`, event routing
+✅ **Security considered** - Safe installation patterns, authentication hooks
+
+### Key Insights
+
+1. **Event-IDs declare capabilities implicitly** - If you can handle `:nrepl/eval`, you support nREPL
+2. **Default handler enables discovery** - Returns `:event-not-supported` for unknown events
+3. **Recursive discovery** - Capability queries themselves are discoverable
+4. **nREPL as meta-capability** - Can install ANY other capability at runtime
+5. **Choose the right tier** - Compression needs Tier 3, rare features use Tier 1
 
 ### Next Steps
 
-1. Review and approve design
-2. Implement Phase 1 (core capability exchange)
-3. Test with BB-to-BB clients
-4. Test with browser clients (Scittle)
-5. Add capability-based feature toggling
-6. Document in main README
-7. Create migration guide for existing code
+1. ✅ Review and approve design
+2. Implement Phase 1 (Tier 1 - default handler pattern)
+3. Implement Phase 2 (Tier 3 - handshake with optional client-info)
+4. Implement Phase 3 (Tier 2 - explicit capability query events)
+5. Test with BB-to-BB clients (all three tiers)
+6. Test with browser clients (Scittle)
+7. Test dynamic capability installation via nREPL
+8. Document in main README
+9. Create migration guide for existing code
 
 ---
 
-**Document Status**: Draft for review
-**Last Updated**: 2025-10-30
+**Document Status**: Design Complete - Ready for Implementation
+**Last Updated**: 2025-10-31
 **Author**: Claude Code + Frank Siebenlist
