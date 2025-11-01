@@ -28,7 +28,22 @@
       "Bash(/tmp/bb-subscriber.bb)",
       "Bash(pgrep:*)",
       "Bash(do lsof -i tcp:$port)",
-      "Bash(cljfmt check:*)"
+      "Bash(cljfmt check:*)",
+      "Bash(find:*)",
+      "Bash(timeout 5 bb eval-browser:*)",
+      "Bash(/tmp/test-nrepl-1347.clj)",
+      "Bash(/tmp/test-nrepl-1347-fixed.clj)",
+      "Read(//private/tmp/**)",
+      "mcp__nrepl_mcp_server__must-read-mcp-nrepl-context",
+      "Bash(do echo \"=== Port $port ===\")",
+      "mcp__nrepl_mcp_server__nrepl-connection",
+      "mcp__nrepl_mcp_server__nrepl-eval",
+      "mcp__nrepl_mcp_server__nrepl-load-file",
+      "Bash(ln:*)",
+      "mcp__nrepl_mcp_server__nrepl-eval-local-file",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "mcp__memory__store_memory"
     ],
     "deny": [],
     "ask": []
