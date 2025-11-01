@@ -43,7 +43,8 @@
       "mcp__nrepl_mcp_server__nrepl-eval-local-file",
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "mcp__memory__store_memory"
+      "mcp__memory__store_memory",
+      "Bash(/Users/franksiebenlist/Development/sente_lite/test_core_new.bb)"
     ],
     "deny": [],
     "ask": []

@@ -1,1 +1,1 @@
-../../src/telemere_lite/scittle.cljs
+../../src/telemere_lite/core.cljc
