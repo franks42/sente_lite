@@ -19,4 +19,7 @@
 
   :bb {:replace-deps {}
        :replace-paths ["src"]
-       :main-opts ["-m" "telemere-lite.core"]}}}
+       :main-opts ["-m" "telemere-lite.core"]}
+
+  ;; Extract CLJS-only code from CLJC files
+  :extract {:extra-deps {org.clojure/tools.reader {:mvn/version "1.5.2"}}}}}

@@ -4033,6 +4033,12 @@ Before deploying features to production:
 - **nREPL Integration**: Transit multiplexer, bencode validation
 - **Performance Optimizations**: See Phase 3 for detailed specs on batching, buffering, compression, and chunking
 - **Monitoring**: Prometheus metrics, health checks, distributed tracing
+- **telemere-lite CLJC→CLJS Optimization**: Extract browser-only code to reduce file size by 58% (29KB → 12KB)
+  - **Current**: Full CLJC file loaded in browser (contains BB-only code)
+  - **Problem**: No good tooling exists - `clojure.tools.reader` expands macros (unusable), `rewrite-clj` adds complexity
+  - **Options**: (1) Simple BB script with limitations, (2) Refactor to extract BB code to separate file
+  - **Impact**: Browser performance (17KB savings, faster parsing)
+  - **Priority**: LOW - current 29KB file works fine, optimization not critical
 
 ---
 
