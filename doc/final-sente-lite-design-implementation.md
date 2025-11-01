@@ -17,6 +17,9 @@
 - [Feature Detection Pattern](#feature-detection-pattern)
 - [Extension Mechanism](#extension-mechanism)
 - [Error Handling](#error-handling)
+- [Observability & Telemetry Design](#observability--telemetry-design)
+- [nREPL Gateway Architectures](#nrepl-gateway-architectures)
+- [Implementation Sequence & Roadmap](#implementation-sequence--roadmap)
 - [Summary](#summary)
 
 ## Overview
@@ -1343,6 +1346,416 @@ Sente's example applications use **multimethod dispatch** with a `:default` hand
 6. ✅ **Use :chsk/bad-event for validation failures** - Framework-level error routing
 7. ✅ **Test with mismatched capabilities** - Ensure graceful degradation
 
+## Observability & Telemetry Design
+
+### Key Telemetry Points for Comprehensive Observability
+
+The following telemetry events provide complete visibility into sente-lite operations:
+
+#### 1. Connection Lifecycle (CRITICAL - Foundation)
+```clojure
+;; server.cljc & client_scittle.cljs
+(tel/event! ::connection-opened {:conn-id "..." :from :client/:server})
+(tel/event! ::connection-closed {:conn-id "..." :reason :normal/:error/:timeout})
+(tel/event! ::connection-failed {:conn-id "..." :error "..." :retry-count 3})
+(tel/event! ::reconnect-attempt {:conn-id "..." :attempt 2 :backoff-ms 2000})
+(tel/event! ::reconnect-success {:conn-id "..." :total-attempts 3 :total-duration-ms 5000})
+```
+
+#### 2. Message Flow (HIGH VALUE - Shows Activity)
+```clojure
+;; Every message through the system
+(tel/event! ::message-sent {:conn-id "..." :event-id :user/login :size-bytes 245})
+(tel/event! ::message-received {:conn-id "..." :event-id :user/login :size-bytes 245})
+(tel/event! ::message-routed {:conn-id "..." :event-id :user/login :handler :found/:not-found})
+(tel/event! ::message-failed {:conn-id "..." :event-id :user/login :error "..."})
+```
+
+#### 3. Event Handler Dispatch (CRITICAL for Debugging)
+```clojure
+;; In multimethod dispatch system (Tier 1 capability discovery)
+(tel/event! ::event-dispatched {:conn-id "..." :event-id :user/login :handler-found true})
+(tel/event! ::event-unhandled {:conn-id "..." :event-id :unknown/feature})  ; Hit :default
+(tel/event! ::event-handler-error {:conn-id "..." :event-id :user/login :error "..."})
+```
+
+#### 4. Capability Negotiation (Tier 1/2/3)
+```clojure
+;; Tier 3: Handshake
+(tel/event! ::handshake-sent {:conn-id "..." :capabilities #{:nrepl :compression}})
+(tel/event! ::handshake-received {:conn-id "..." :peer-capabilities #{:nrepl}})
+(tel/event! ::capabilities-negotiated {:conn-id "..." :agreed #{:nrepl}})
+
+;; Tier 2: Explicit queries
+(tel/event! ::capability-query {:conn-id "..." :feature :nrepl})
+(tel/event! ::capability-response {:conn-id "..." :feature :nrepl :supported true})
+
+;; Tier 1: Implicit discovery
+(tel/event! ::capability-discovered {:conn-id "..." :event-id :nrepl/eval :via :default-handler})
+```
+
+#### 5. Heartbeat/Health (CRITICAL for Production)
+```clojure
+(tel/event! ::heartbeat-sent {:conn-id "..." :sequence 42})
+(tel/event! ::heartbeat-received {:conn-id "..." :latency-ms 15})
+(tel/event! ::heartbeat-timeout {:conn-id "..." :last-seen-ms 65000})
+```
+
+#### 6. Channel Operations (Pub/Sub)
+```clojure
+(tel/event! ::channel-subscribed {:conn-id "..." :channel-id "room-123"})
+(tel/event! ::channel-unsubscribed {:conn-id "..." :channel-id "room-123"})
+(tel/event! ::channel-message {:channel-id "room-123" :subscriber-count 5})
+(tel/event! ::channel-created {:channel-id "room-123"})
+(tel/event! ::channel-destroyed {:channel-id "room-123" :total-messages 1523})
+```
+
+#### 7. Wire Format & Compression
+```clojure
+(tel/event! ::message-serialized {:format :edn :size-bytes 1024})
+(tel/event! ::message-compressed {:algorithm :gzip :original 1024 :compressed 256 :ratio 0.25})
+(tel/event! ::message-decompressed {:algorithm :gzip :compressed 256 :decompressed 1024})
+(tel/event! ::parse-error {:format :edn :error "..." :raw-size 500})
+```
+
+#### 8. Dynamic Capability Installation (nREPL Pattern)
+```clojure
+(tel/event! ::nrepl-eval-sent {:conn-id "..." :code-hash "abc123" :code-length 245})
+(tel/event! ::handler-installed {:conn-id "..." :event-id :analytics/track :method :nrepl})
+(tel/event! ::handler-install-failed {:conn-id "..." :event-id :analytics/track :error "..."})
+```
+
+#### 9. Performance Metrics (Aggregatable)
+```clojure
+(tel/event! ::message-latency {:event-id :user/login :latency-ms 45})
+(tel/event! ::queue-depth {:conn-id "..." :depth 15 :type :send-buffer})
+(tel/event! ::active-connections {:count 127 :peak 150})
+```
+
+#### 10. Security Events
+```clojure
+(tel/event! ::auth-attempt {:conn-id "..." :method :token})
+(tel/event! ::auth-success {:conn-id "..." :user-id "user-123"})
+(tel/event! ::auth-failed {:conn-id "..." :reason :invalid-token})
+(tel/event! ::unauthorized-handler-install {:conn-id "..." :event-id :admin/delete})
+```
+
+### Centralized Telemetry via Sente Channels
+
+**Key Insight**: Route ALL telemetry events (from both browser and server) to a centralized BB server for unified debugging and monitoring.
+
+#### Architecture:
+
+```
+Browser Client                  BB Server
+    |                              |
+    | [:telemetry/event {...}]     |
+    |----------------------------->|
+    |                              | → Append to single atom/file
+    |                              | → Timeline: [client-event, server-event, ...]
+    |                              |
+Server Process                     |
+    | (tel/event! ::foo)           |
+    |----------------------------->| → Same atom/file
+    |                              |
+
+RESULT: Single unified timeline with ALL events from ALL sources!
+```
+
+#### Benefits:
+
+1. **Unified Timeline** - See exact cause-and-effect across client and server
+2. **Easy Correlation** - Filter by request-id to see full flow
+3. **Single Debug Location** - One file/atom instead of scattered logs
+4. **Production Ready** - Browsers can't write files; server centralizes
+5. **Better Testing** - Assert on events from both sides in one place
+
+#### Implementation:
+
+**Browser Side:**
+```clojure
+;; telemere-lite/scittle.cljs
+(defn add-remote-handler!
+  "Send telemetry events to server via sente"
+  [send-fn]
+  (tel/add-handler! :remote-sink
+    (fn [signal]
+      (send-fn [:telemetry/event (assoc signal :source :browser)]))
+    {:async {:mode :dropping :buffer-size 512}}))
+```
+
+**Server Side:**
+```clojure
+;; Handle incoming telemetry from clients
+(defmethod handle-event :telemetry/event
+  [{:keys [event conn-id]}]
+  (let [[_ signal] event]
+    ;; Add to centralized atom/file (already has server events)
+    (swap! all-events conj (assoc signal :conn-id conn-id))))
+
+;; Server's own telemetry also goes to same sink
+(tel/add-handler! :centralized
+  (fn [signal]
+    (swap! all-events conj (assoc signal :source :server)))
+  {:async {:mode :dropping :buffer-size 1024}})
+```
+
+**Testing Pattern:**
+```clojure
+(deftest test-reconnect-with-unified-telemetry
+  ;; Server collects everything
+  (def all-events (atom []))
+  (tel/add-handler! :test-sink
+    (fn [signal] (swap! all-events conj signal)))
+
+  ;; Run test
+  (start-client!)
+  (kill-server!)
+  (Thread/sleep 2000)
+
+  ;; Check BOTH client and server events in one place!
+  (let [events @all-events
+        client-events (filter #(= :browser (:source %)) events)
+        server-events (filter #(= :server (:source %)) events)]
+    (assert (some #(= ::connection-opened (:event-id %)) client-events))
+    (assert (some #(= ::connection-closed (:event-id %)) server-events)))
+
+  ;; Save artifact for debugging
+  (spit "logs/test-reconnect-2025-10-31.edn" (pr-str @all-events)))
+```
+
+**This should be a capability:**
+```clojure
+;; Browser advertises capability
+[:chsk/handshake {:capabilities {:telemetry-remote-sink true}}]
+
+;; Server acknowledges
+[:chsk/handshake-ack {:capabilities {:telemetry-remote-sink true}}]
+
+;; Browser configures remote sink
+(when (get-in @capabilities [:server :telemetry-remote-sink])
+  (add-remote-handler! send-fn))
+```
+
+### Testing Strategy: Dual Sinks (Atom + File)
+
+telemere-lite supports multiple handlers simultaneously, perfect for testing:
+
+```clojure
+(deftest test-with-dual-sinks
+  ;; Sink 1: Atom (for assertions - fast, easy)
+  (def test-events (atom []))
+  (tel/add-handler! :test-capture
+                    (fn [signal] (swap! test-events conj signal))
+                    {:sync true})
+
+  ;; Sink 2: File (for artifact - permanent record)
+  (tel/add-file-handler! :test-file
+                         "logs/test-reconnect-2025-10-31-123456.edn"
+                         {:sync true})
+
+  ;; Run test - events go to BOTH atom and file
+  (start-client!)
+  (kill-server!)
+  (Thread/sleep 2000)
+
+  ;; Assert on atom (fast, easy)
+  (assert (some #(= (:event-id %) ::connection-closed) @test-events))
+
+  ;; File automatically saved for debugging later
+
+  ;; Cleanup
+  (tel/remove-handler! :test-capture)
+  (tel/remove-handler! :test-file))
+```
+
+**Benefits:**
+- ✅ **Atom** - Fast assertions, easy filtering, direct access
+- ✅ **File** - Permanent record, survives crashes, shareable
+- ✅ **Zero overhead** - Multiple handlers via keyed map
+- ✅ **Already implemented** - No code changes needed
+
+### Where Telemetry Goes in Code
+
+**Key principle**: Telemetry at boundaries and state transitions
+
+1. **`server.cljc`** - Server-side connection management, message routing, dispatch
+2. **`client_scittle.cljs`** - Client-side connection, reconnection logic
+3. **`wire-format.cljc`** - Serialization/deserialization, compression
+4. **`channels.cljc`** - Pub/sub operations
+5. **Multimethod dispatch** - Event handler routing (Tier 1 discovery)
+6. **Handshake logic** - Capability negotiation (Tier 2/3)
+
+## nREPL Gateway Architectures
+
+### Browser nREPL Gateway (Implemented)
+
+**Purpose**: Allow editor to control browser via nREPL → Sente → Browser SCI
+
+```
+Editor                    BB Gateway                Browser
+  |                          |                         |
+  | bencode nREPL           |                         |
+  |------------------------>|                         |
+  |                          | [:nrepl/eval ...] (EDN)|
+  |                          |----------------------->|
+  |                          |                        | (SCI eval)
+  |                          | [:nrepl/response ...]  |
+  |                          |<-----------------------|
+  | bencode response        |                         |
+  |<------------------------|                         |
+
+File: dev/scittle-demo/sente-nrepl-gateway.clj (EXISTS)
+```
+
+**Status**: ✅ Implemented and working
+
+### BB-to-BB Reverse nREPL Gateway (Not Yet Implemented)
+
+**Purpose**: Allow BB client to control BB server via Sente → nREPL
+
+```
+BB Client A              Sente Connection          BB Server B
+  |                          |                         |
+  | (Connected via Sente)    |                         |
+  |                          |                         |
+  | [:nrepl/eval ...] (EDN)  |                         |
+  |------------------------>|                         |
+  |                          |   REVERSE GATEWAY       |
+  |                          |   ↓                     |
+  |                          |   Wrap in bencode       |
+  |                          |   ↓                     |
+  |                          |   Forward to local      |
+  |                          |   nREPL server (1338)   |
+  |                          |                    ✓    |
+  |                          |   bencode response      |
+  |                          |   ↓                     |
+  |                          |   Unwrap to EDN         |
+  | [:nrepl/response ...]    |                         |
+  |<------------------------|                         |
+
+File: DOES NOT EXIST YET (Lower Priority)
+```
+
+**Status**: 🔲 Not implemented (can be deferred)
+
+**Rationale for deferring:**
+- ✅ For BB-to-BB, can use conventional nREPL servers directly (ports 1338, etc.)
+- ✅ No need to go through sente-channel for BB-to-BB nREPL
+- ✅ Only browser-to-BB needs gateway pattern (browser can't run nREPL server)
+- ⏸️ May not need browser-nREPL-client yet
+
+**When needed:**
+```clojure
+;; Handler for BB-to-BB nREPL (server receives from remote BB client)
+(defmethod handle-event :nrepl/eval
+  [{:keys [event conn-id ?reply-fn]}]
+  (let [[_ nrepl-msg] event]
+    ;; Forward to local nREPL server
+    (forward-to-local-nrepl! nrepl-msg
+      (fn [response]
+        (when ?reply-fn
+          (?reply-fn [:nrepl/response response]))))))
+
+(defn forward-to-local-nrepl!
+  "Forward EDN nREPL message to local bencode nREPL server"
+  [nrepl-msg callback-fn]
+  (with-open [socket (java.net.Socket. "localhost" 1338)
+              in (java.io.PushbackInputStream. (.getInputStream socket))
+              out (.getOutputStream socket)]
+    ;; Wrap EDN message in bencode
+    (bencode/write-bencode out nrepl-msg)
+    (.flush out)
+    ;; Read bencode response
+    (let [response (bencode/read-bencode in)]
+      (callback-fn response))))
+```
+
+## Implementation Sequence & Roadmap
+
+### Phase 1: Basic Sente Connection (FIRST)
+
+**Goal**: Establish reliable sente-lite connection with minimal capabilities
+
+**Tasks:**
+1. Implement multimethod-based event dispatch (`:default` handler required)
+2. Test BB-to-BB basic messages (`:edn` format, `:event` type)
+3. Test Browser-to-BB basic messages
+4. Verify connection lifecycle (open, close, reconnect)
+5. Implement Tier 1 capability discovery (implicit via `:default` handler)
+6. Add basic telemetry (connection events, message events)
+
+**Success Criteria:**
+- ✅ BB clients can connect to BB server
+- ✅ Browser clients can connect to BB server
+- ✅ Send/receive basic event messages `[:event-id {:data}]`
+- ✅ Unknown events return `{:error-type :event-not-supported}`
+- ✅ Telemetry events captured in atom during tests
+- ✅ Test files saved to `logs/test-*.edn`
+
+**Tools:**
+- Use nREPL MCP tool to drive tests
+- Use `tel/add-handler!` with atom for test assertions
+- Use `tel/add-file-handler!` for test artifacts
+
+### Phase 2: nREPL Capability (SECOND)
+
+**Goal**: Enable dynamic code execution and runtime extension
+
+**Tasks:**
+1. Implement `:nrepl/eval` handler (server-side)
+2. Test browser nREPL gateway (already exists: `dev/scittle-demo/sente-nrepl-gateway.clj`)
+3. Test dynamic handler installation via nREPL
+4. Add nREPL telemetry events (eval sent/received, handler installed)
+5. Document nREPL security considerations
+
+**Success Criteria:**
+- ✅ Editor can eval code in browser via nREPL → Sente → Browser
+- ✅ Can install event handlers at runtime via `:nrepl/eval`
+- ✅ nREPL events appear in centralized telemetry
+
+**Deferred:**
+- ⏸️ BB-to-BB reverse nREPL gateway (use direct nREPL servers instead)
+
+### Phase 3: Centralized Telemetry Capability (THIRD)
+
+**Goal**: Route all telemetry to central BB server for unified observability
+
+**Tasks:**
+1. Implement `:telemetry/event` handler (server-side)
+2. Implement `add-remote-handler!` (browser-side)
+3. Add telemetry capability to handshake
+4. Test unified timeline (browser + server events in one file/atom)
+5. Test filtering by source, conn-id, event-id
+6. Document telemetry patterns
+
+**Success Criteria:**
+- ✅ Browser telemetry events sent to server via `[:telemetry/event ...]`
+- ✅ Server telemetry and browser telemetry in same atom/file
+- ✅ Single unified timeline for debugging
+- ✅ Can correlate client-server interactions by request-id
+- ✅ Production-ready observability
+
+### Phase 4: Additional Capabilities (LATER)
+
+**After core capabilities work:**
+
+1. **Compression** (Tier 3 negotiation required)
+   - gzip + none, 1KB threshold
+   - See `doc/sente-lite-compression-feature.md`
+
+2. **Tier 2 Explicit Queries** (optional)
+   - `:capabilities/list`
+   - `:capabilities/query`
+
+3. **Tier 3 Handshake** (optional, but useful for compression)
+   - `:chsk/handshake` with capabilities
+   - `:chsk/client-info` with service discovery
+
+4. **BB-to-BB Reverse nREPL Gateway** (if needed)
+   - Only if we need to route nREPL through sente channel
+   - Currently can use direct nREPL servers
+
 ## Summary
 
 This design provides **three complementary tiers** of capability discovery, each solving different problems:
@@ -1384,17 +1797,15 @@ This design provides **three complementary tiers** of capability discovery, each
 4. **nREPL as meta-capability** - Can install ANY other capability at runtime
 5. **Choose the right tier** - Compression needs Tier 3, rare features use Tier 1
 
-### Next Steps
+### Implementation Roadmap
 
-1. ✅ Review and approve design
-2. Implement Phase 1 (Tier 1 - default handler pattern)
-3. Implement Phase 2 (Tier 3 - handshake with optional client-info)
-4. Implement Phase 3 (Tier 2 - explicit capability query events)
-5. Test with BB-to-BB clients (all three tiers)
-6. Test with browser clients (Scittle)
-7. Test dynamic capability installation via nREPL
-8. Document in main README
-9. Create migration guide for existing code
+See [Implementation Sequence & Roadmap](#implementation-sequence--roadmap) for detailed phases:
+
+1. ✅ **Design Complete** - Three-tier capability discovery, telemetry, nREPL gateways
+2. 🚧 **Phase 1**: Basic Sente Connection - Multimethod dispatch, Tier 1 discovery, basic telemetry
+3. ⏸️ **Phase 2**: nREPL Capability - Browser gateway (exists), dynamic handler installation
+4. ⏸️ **Phase 3**: Centralized Telemetry - Unified timeline, remote sinks
+5. ⏸️ **Phase 4**: Additional Capabilities - Compression, Tier 2/3 (optional)
 
 ---
 
