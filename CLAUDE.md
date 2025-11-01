@@ -236,79 +236,84 @@ Do not use optimistic language ("production-ready", "fully functional", "complet
 - Use this file to recover lost context from previous sessions
 - Contains detailed discussions about migration plans and architecture decisions
 
-### Current Project Status (2025-10-26)
-- **BRANCH**: `main` - ready for sente-lite HTTP/1.1 + WebSocket development
-- **LAST TAG**: `v0.5.2-cleanup` - fully organized, linted, tested, committed
-- **ALL COMPLETED**:
-  - ✅ Project structure reorganized (doc/, dev/, test/scripts/)
-  - ✅ All 70KB of sente-lite source code committed and tracked
-  - ✅ Zero linting errors (0 errors, 10 cljs warnings - expected)
-  - ✅ All tests passing (run_tests.bb: 10 tests, 0 failures)
-  - ✅ Pre-commit hooks working and enforcing quality
-  - ✅ Clean working tree, all files properly tracked
-  - ✅ HTTP/2 investigation complete (see doc/http2-investigation-2025-10.md)
-- **NEXT**: Continue sente-lite core implementation (HTTP/1.1 + WebSocket)
+### Current Project Status (2025-10-31)
+- **BRANCH**: `main` - clean working tree, all changes committed and pushed
+- **LAST TAG**: `v0.15.0-lazy-eval-design` - telemere-lite lazy evaluation design complete
+- **COMPLETED (Session 6 - 2025-10-31)**:
+  - ✅ Researched official Telemere source code (~200 lines of impl/signal! macro)
+  - ✅ Documented three-stage lazy eval pattern: filter → delay → :let → data/msg
+  - ✅ Designed unified CLJC approach (ONE file for BB + browser)
+  - ✅ Documented three-sink browser architecture (console, atom, websocket)
+  - ✅ Created comprehensive living document: `doc/telemere-lite-lazy-eval-improvement.md` (700+ lines)
+  - ✅ Performance analysis: 3-14x speedup when disabled (60-120ns vs 300-850ns)
+  - ✅ Build-from-scratch implementation strategy (safer than in-place edits)
+- **NEXT**: **Implement telemere-lite lazy evaluation** (HIGH PRIORITY - do BEFORE sente-lite refactoring!)
 
-### Recent Tags History
-1. `v0.3.0-sente-lite` - Recovered 70KB sente-lite source (was untracked!)
-2. `v0.4.0-project-structure` - Proper Clojure project organization
-3. `v0.5.0-lint-clean` - Clean linting, formatting, tests passing
-4. `v0.5.1-tooling-update` - Claude Code tooling configuration
-5. `v0.5.2-cleanup` - Removed log files from tracking (CURRENT on main)
+### What's Working Now
+- ✅ sente-lite core (BB-to-BB and Browser) - fully functional
+- ✅ Auto-reconnect with exponential backoff (BB and Browser)
+- ✅ Pub/sub (all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser)
+- ✅ All 16 tests passing
+- ✅ Zero linting errors
+- ✅ telemere-lite (basic, eager evaluation) - **needs lazy eval improvement**
 
-### HTTP/2 Investigation (October 2025)
-- **Status**: ON HOLD - Investigation complete, HTTP/2 efforts paused
-- **Decision**: Continue with HTTP/1.1 + WebSocket implementation
-- **Reason**: Babashka (prime target) has no viable HTTP/2 path without excessive complexity
-- **Full Documentation**: See `doc/http2-investigation-2025-10.md` for complete findings
-- **Key Finding**: ring-jetty9-adapter requires JVM classes not available in babashka's SCI interpreter
-- **Options Evaluated**: Pod (too complex), reverse proxy (limited benefit), split architecture (doubles maintenance)
-- **Branch Preserved**: `jetty9-migration` kept for historical reference
-- **Future**: Can revisit if babashka ecosystem evolves or HTTP/2 becomes critical for JVM deployments
+### Recent Tags History (Last 5)
+1. `v0.11.0-browser-reconnect-tested` - Auto-reconnect working (Session 3)
+2. `v0.11.1-sci-limitation-documented` - SCI destructuring limitation discovery (Session 5)
+3. `v0.13.0-capability-negotiation-design` - Capability negotiation design
+4. `v0.14.0-compression-analysis` - Compression feature analysis
+5. `v0.15.0-lazy-eval-design` - Lazy evaluation design complete (CURRENT, Session 6)
 
-### Current Focus: HTTP/1.1 + WebSocket Implementation
-- **Platform**: Babashka as prime target
-- **Server**: http-kit (HTTP/1.1 + WebSocket)
-- **Protocol**: WebSocket provides full-duplex communication
-- **Philosophy**: Lightweight, native capabilities, ~500 LOC simplicity
+### Current Focus: telemere-lite Lazy Evaluation Implementation
+- **Living Document**: `doc/telemere-lite-lazy-eval-improvement.md` - Follow checkboxes for implementation
+- **New File**: Create `src/telemere_lite/core_new.cljc` from scratch (DO NOT edit existing files)
+- **Single File Constraint**: Browser loads ONE file via symlink - no requires, no splits
+- **Pattern**: Three-stage lazy eval from Telemere (filter → delay → :let)
+- **Performance**: 3-14x speedup when disabled (60-120ns overhead vs current 300-850ns)
+- **Three Sinks (Browser)**: Console (default ON), Atom (default OFF), WebSocket (default OFF)
 
 ### Key Files and Context
-- `src/sente_lite/server.cljc` - Current http-kit based server (17KB, ~441 lines)
-- `src/sente_lite/server_simple.cljc` - Simplified server foundation (6.5KB, ~161 lines)
-- `src/sente_lite/channels.cljc` - WebSocket channel management (12KB)
-- `src/sente_lite/transit_multiplexer.cljc` - Transit envelope pattern (13KB)
-- `src/sente_lite/wire_format.cljc` - Message serialization (11KB)
-- `src/sente_lite/wire_multiplexer.cljc` - Message multiplexing (11KB)
-- `doc/plan.md` - 785-line comprehensive implementation plan
-- `doc/http2-investigation-2025-10.md` - Complete HTTP/2 investigation (Oct 2025, on hold)
-- `doc/ring-jetty9-adapter-migration-plan.md` - Original 7-phase migration strategy (superseded)
-- `.clj-kondo/config.edn` - Linting configuration for zero-warning compliance
-- `test/scripts/run_all_tests.bb` - Main test runner (11 test scripts)
+**Core Implementation**:
+- `src/sente_lite/server.cljc` - Server (21KB, ~441 lines) - WORKING
+- `src/sente_lite/client_scittle.cljs` - Browser client (12KB) - WORKING
+- `src/telemere_lite/core.cljc` - Telemetry (BB) - **NEEDS LAZY EVAL** (reference only, don't edit)
+- `src/telemere_lite/scittle.cljs` - Telemetry (browser) - **TO BE DELETED** (reference only)
+- `src/telemere_lite/core_new.cljc` - **TO BE CREATED** (build from scratch)
+
+**Design Documents (CRITICAL - Read These!)**:
+- `doc/telemere-lite-lazy-eval-improvement.md` - **LIVING DOCUMENT** for implementation (700+ lines)
+- `doc/final-sente-lite-design-implementation.md` - Sente-lite design + telemetry architecture
+- `doc/sente-lite-compression-feature.md` - Compression analysis (future)
+- `CONTEXT.md` - Updated with Session 6 details
+- `CLAUDE.md` - This file
+
+**Other Important**:
+- `doc/plan.md` - Implementation plan (includes SCI limitation section)
+- `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md` - 5-step deployment protocol
+- `.clj-kondo/config.edn` - Linting configuration
 
 ### Project Structure (Proper Clojure Conventions)
 ```
 sente_lite/
 ├── src/                    # Source code
-│   ├── sente_lite/        # Main WebSocket library (70KB total)
-│   └── telemere_lite/     # Telemetry implementation
+│   ├── sente_lite/        # Main WebSocket library (working)
+│   └── telemere_lite/     # Telemetry (needs lazy eval)
 ├── test/                   # Test namespaces
-│   ├── scripts/           # Test runner scripts (11 scripts)
+│   ├── scripts/           # Test runner scripts
 │   └── telemere_lite/     # Test files
 ├── doc/                    # Documentation (singular, Clojure convention)
-├── dev/                    # Development tools (linting, editing scripts)
+│   └── telemere-lite-lazy-eval-improvement.md  # Living document for implementation
+├── dev/                    # Development tools
+│   └── scittle-demo/      # Browser development environment
 ├── deps.edn                # Clojure dependencies
-└── run_tests.bb            # Main test runner (convenience)
+└── run_tests.bb            # Main test runner
 ```
 
-### Memory Context
-- **CRITICAL RECOVERY**: On 2025-10-25, discovered 70KB of sente-lite source was untracked!
-- All source files were in src/sente_lite/ but never committed (telemere-lite was committed instead)
-- Immediately committed, pushed, tagged as v0.3.0-sente-lite
-- Then reorganized entire project structure to Clojure best practices
-- **HTTP/2 Investigation**: On 2025-10-26, investigated jetty9 migration for HTTP/2 support
-- Found jetty9 incompatible with babashka (requires JVM classes unavailable in SCI)
-- Decision: Pause HTTP/2 efforts, continue with http-kit (HTTP/1.1 + WebSocket)
-- User expects proper snapshots (commit/push/tag) throughout work
+### Implementation Constraints (CRITICAL)
+1. **Browser Single File Constraint**: Browser loads `telemere-lite.cljs` (symlink) - must be ONE downloadable file
+2. **Build From Scratch**: DO NOT edit existing files (error-prone) - create `core_new.cljc`, test, then replace
+3. **SCI/Scittle Limitation**: NEVER use destructuring in browser code (see section above)
+4. **Test BB-to-BB First**: Always test in BB before browser (10x faster, easier debugging)
 
 ## Important Implementation Details
 
