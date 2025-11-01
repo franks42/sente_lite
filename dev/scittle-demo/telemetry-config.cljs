@@ -31,18 +31,18 @@
 (println "   :let parameters: NOT evaluated")
 
 ;; ============================================================================
-;; DEVELOPMENT MODE (uncomment to enable)
+;; DEVELOPMENT MODE (enabled by default for visibility)
 ;; ============================================================================
 
 ;; Enable telemetry for development/debugging
-;; (tel/set-enabled! true)
-;; (println "✅ Telemetry: ENABLED (development mode)")
+(tel/set-enabled! true)
+(println "✅ Telemetry: ENABLED (development mode)")
 
 ;; Configure sinks as needed:
 
 ;; Sink 1: Browser Console (good for interactive development)
-;; (tel/enable-console-sink!)
-;; (println "   - Console sink: ENABLED")
+(tel/enable-console-sink!)
+(println "   - Console sink: ENABLED")
 
 ;; Sink 2: Event Collection (good for testing)
 ;; (tel/enable-atom-sink!)

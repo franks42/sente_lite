@@ -16,6 +16,17 @@
 ;; Starts a WebSocket server on ephemeral port, publishes port to discovery
 ;; file, signals ready, then runs for specified duration.
 ;;
+;; Environment variables:
+;;   TELEMETRY=1          - Enable telemetry (default: disabled)
+;;   TELEMETRY_LEVEL=info - Filter level: debug, info, warn, error (default: info)
+;;
+
+;; Configure telemetry for tests
+(when (= "1" (System/getenv "TELEMETRY"))
+  (tel/set-enabled! true)
+  (tel/add-stdout-handler!)
+  (let [level (or (System/getenv "TELEMETRY_LEVEL") "info")]
+    (println (str "📊 Telemetry ENABLED (level: " level ")"))))
 
 (defn parse-args [args]
   (when (< (count args) 2)
