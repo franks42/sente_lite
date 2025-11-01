@@ -1010,6 +1010,150 @@ Browser loads via:
   (is (= 1 (count @sent-events))))
 ```
 
+## Configuration Strategy (Separation of Concerns)
+
+**Date Implemented**: 2025-10-31
+**Status**: ✅ Complete (v0.6.0-telemetry-config)
+**Philosophy**: Library provides capability, configuration sets policy
+
+### Three Ways to Configure Telemetry
+
+#### 1. Script Tag (Default Policy)
+```html
+<!-- Load library first -->
+<script src="telemere-lite.cljs" type="application/x-scittle"></script>
+
+<!-- Then configure defaults -->
+<script src="telemetry-config.cljs" type="application/x-scittle"></script>
+```
+
+**Purpose**: Set project-wide default policy (disabled for performance)
+
+**Example configuration** (`telemetry-config.cljs`):
+```clojure
+(ns telemetry-config
+  (:require [telemere-lite.core :as tel]))
+
+;; DEFAULT: Disabled for maximum performance
+(tel/set-enabled! false)
+
+;; DEVELOPMENT: Uncomment to enable
+;; (tel/set-enabled! true)
+;; (tel/enable-console-sink!)
+```
+
+**Benefits**:
+- ✅ Sets baseline behavior for entire application
+- ✅ Easy to customize per environment (dev/staging/prod)
+- ✅ Clear separation: library vs policy
+- ✅ One-time load at page startup
+
+#### 2. JS Console (Production Debugging)
+```javascript
+// Runtime controls (no code reload needed!)
+window.telemetryEnable()      // Enable telemetry
+window.telemetryDisable()     // Disable telemetry
+window.telemetryConsoleOn()   // Enable console sink
+window.telemetryConsoleOff()  // Disable console sink
+window.telemetryStatus()      // Show current status
+```
+
+**Purpose**: Quick debugging in production without redeploying
+
+**Use cases**:
+- Investigating live production issues
+- Temporary debugging sessions
+- Quick A/B testing of telemetry overhead
+- Emergency troubleshooting
+
+**Benefits**:
+- ✅ No code changes required
+- ✅ No page reload needed
+- ✅ Instant feedback
+- ✅ Safe (disabled by default)
+
+#### 3. nREPL (Development/Advanced)
+```clojure
+;; Via nREPL to browser (full programmatic control)
+(require '[telemere-lite.core :as tel])
+
+;; Enable and configure
+(tel/set-enabled! true)
+(tel/enable-console-sink!)
+(tel/enable-atom-sink!)  ; For testing
+
+;; Check configuration
+(deref #'tel/*telemetry-enabled*)  ; → true
+(deref tel/*console-enabled*)      ; → true
+
+;; Get collected events
+(tel/get-events)
+(tel/clear-events!)
+```
+
+**Purpose**: Development workflows, automated testing, scripted control
+
+**Use cases**:
+- Startup scripts for development environment
+- Automated test setup/teardown
+- Integration with development tools
+- Dynamic configuration based on runtime state
+
+**Benefits**:
+- ✅ Full programmatic API access
+- ✅ Scriptable and automatable
+- ✅ Integration with editor workflows
+- ✅ Perfect for testing scenarios
+
+### Implementation Details
+
+**Runtime Controls** (exposed globally):
+```clojure
+;; In telemetry-config.cljs (SCI-compatible syntax)
+(set! (.-telemetryEnable js/window)
+      (fn []
+        (tel/set-enabled! true)
+        (println "✅ Telemetry ENABLED")))
+
+(set! (.-telemetryDisable js/window)
+      (fn []
+        (tel/set-enabled! false)
+        (println "✅ Telemetry DISABLED")))
+
+;; ... etc for console controls and status
+```
+
+**Note**: Must use `(.-property js/window)` syntax for SCI compatibility, not `js/window.property` which causes "Invalid assignment target" error.
+
+### Performance Characteristics
+
+**Default configuration (disabled)**:
+- ✅ 60-120ns per call
+- ✅ :let params NOT evaluated
+- ✅ Zero overhead for production
+- ✅ 3-14x faster than enabled
+
+**When enabled for debugging**:
+- 300-850ns per call
+- All telemetry processing active
+- Full observability available
+
+### Design Philosophy
+
+**Separation of concerns**:
+1. **Library** (`telemere-lite.cljs`) - Provides capability
+2. **Configuration** (`telemetry-config.cljs`) - Sets policy
+3. **Runtime controls** (window functions) - Enables flexibility
+4. **nREPL integration** - Developer experience
+
+**Benefits of this approach**:
+- ✅ Library stays pure (no policy decisions)
+- ✅ Policy is explicit and visible
+- ✅ Easy to customize per environment
+- ✅ Multiple control interfaces for different use cases
+- ✅ Production-safe defaults (disabled)
+- ✅ Developer-friendly overrides (console/nREPL)
+
 ## Summary
 
 **Key Finding**: Telemere uses a three-stage lazy evaluation pattern:
@@ -1037,9 +1181,14 @@ Browser loads via:
 
 **Backward compatibility**: ✅ Old API continues to work (eager evaluation)
 
+**Configuration strategy**: ✅ Implemented (v0.6.0-telemetry-config)
+- Three control interfaces: Script tag (policy), JS console (quick debug), nREPL (advanced)
+- Default: DISABLED for production performance
+- Runtime controls for production debugging
+
 ---
 
-**Status**: ✅ Research & Design Complete (2025-10-31)
-**Next**: Implementation (Phase 1, Steps 3-5)
+**Status**: ✅ Configuration Complete (2025-10-31), Lazy Eval Design Complete
+**Next**: Implementation of lazy evaluation (Phase 1, Steps 3-5)
 **Priority**: High (enables production telemetry with minimal overhead)
-**Estimated effort**: 4-6 hours (implementation + testing)
+**Estimated effort**: 4-6 hours (lazy eval implementation + testing)
