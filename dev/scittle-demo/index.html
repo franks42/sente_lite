@@ -18,11 +18,16 @@
   <!-- Pre-load telemere-lite (required dependency, symlinked from ../../src/telemere_lite/scittle.cljs) -->
   <script src="telemere-lite.cljs" type="application/x-scittle"></script>
 
+  <!-- Configure telemetry (disabled by default for performance) -->
+  <!-- Runtime controls: window.telemetryEnable(), window.telemetryDisable(), window.telemetryStatus() -->
+  <script src="telemetry-config.cljs" type="application/x-scittle"></script>
+
   <!-- Load ClojureScript playground code -->
   <script src="playground.cljs" type="application/x-scittle"></script>
 
-  <!-- Load lazy evaluation tests -->
-  <script src="test-lazy-eval.cljs" type="application/x-scittle"></script>
+  <!-- Development tests (commented out for normal use) -->
+  <!-- <script src="test-lazy-eval.cljs" type="application/x-scittle"></script> -->
+  <!-- <script src="test-disabled-telemetry.cljs" type="application/x-scittle"></script> -->
 </head>
 <body>
   <h1>Scittle nREPL Demo</h1>

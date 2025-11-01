@@ -44,7 +44,11 @@
       "WebSearch",
       "WebFetch(domain:github.com)",
       "mcp__memory__store_memory",
-      "Bash(/Users/franksiebenlist/Development/sente_lite/test_core_new.bb)"
+      "Bash(/Users/franksiebenlist/Development/sente_lite/test_core_new.bb)",
+      "Bash(/Users/franksiebenlist/Development/sente_lite/dev/extract_cljs.bb)",
+      "Bash(clojure -X:deps find-versions:*)",
+      "Bash(clojure -M:extract:*)",
+      "Bash(git restore:*)"
     ],
     "deny": [],
     "ask": []
