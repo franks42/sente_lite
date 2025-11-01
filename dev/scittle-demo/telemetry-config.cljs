@@ -1,10 +1,14 @@
 ;; Telemetry Configuration for Browser
 ;;
 ;; Loaded after telemere-lite.cljs to configure telemetry behavior.
-;; By default, telemetry is DISABLED for maximum performance.
+;; NOTE: As of v0.6.1, telemetry is DISABLED BY DEFAULT in the library itself.
+;;
+;; This file serves two purposes:
+;;   1. Documents how to enable and configure telemetry
+;;   2. Provides runtime control functions (window.telemetry*())
 ;;
 ;; To enable telemetry for development/debugging:
-;;   1. Comment out the (set-enabled! false) line
+;;   1. Uncomment the (set-enabled! true) line below
 ;;   2. Uncomment desired sink configurations
 ;;   3. Reload the page
 
@@ -14,14 +18,15 @@
 (println "📊 Configuring telemetry...")
 
 ;; ============================================================================
-;; DEFAULT: Telemetry DISABLED (maximum performance)
+;; DEFAULT: Telemetry DISABLED (no configuration needed)
 ;; ============================================================================
-
-;; Disable all telemetry - :let params won't be evaluated
+;;
+;; The library defaults to DISABLED for maximum performance.
+;; No action required - telemetry is already off.
 ;; Performance: 60-120ns per call (3-14x faster than enabled)
-(tel/set-enabled! false)
+;; :let parameters: NOT evaluated
 
-(println "✅ Telemetry: DISABLED (lazy evaluation active)")
+(println "✅ Telemetry: DISABLED by default (library setting)")
 (println "   Performance: ~60-120ns per call")
 (println "   :let parameters: NOT evaluated")
 

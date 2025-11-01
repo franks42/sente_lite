@@ -17,7 +17,7 @@
 ;;; Dynamic configuration vars
 ;;; ============================================================================
 
-(def ^:dynamic *telemetry-enabled* true)
+(def ^:dynamic *telemetry-enabled* false)
 
 #?(:bb
    (do
