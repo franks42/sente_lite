@@ -539,19 +539,87 @@ Browser loads via:
   #?(:bb  (System/currentTimeMillis)
      :cljs (.toISOString (js/Date.))))
 
-;; Output
-(defn dispatch-signal! [signal]
-  #?(:bb  (call-handlers! @*handlers* signal)
-     :cljs (js/console.log (signal->json signal))))
-
 ;; JSON (browser only)
 #?(:cljs
    (defn signal->json [signal]
      (js/JSON.stringify (clj->js signal))))
 
-;; Handlers (BB only)
+;; BB: Multiple handlers in atom
 #?(:bb
    (defonce *handlers* (atom {})))
+
+;; Browser: THREE default event sinks
+#?(:cljs
+   (do
+     ;; Sink 1: Console (development/debugging)
+     (defonce *console-enabled* (atom true))
+
+     ;; Sink 2: Atom (testing/programmatic access)
+     (defonce *events* (atom []))
+     (defonce *atom-sink-enabled* (atom false))
+
+     ;; Sink 3: WebSocket to server (centralized telemetry)
+     (defonce *send-fn* (atom nil))  ; Set by sente-lite client
+     (defonce *remote-sink-enabled* (atom false))
+
+     (defn dispatch-signal! [signal]
+       ;; Sink 1: Console
+       (when @*console-enabled*
+         (js/console.log (signal->json signal)))
+
+       ;; Sink 2: Atom (for testing)
+       (when @*atom-sink-enabled*
+         (swap! *events* conj signal))
+
+       ;; Sink 3: WebSocket (centralized telemetry)
+       (when (and @*remote-sink-enabled* @*send-fn*)
+         (@*send-fn* [:telemetry/event (assoc signal :source :browser)])))
+
+     ;; Public API for browser sink control
+     (defn enable-console-sink! [] (reset! *console-enabled* true))
+     (defn disable-console-sink! [] (reset! *console-enabled* false))
+
+     (defn enable-atom-sink! [] (reset! *atom-sink-enabled* true))
+     (defn disable-atom-sink! [] (reset! *atom-sink-enabled* false))
+     (defn get-events [] @*events*)
+     (defn clear-events! [] (reset! *events* []))
+
+     (defn enable-remote-sink! [send-fn]
+       (reset! *send-fn* send-fn)
+       (reset! *remote-sink-enabled* true))
+     (defn disable-remote-sink! [] (reset! *remote-sink-enabled* false))))
+```
+
+**Browser Sink Usage Examples:**
+
+```clojure
+;; Development: Console only (default)
+(tel/event! ::user-clicked {:button "submit"})
+;; → Browser console: [info] Event {...}
+
+;; Testing: Enable atom sink
+(tel/enable-atom-sink!)
+(tel/event! ::test-event {:data 123})
+(count (tel/get-events))  ; → 1
+(tel/clear-events!)
+
+;; Production: Send to server via WebSocket
+(let [send-fn (:send-fn @chsk)]  ; From sente-lite client
+  (tel/enable-remote-sink! send-fn)
+  (tel/disable-console-sink!)  ; Reduce browser noise
+
+  ;; All telemetry now goes to server
+  (tel/event! ::user-login {:user-id "abc123"}))
+;; → Server receives: [:telemetry/event {:source :browser :event-id ::user-login ...}]
+
+;; All three sinks simultaneously (e.g., debugging production)
+(tel/enable-console-sink!)
+(tel/enable-atom-sink!)
+(tel/enable-remote-sink! send-fn)
+(tel/event! ::debug-this {:complex "data"})
+;; → Console: logged
+;; → Atom: collected
+;; → Server: received
 ```
 
 **Benefits:**
@@ -560,15 +628,33 @@ Browser loads via:
 - ✅ BB can use same file
 - ✅ No duplication
 - ✅ Lazy eval works identically everywhere
+- ✅ THREE browser sinks: console (dev), atom (test), websocket (production)
+- ✅ Centralized telemetry ready out-of-the-box
 
 #### Step 1.2: Implement Lazy `signal!` Macro ⏳
 - [ ] Add filtering check OUTSIDE delay
 - [ ] Wrap signal construction in `delay`
 - [ ] Put `:let` bindings INSIDE delay
-- [ ] Add platform-specific dispatch
+- [ ] Add BB dispatch (handlers in atom)
+- [ ] Add browser dispatch (THREE sinks)
+  - [ ] Console sink (enabled by default)
+  - [ ] Atom sink (for testing)
+  - [ ] WebSocket sink (for centralized telemetry)
 - [ ] Test macro expansion in both BB and Scittle
 
 **Code location**: `src/telemere_lite/core.cljc` (lines ~150-200)
+
+**Browser sink controls to implement:**
+```clojure
+;; Enable/disable individual sinks
+(enable-console-sink!) / (disable-console-sink!)
+(enable-atom-sink!) / (disable-atom-sink!)
+(enable-remote-sink! send-fn) / (disable-remote-sink!)
+
+;; Atom sink helpers
+(get-events)  ; → vector of all collected events
+(clear-events!)  ; → reset to []
+```
 
 **Acceptance criteria:**
 - ✅ Macro expands correctly in BB
@@ -834,6 +920,7 @@ Browser loads via:
 
 ### Testing Strategy (Cross-Platform)
 
+**BB Tests:**
 ```clojure
 (deftest test-lazy-eval-bb
   ;; Test in BB
@@ -841,13 +928,70 @@ Browser loads via:
     (def called? (atom false))
     (event! ::test [(x (reset! called? true))] {:x x})
     (is (false? @called?) "BB: Should not eval when disabled")))
+```
 
+**Browser Tests (Three Sinks):**
+```clojure
 (deftest test-lazy-eval-browser
-  ;; Same test in browser/Scittle
+  ;; Test 1: Lazy evaluation (same as BB)
   (binding [*telemetry-enabled* false]
     (def called? (atom false))
     (event! ::test [(x (reset! called? true))] {:x x})
     (is (false? @called?) "Browser: Should not eval when disabled")))
+
+(deftest test-console-sink
+  ;; Test 2: Console sink control
+  (enable-console-sink!)
+  (event! ::console-test {:data 123})
+  ;; → Manual verification in browser console
+
+  (disable-console-sink!)
+  (event! ::should-not-appear {:data 456})
+  ;; → Should NOT appear in console)
+
+(deftest test-atom-sink
+  ;; Test 3: Atom sink for programmatic access
+  (clear-events!)
+  (enable-atom-sink!)
+
+  (event! ::event1 {:data 1})
+  (event! ::event2 {:data 2})
+
+  (is (= 2 (count (get-events))) "Should collect 2 events")
+  (is (= ::event1 (:event-id (first (get-events)))))
+  (is (= ::event2 (:event-id (second (get-events)))))
+
+  (clear-events!)
+  (is (= 0 (count (get-events))) "Should clear events"))
+
+(deftest test-remote-sink
+  ;; Test 4: WebSocket sink (requires mock send-fn)
+  (def sent-events (atom []))
+  (def mock-send-fn (fn [event] (swap! sent-events conj event)))
+
+  (enable-remote-sink! mock-send-fn)
+  (event! ::remote-test {:data 789})
+
+  (is (= 1 (count @sent-events)) "Should send 1 event")
+  (is (= :browser (:source (second (first @sent-events)))) "Should tag as :browser")
+  (is (= ::remote-test (:event-id (second (first @sent-events))))))
+
+(deftest test-multiple-sinks
+  ;; Test 5: All three sinks simultaneously
+  (clear-events!)
+  (reset! sent-events [])
+
+  (enable-console-sink!)
+  (enable-atom-sink!)
+  (enable-remote-sink! mock-send-fn)
+
+  (event! ::triple-test {:data "all sinks"})
+
+  ;; Console: manual verification
+  ;; Atom: programmatic check
+  (is (= 1 (count (get-events))))
+  ;; WebSocket: programmatic check
+  (is (= 1 (count @sent-events))))
 ```
 
 ## Summary
