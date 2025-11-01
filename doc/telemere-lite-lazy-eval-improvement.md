@@ -495,60 +495,200 @@ Apply same pattern to `log!`, `debug!`, `info!`, `warn!`, `error!`:
 
 **Speedup when disabled: 3-17x faster!**
 
-## Implementation Roadmap
+## Implementation Roadmap (Living Document)
 
-### Phase 1: Core Implementation (High Priority)
-1. ✅ **Research Telemere's approach** - COMPLETED (2025-10-31)
-   - Analyzed actual source code from `taoensso.telemere.impl`
-   - Identified three-stage lazy evaluation pattern
-   - Confirmed we can adapt the PATTERN but not copy code literally
+**Last Updated**: 2025-10-31
+**Status**: ✅ Research & Design Complete → Ready for Implementation
 
-2. ✅ **Create detailed implementation design** - COMPLETED (2025-10-31)
-   - 7-step implementation plan with concrete code
-   - Performance analysis (3-14x speedup when disabled)
-   - Testing strategy with lazy evaluation verification
+### Phase 1: Unified CLJC Foundation (HIGH PRIORITY - Do Before Sente-Lite Refactoring!)
 
-3. ⏳ **Implement :let support in `signal!` macro** - NEXT
-   - Update core macro with delay wrapper
-   - Add filtering BEFORE delay evaluation
-   - Keep backward compatibility
+**Goal**: Single codebase for BB + browser with lazy evaluation
 
-4. ⏳ **Add new `event!` arities**
-   - Three-arg form with :let support
-   - Keep old two-arg form (backward compatible)
-   - Add deprecation note for future
+#### Step 1.1: Consolidate to SINGLE CLJC File ⏳ NEXT
 
-5. ⏳ **Update other logging macros**
-   - `debug!`, `info!`, `warn!`, `error!`
-   - Same pattern as `event!`
+**CRITICAL CONSTRAINT**: Browser needs ONE downloadable file!
 
-### Phase 2: Testing & Validation
-6. ⏳ **Test lazy evaluation behavior**
-   - Verify :let NOT evaluated when disabled
-   - Verify :let IS evaluated when enabled
-   - Backward compatibility tests
+Current setup:
+```
+dev/scittle-demo/telemere-lite.cljs -> ../../src/telemere_lite/scittle.cljs
+                                      (symlink to single file)
+```
 
-7. ⏳ **Performance benchmarks**
-   - Before/after overhead when disabled
-   - Confirm 3-14x speedup target
-   - Test with real workloads
+Browser loads via:
+```html
+<script src="telemere-lite.cljs" type="application/x-scittle"></script>
+```
 
-### Phase 3: Migration
-8. ⏳ **Update high-frequency call sites**
-   - Message routing events
-   - Dispatch events
-   - Connection lifecycle events
+**Strategy**: Use ONE self-contained CLJC file for both BB and browser!
 
-9. ⏳ **Document migration guide**
-   - Examples of old → new API
-   - When to use :let vs simple data
-   - Performance tips
+- [ ] Analyze current `core.cljc` (BB) implementation
+- [ ] Analyze current `scittle.cljs` (browser) implementation
+- [ ] Merge into SINGLE `core.cljc` with reader conditionals
+- [ ] Keep ALL code in ONE file (no requires, no splits)
+- [ ] Update symlink: `dev/scittle-demo/telemere-lite.cljs -> ../../src/telemere_lite/core.cljc`
 
-### Phase 4: Future (Next Major Version)
-10. ⏳ **Deprecate old API** (optional)
-    - Add deprecation warnings to eager evaluation forms
-    - Plan removal timeline
-    - Consider compile-time warnings
+**Files:**
+- `src/telemere_lite/core.cljc` - SINGLE unified implementation (BB + browser)
+- `src/telemere_lite/scittle.cljs` - DELETE (replaced by core.cljc)
+- `dev/scittle-demo/telemere-lite.cljs` - UPDATE symlink to point to core.cljc
+
+**Platform differences (all in ONE file with #?):**
+```clojure
+;; Timestamp
+(defn now []
+  #?(:bb  (System/currentTimeMillis)
+     :cljs (.toISOString (js/Date.))))
+
+;; Output
+(defn dispatch-signal! [signal]
+  #?(:bb  (call-handlers! @*handlers* signal)
+     :cljs (js/console.log (signal->json signal))))
+
+;; JSON (browser only)
+#?(:cljs
+   (defn signal->json [signal]
+     (js/JSON.stringify (clj->js signal))))
+
+;; Handlers (BB only)
+#?(:bb
+   (defonce *handlers* (atom {})))
+```
+
+**Benefits:**
+- ✅ ONE file for both platforms
+- ✅ Browser can download as single .cljs
+- ✅ BB can use same file
+- ✅ No duplication
+- ✅ Lazy eval works identically everywhere
+
+#### Step 1.2: Implement Lazy `signal!` Macro ⏳
+- [ ] Add filtering check OUTSIDE delay
+- [ ] Wrap signal construction in `delay`
+- [ ] Put `:let` bindings INSIDE delay
+- [ ] Add platform-specific dispatch
+- [ ] Test macro expansion in both BB and Scittle
+
+**Code location**: `src/telemere_lite/core.cljc` (lines ~150-200)
+
+**Acceptance criteria:**
+- ✅ Macro expands correctly in BB
+- ✅ Macro expands correctly in Scittle
+- ✅ Args NOT evaluated when `*telemetry-enabled*` = false
+- ✅ Args ARE evaluated when `*telemetry-enabled*` = true
+
+#### Step 1.3: Update High-Level Macros ⏳
+- [ ] Add 3-arg arity to `event!` with :let support
+- [ ] Keep 2-arg arity for backward compatibility
+- [ ] Add 2-arg arity to `log!` with :let support
+- [ ] Update `debug!`, `info!`, `warn!`, `error!`
+
+**Code location**: `src/telemere_lite/core.cljc` (lines ~250-350)
+
+**New API:**
+```clojure
+;; Old (still works, backward compatible)
+(event! ::msg-sent {:size (count msg)})
+
+;; New (lazy evaluation)
+(event! ::msg-sent [size (count msg)] {:size size})
+```
+
+### Phase 2: Testing & Validation ⏳
+
+#### Step 2.1: Unit Tests (Lazy Evaluation)
+- [ ] Test: :let NOT evaluated when disabled (BB)
+- [ ] Test: :let NOT evaluated when disabled (browser)
+- [ ] Test: :let IS evaluated when enabled (BB)
+- [ ] Test: :let IS evaluated when enabled (browser)
+- [ ] Test: Backward compatibility (old API still works)
+
+**Test file**: `test/telemere_lite/lazy_eval_test.clj`
+
+#### Step 2.2: Performance Benchmarks
+- [ ] Measure current overhead when disabled
+- [ ] Measure new overhead when disabled
+- [ ] Confirm 3-14x speedup target
+- [ ] Test with realistic message routing workload
+
+**Benchmark file**: `test/scripts/benchmark_lazy_eval.bb`
+
+**Target metrics:**
+- Current: ~300-850ns when disabled
+- New: ~60-120ns when disabled
+- Speedup: 3-14x
+
+#### Step 2.3: Cross-Platform Integration Tests
+- [ ] Test BB-to-BB telemetry with lazy eval
+- [ ] Test browser console output with lazy eval
+- [ ] Test centralized telemetry (browser → BB server)
+- [ ] Verify no regressions in existing demos
+
+**Demo files to test:**
+- `dev/scittle-demo/` - Browser telemetry
+- Sente demos (once we integrate)
+
+### Phase 3: Integration with Sente-Lite 🎯 CRITICAL
+
+**Timing**: Do Phase 1 & 2 BEFORE next sente-lite refactoring
+
+#### Step 3.1: Bake Telemetry into Sente-Lite
+- [ ] Add lazy telemetry calls to connection lifecycle
+- [ ] Add lazy telemetry to message dispatch
+- [ ] Add lazy telemetry to event routing
+- [ ] Add lazy telemetry to heartbeat/health
+
+**Strategy**: Use new 3-arg `event!` form with :let for ALL calls
+
+**Example:**
+```clojure
+;; In sente-lite message dispatch
+(tel/event! ::message-received
+  [size (count msg)
+   event-id (first msg)]
+  {:conn-id conn-id
+   :event-id event-id
+   :size-bytes size})
+```
+
+#### Step 3.2: Update Documentation
+- [ ] Add migration guide (old → new API)
+- [ ] Document when to use :let vs simple data
+- [ ] Add performance tips
+- [ ] Update API documentation
+
+**Doc file**: `doc/telemere-lite-usage.md` (create)
+
+### Phase 4: Future Enhancements (Optional) 🔮
+
+#### Step 4.1: Advanced Filtering (Later)
+- [ ] Add sampling support
+- [ ] Add rate limiting
+- [ ] Add dynamic filter configuration
+
+#### Step 4.2: Deprecation Path (Next Major Version)
+- [ ] Add deprecation warnings to 2-arg eager forms
+- [ ] Plan timeline for removal
+- [ ] Consider compile-time warnings
+
+---
+
+## Current Status Summary
+
+**Completed:**
+- ✅ Research Telemere source code (2025-10-31)
+- ✅ Design unified CLJC approach (2025-10-31)
+- ✅ Verify SCI delay support (2025-10-31)
+- ✅ Document implementation plan (2025-10-31)
+
+**Next Task (In Order):**
+1. 🎯 Step 1.1: Consolidate to CLJC (~1 hour)
+2. 🎯 Step 1.2: Implement lazy signal! macro (~2 hours)
+3. 🎯 Step 1.3: Update high-level macros (~1 hour)
+4. 🎯 Step 2.1-2.3: Testing & validation (~2 hours)
+
+**Estimated Total Effort**: ~6 hours
+**Priority**: HIGH - Do before next sente-lite refactoring
+**Risk**: LOW - Well-defined pattern, proven in Telemere
 
 ## References
 
@@ -556,6 +696,159 @@ Apply same pattern to `log!`, `debug!`, `info!`, `warn!`, `error!`:
 - [Telemere Examples - :let usage](https://github.com/taoensso/telemere/blob/master/examples.cljc)
 - [Telemere Source - `impl/signal!` macro](https://github.com/taoensso/telemere/blob/master/main/src/taoensso/telemere/impl.cljc)
 - Official Telemere: "Signal messages are always lazy (as are a signal's :let and :data options)"
+
+## Unified CLJC Implementation (BB + Browser)
+
+**CRITICAL DISCOVERY** (2025-10-31): Both BB and Scittle/browser support macros + delay!
+
+### Current State Analysis
+
+**BB implementation** (`src/telemere_lite/core.cljc`):
+- ✅ Already uses macros
+- ❌ Eager evaluation (evaluates args before filtering)
+- Current: `event!`, `log!`, `debug!`, `info!`, `warn!`, `error!`
+
+**Browser implementation** (`src/telemere_lite/scittle.cljs`):
+- ✅ Already has `log!` macro (lines 29-49)
+- ❌ Also has eager function versions (lines 59-62)
+- ❌ Same eager evaluation problem
+
+**Key insight**: We can use IDENTICAL lazy eval pattern for both!
+
+### Why CLJC Works
+
+1. **Macros**: Both BB and Scittle support macro expansion
+2. **Delay**: SCI (Small Clojure Interpreter) supports `delay` primitive
+3. **Reader conditionals**: Use `#?(:bb ... :cljs ...)` for platform differences
+
+### CLJC Implementation Strategy
+
+**Single source of truth**: `src/telemere_lite/core.cljc`
+
+```clojure
+(ns telemere-lite.core
+  "Unified telemetry for BB and browser with lazy evaluation")
+
+;; Platform-specific helpers
+(defn now []
+  #?(:bb  (System/currentTimeMillis)
+     :cljs (.toISOString (js/Date.))))
+
+(defn dispatch-signal! [signal]
+  #?(:bb  (call-handlers! @*handlers* signal)
+     :cljs (js/console.log (signal->json signal))))
+
+;; SHARED lazy eval macro (works on both platforms!)
+(defmacro signal!
+  "Core signal macro with lazy :let evaluation.
+  Works identically in BB and browser/Scittle."
+  [opts]
+  (let [level     (get opts :level :info)
+        event-id  (get opts :event-id)
+        ns-str    (str *ns*)
+
+        let-bindings (get opts :let [])
+        data-form    (get opts :data)
+        msg-form     (get opts :msg "Event")
+
+        ;; Platform-specific filtering
+        should-signal?
+        `(and *telemetry-enabled*
+              #?(:bb (and (ns-allowed? ~ns-str)
+                         (event-id-allowed? ~event-id))
+                 :cljs true))]  ; ← Browser: simpler filtering
+
+    `(when ~should-signal?
+       (let [signal-delay#
+             (delay
+               (let [~@let-bindings
+                     signal#
+                     {:timestamp (now)
+                      :level     ~level
+                      :event-id  ~event-id
+                      :ns        ~ns-str
+                      :data      ~data-form
+                      :msg       ~msg-form}]
+                 signal#))]
+
+         (dispatch-signal! @signal-delay#)))))
+
+;; SHARED high-level macros
+(defmacro event!
+  ([event-id]
+   `(signal! {:level :info :event-id ~event-id}))
+  ([event-id data-map]
+   ;; Old style (backward compatible)
+   `(signal! {:level :info :event-id ~event-id :data ~data-map}))
+  ([event-id let-bindings data-map]
+   ;; New style (lazy)
+   `(signal! {:level :info :event-id ~event-id
+              :let ~let-bindings :data ~data-map})))
+```
+
+### Migration Plan
+
+**Phase 1: Consolidation**
+1. ✅ Verify SCI delay support (DONE)
+2. Keep `core.cljc` for BB implementation
+3. Delete `scittle.cljs` (replace with CLJC)
+4. Add platform-specific helpers with `#?` reader conditionals
+
+**Phase 2: Implementation**
+- Add lazy eval to unified `signal!` macro
+- Test in BB environment
+- Test in Scittle/browser environment
+- Verify identical behavior on both platforms
+
+**Phase 3: Benefits**
+- ✅ ONE implementation (no duplication)
+- ✅ Guaranteed consistency (same API everywhere)
+- ✅ Same performance gains (3-14x speedup when disabled)
+- ✅ Easier maintenance (single codebase)
+
+### Platform Differences (Minimal)
+
+**What's platform-specific:**
+```clojure
+;; Timestamp
+#?(:bb  (System/currentTimeMillis)
+   :cljs (.toISOString (js/Date.)))
+
+;; Output
+#?(:bb  (call-handlers! @*handlers* signal)
+   :cljs (js/console.log (signal->json signal)))
+
+;; JSON conversion (browser only)
+#?(:cljs
+   (defn signal->json [signal]
+     (js/JSON.stringify (clj->js signal))))
+```
+
+**What's shared (90%+ of code):**
+- All macro implementations
+- Lazy evaluation logic
+- Filtering logic
+- :let binding evaluation
+- Signal construction
+- API surface (event!, log!, debug!, etc.)
+
+### Testing Strategy (Cross-Platform)
+
+```clojure
+(deftest test-lazy-eval-bb
+  ;; Test in BB
+  (binding [*telemetry-enabled* false]
+    (def called? (atom false))
+    (event! ::test [(x (reset! called? true))] {:x x})
+    (is (false? @called?) "BB: Should not eval when disabled")))
+
+(deftest test-lazy-eval-browser
+  ;; Same test in browser/Scittle
+  (binding [*telemetry-enabled* false]
+    (def called? (atom false))
+    (event! ::test [(x (reset! called? true))] {:x x})
+    (is (false? @called?) "Browser: Should not eval when disabled")))
+```
 
 ## Summary
 
