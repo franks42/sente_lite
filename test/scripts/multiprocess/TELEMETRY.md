@@ -103,9 +103,32 @@ Control verbosity by filtering event levels:
 (tel/clear-filters!)
 ```
 
+## Meta-Telemetry: Monitoring the Monitor
+
+The telemetry system itself emits events when its configuration changes. These meta-telemetry events track:
+
+**Configuration Events:**
+- `::telemetry-enabled-changed` - When telemetry is enabled/disabled
+- `::ns-filter-changed` - When namespace filters change
+- `::event-id-filter-changed` - When event ID filters change
+- `::filters-cleared` - When all filters are cleared
+
+**Handler Events:**
+- `::handler-added` - When a handler is added
+- `::handler-removed` - When a handler is removed
+- `::handlers-cleared` - When all handlers are cleared
+
+**Browser Sink Events (CLJS):**
+- `::console-sink-enabled` / `::console-sink-disabled` - Console sink changes
+- `::atom-sink-enabled` / `::atom-sink-disabled` - Atom sink changes
+- `::atom-events-cleared` - When atom sink events are cleared
+- `::remote-sink-enabled` / `::remote-sink-disabled` - Remote sink changes
+
+These events are emitted after the configuration change takes effect, ensuring they're captured if telemetry was just enabled.
+
 ## What You'll See
 
-With telemetry enabled, you'll see **56 different event types**:
+With telemetry enabled, you'll see **66 different event types** (56 application + 10 meta-telemetry):
 
 **Connection Events:**
 - `::connection-added`, `::connection-removed`

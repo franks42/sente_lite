@@ -379,22 +379,38 @@
      (defn enable-console-sink!
        "Enable console sink (development/debugging)"
        []
-       (reset! console-enabled true))
+       (reset! console-enabled true)
+       ;; Meta-telemetry: Log sink change
+       (signal! {:level :info
+                 :event-id ::console-sink-enabled
+                 :msg "Console sink enabled"}))
 
      (defn disable-console-sink!
        "Disable console sink"
        []
-       (reset! console-enabled false))
+       (reset! console-enabled false)
+       ;; Meta-telemetry: Log sink change
+       (signal! {:level :info
+                 :event-id ::console-sink-disabled
+                 :msg "Console sink disabled"}))
 
      (defn enable-atom-sink!
        "Enable atom sink (testing/programmatic access)"
        []
-       (reset! atom-sink-enabled true))
+       (reset! atom-sink-enabled true)
+       ;; Meta-telemetry: Log sink change
+       (signal! {:level :info
+                 :event-id ::atom-sink-enabled
+                 :msg "Atom sink enabled"}))
 
      (defn disable-atom-sink!
        "Disable atom sink"
        []
-       (reset! atom-sink-enabled false))
+       (reset! atom-sink-enabled false)
+       ;; Meta-telemetry: Log sink change
+       (signal! {:level :info
+                 :event-id ::atom-sink-disabled
+                 :msg "Atom sink disabled"}))
 
      (defn get-events
        "Get all collected events from atom sink"
@@ -404,19 +420,33 @@
      (defn clear-events!
        "Clear all collected events from atom sink"
        []
-       (reset! events []))
+       (let [count (count @events)]
+         (reset! events [])
+         ;; Meta-telemetry: Log events cleared
+         (signal! {:level :info
+                   :event-id ::atom-events-cleared
+                   :msg "Atom sink events cleared"
+                   :data {:count count}})))
 
      (defn enable-remote-sink!
        "Enable remote sink (centralized telemetry to server).
        send-fn: function that sends events to server via WebSocket"
-       [send-fn]
-       (reset! send-fn send-fn)
-       (reset! remote-sink-enabled true))
+       [send-fn-arg]
+       (reset! send-fn send-fn-arg)
+       (reset! remote-sink-enabled true)
+       ;; Meta-telemetry: Log sink change
+       (signal! {:level :info
+                 :event-id ::remote-sink-enabled
+                 :msg "Remote sink enabled"}))
 
      (defn disable-remote-sink!
        "Disable remote sink"
        []
-       (reset! remote-sink-enabled false))))
+       (reset! remote-sink-enabled false)
+       ;; Meta-telemetry: Log sink change
+       (signal! {:level :info
+                 :event-id ::remote-sink-disabled
+                 :msg "Remote sink disabled"}))))
 
 ;;; ============================================================================
 ;;; BB-specific: Handler infrastructure (copied from old core.cljc)
@@ -465,7 +495,14 @@
      (defn set-enabled!
        "Enable/disable all telemetry (cross-platform)"
        [enabled?]
-       (alter-var-root #'*telemetry-enabled* (constantly enabled?)))
+       (let [old-value *telemetry-enabled*]
+         (alter-var-root #'*telemetry-enabled* (constantly enabled?))
+         ;; Meta-telemetry: Log configuration change (after change so it's captured if enabling)
+         (when enabled?
+           (signal! {:level :info
+                     :event-id ::telemetry-enabled-changed
+                     :msg "Telemetry configuration changed"
+                     :data {:old old-value :new enabled?}}))))
 
      (defn get-enabled?
        "Check if telemetry is enabled (cross-platform)"
@@ -481,7 +518,13 @@
              deny-re (mapv wildcard->regex disallow-patterns)]
          (alter-var-root #'*ns-filter*
                          (constantly {:allow-re allow-re
-                                      :deny-re deny-re}))))
+                                      :deny-re deny-re}))
+         ;; Meta-telemetry: Log filter change (exclude compiled regexes)
+         (signal! {:level :info
+                   :event-id ::ns-filter-changed
+                   :msg "Namespace filter changed"
+                   :data {:allow allow-patterns
+                          :disallow disallow-patterns}})))
 
      (defn set-id-filter!
        "Set event-id-based signal filtering with pre-compiled regexes"
@@ -492,7 +535,13 @@
              deny-re (mapv wildcard->regex disallow-patterns)]
          (alter-var-root #'*event-id-filter*
                          (constantly {:allow-re allow-re
-                                      :deny-re deny-re}))))
+                                      :deny-re deny-re}))
+         ;; Meta-telemetry: Log filter change (exclude compiled regexes)
+         (signal! {:level :info
+                   :event-id ::event-id-filter-changed
+                   :msg "Event ID filter changed"
+                   :data {:allow allow-patterns
+                          :disallow disallow-patterns}})))
 
      (defn get-filters
        "Get current filter configuration"
@@ -509,7 +558,11 @@
        (timbre/set-min-level! :debug)
        (alter-var-root #'*ns-filter* (constantly {:allow #{"*"} :deny #{}}))
        (alter-var-root #'*event-id-filter* (constantly {:allow #{"*"} :deny #{}}))
-       (alter-var-root #'*telemetry-enabled* (constantly true)))))
+       (alter-var-root #'*telemetry-enabled* (constantly true))
+       ;; Meta-telemetry: Log filter clear
+       (signal! {:level :info
+                 :event-id ::filters-cleared
+                 :msg "All filters cleared - telemetry enabled"}))))
 
 ;;; ============================================================================
 ;;; BB-specific: Async handler infrastructure
@@ -628,7 +681,14 @@
           (swap! *handlers* assoc handler-id
                  {:handler final-handler
                   :opts opts
-                  :enabled? true}))))
+                  :enabled? true})
+          ;; Meta-telemetry: Log handler addition
+          (signal! {:level :info
+                    :event-id ::handler-added
+                    :msg "Telemetry handler added"
+                    :data {:handler-id handler-id
+                           :async (boolean (:async opts))
+                           :opts opts}}))))
 
      (defn remove-handler!
        "Remove a telemetry handler with proper async cleanup"
@@ -639,7 +699,12 @@
            (catch Exception e
              (binding [*out* *err*]
                (println "Error shutting down handler" handler-id ":" (.getMessage e)))))
-         (swap! *handlers* dissoc handler-id)))
+         (swap! *handlers* dissoc handler-id)
+         ;; Meta-telemetry: Log handler removal
+         (signal! {:level :info
+                   :event-id ::handler-removed
+                   :msg "Telemetry handler removed"
+                   :data {:handler-id handler-id}})))
 
      (defn get-handlers
        "Get current handlers"
@@ -649,13 +714,19 @@
      (defn clear-handlers!
        "Clear all handlers with proper async cleanup"
        []
-       (doseq [[handler-id handler-info] @*handlers*]
-         (try
-           ((:shutdown-fn (:handler handler-info)))
-           (catch Exception e
-             (binding [*out* *err*]
-               (println "Error shutting down handler" handler-id ":" (.getMessage e))))))
-       (reset! *handlers* {}))
+       (let [handler-count (count @*handlers*)]
+         (doseq [[handler-id handler-info] @*handlers*]
+           (try
+             ((:shutdown-fn (:handler handler-info)))
+             (catch Exception e
+               (binding [*out* *err*]
+                 (println "Error shutting down handler" handler-id ":" (.getMessage e))))))
+         (reset! *handlers* {})
+         ;; Meta-telemetry: Log handlers cleared
+         (signal! {:level :info
+                   :event-id ::handlers-cleared
+                   :msg "All telemetry handlers cleared"
+                   :data {:count handler-count}})))
 
      (defn get-handler-stats
        "Get performance statistics for all handlers"
@@ -799,7 +870,14 @@
      (defn set-enabled!
        "Enable/disable all telemetry (browser)"
        [enabled?]
-       (set! *telemetry-enabled* enabled?))
+       (let [old-value *telemetry-enabled*]
+         (set! *telemetry-enabled* enabled?)
+         ;; Meta-telemetry: Log configuration change (after change so it's captured if enabling)
+         (when enabled?
+           (signal! {:level :info
+                     :event-id ::telemetry-enabled-changed
+                     :msg "Telemetry configuration changed"
+                     :data {:old old-value :new enabled?}}))))
 
      (defn get-enabled?
        "Check if telemetry is enabled (browser)"
