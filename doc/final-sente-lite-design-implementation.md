@@ -1610,66 +1610,110 @@ File: dev/scittle-demo/sente-nrepl-gateway.clj (EXISTS)
 
 **Status**: ✅ Implemented and working
 
-### BB-to-BB Reverse nREPL Gateway (Not Yet Implemented)
+### BB-to-BB nREPL Event Handlers (Simple Implementation)
 
-**Purpose**: Allow BB client to control BB server via Sente → nREPL
+**Key Insight**: This is NOT a separate "gateway" - it's just regular event handlers that forward to existing nREPL server!
+
+**Purpose**: Allow BB client to send nREPL commands to BB server via Sente
 
 ```
 BB Client A              Sente Connection          BB Server B
   |                          |                         |
   | (Connected via Sente)    |                         |
   |                          |                         |
-  | [:nrepl/eval ...] (EDN)  |                         |
+  | [:nrepl/eval {:code ...}]|                         |
   |------------------------>|                         |
-  |                          |   REVERSE GATEWAY       |
-  |                          |   ↓                     |
-  |                          |   Wrap in bencode       |
-  |                          |   ↓                     |
-  |                          |   Forward to local      |
-  |                          |   nREPL server (1338)   |
+  |                          | Just a multimethod!     |
+  |                          | ↓                       |
+  |                          | (defmethod handle-event |
+  |                          |   :nrepl/eval ...)      |
+  |                          | ↓                       |
+  |                          | Use BB's nREPL client   |
+  |                          | to forward to local     |
+  |                          | nREPL server (1338)     |
   |                          |                    ✓    |
-  |                          |   bencode response      |
-  |                          |   ↓                     |
-  |                          |   Unwrap to EDN         |
-  | [:nrepl/response ...]    |                         |
+  |                          | Response via callback   |
+  | [:nrepl/response {...}]  |                         |
   |<------------------------|                         |
 
-File: DOES NOT EXIST YET (Lower Priority)
+Implementation: Just event handlers + BB's nREPL client code
 ```
 
-**Status**: 🔲 Not implemented (can be deferred)
+**Status**: 🔲 Not implemented yet (low priority - can use direct nREPL for BB-to-BB)
 
-**Rationale for deferring:**
-- ✅ For BB-to-BB, can use conventional nREPL servers directly (ports 1338, etc.)
-- ✅ No need to go through sente-channel for BB-to-BB nREPL
-- ✅ Only browser-to-BB needs gateway pattern (browser can't run nREPL server)
-- ⏸️ May not need browser-nREPL-client yet
+**Why this is simple:**
+- ✅ **Not a separate service** - just regular multimethod handlers
+- ✅ **Reuses BB's nREPL client** - connection logic, bencode handling, session management
+- ✅ **Forwards to ANY nREPL server** - local port 1338 or any other
+- ✅ **Same pattern as other events** - `:user/login`, `:chat/message`, etc.
+- ✅ **Event-ID = Capability** - `:nrepl/eval` handler = nREPL capability
 
-**When needed:**
+**Implementation (when needed):**
+
 ```clojure
-;; Handler for BB-to-BB nREPL (server receives from remote BB client)
+;; Use BB's nREPL client to connect to local nREPL server
+(require '[bencode.core :as bencode]
+         '[babashka.nrepl.client :as nrepl-client])
+
+;; Reusable connection to local nREPL server
+(defonce nrepl-conn (atom nil))
+
+(defn get-or-create-nrepl-connection!
+  "Get or create connection to local nREPL server using BB's nREPL client"
+  []
+  (or @nrepl-conn
+      (reset! nrepl-conn
+        (nrepl-client/connect {:host "localhost" :port 1338}))))
+
+;; Event handler - just forwards to nREPL using BB's client
 (defmethod handle-event :nrepl/eval
-  [{:keys [event conn-id ?reply-fn]}]
-  (let [[_ nrepl-msg] event]
-    ;; Forward to local nREPL server
-    (forward-to-local-nrepl! nrepl-msg
-      (fn [response]
+  [{:keys [event ?reply-fn conn-id]}]
+  (let [[_ {:keys [code id]}] event
+        conn (get-or-create-nrepl-connection!)]
+    (future  ; Don't block event dispatch
+      (try
+        ;; Use BB's nREPL client - handles bencode, sessions, etc.
+        (let [response (nrepl-client/message conn {:op "eval" :code code :id id})]
+          (when ?reply-fn
+            (?reply-fn [:nrepl/response response])))
+        (catch Exception e
+          (tel/error! "nREPL eval failed" {:conn-id conn-id :error (str e)})
+          (when ?reply-fn
+            (?reply-fn [:nrepl/response {:status ["error"] :ex (str e)}])))))))
+
+;; Same pattern for other nREPL ops
+(defmethod handle-event :nrepl/load-file
+  [{:keys [event ?reply-fn]}]
+  (let [[_ {:keys [file id]}] event
+        conn (get-or-create-nrepl-connection!)]
+    (future
+      (let [response (nrepl-client/message conn {:op "load-file" :file file :id id})]
         (when ?reply-fn
           (?reply-fn [:nrepl/response response]))))))
 
-(defn forward-to-local-nrepl!
-  "Forward EDN nREPL message to local bencode nREPL server"
-  [nrepl-msg callback-fn]
-  (with-open [socket (java.net.Socket. "localhost" 1338)
-              in (java.io.PushbackInputStream. (.getInputStream socket))
-              out (.getOutputStream socket)]
-    ;; Wrap EDN message in bencode
-    (bencode/write-bencode out nrepl-msg)
-    (.flush out)
-    ;; Read bencode response
-    (let [response (bencode/read-bencode in)]
-      (callback-fn response))))
+;; Default handler catches unsupported nREPL ops
+(defmethod handle-event :default
+  [{:keys [event ?reply-fn]}]
+  (let [[event-id] event]
+    (when (and ?reply-fn (namespace event-id) (= "nrepl" (namespace event-id)))
+      (?reply-fn {:status :error
+                  :error-type :event-not-supported
+                  :message "This nREPL operation is not supported"
+                  :event-id event-id}))))
 ```
+
+**Benefits of using BB's nREPL client:**
+- ✅ **Connection pooling** - Reuse existing connection
+- ✅ **Session management** - BB handles it
+- ✅ **Bencode handling** - No manual bencode wrapping
+- ✅ **Error handling** - Built-in retries, reconnection
+- ✅ **Less code** - Reuse existing infrastructure
+- ✅ **More reliable** - Battle-tested code
+
+**When to use:**
+- Only if you need remote BB client to control BB server via Sente
+- For BB-to-BB, can use direct nREPL connections (simpler)
+- For Browser-to-BB, MUST use gateway pattern (browser can't run nREPL server)
 
 ## Implementation Sequence & Roadmap
 
