@@ -519,18 +519,34 @@ Browser loads via:
 <script src="telemere-lite.cljs" type="application/x-scittle"></script>
 ```
 
-**Strategy**: Use ONE self-contained CLJC file for both BB and browser!
+**Strategy**: Build from scratch, copy useful code back in!
 
-- [ ] Analyze current `core.cljc` (BB) implementation
-- [ ] Analyze current `scittle.cljs` (browser) implementation
-- [ ] Merge into SINGLE `core.cljc` with reader conditionals
-- [ ] Keep ALL code in ONE file (no requires, no splits)
-- [ ] Update symlink: `dev/scittle-demo/telemere-lite.cljs -> ../../src/telemere_lite/core.cljc`
+**IMPORTANT**: DO NOT edit existing files directly (error-prone). Instead:
+
+1. [ ] Read `src/telemere_lite/core.cljc` (BB version)
+2. [ ] Read `src/telemere_lite/scittle.cljs` (browser version)
+3. [ ] Create NEW EMPTY file: `src/telemere_lite/core_new.cljc`
+4. [ ] Build unified implementation in `core_new.cljc`:
+   - [ ] Start with namespace declaration
+   - [ ] Add platform-agnostic code (works everywhere)
+   - [ ] Add BB-specific code with `#?(:bb ...)`
+   - [ ] Add browser-specific code with `#?(:cljs ...)`
+   - [ ] Copy useful functions from old files
+5. [ ] Test `core_new.cljc` in BB
+6. [ ] Test `core_new.cljc` in browser (via symlink)
+7. [ ] When verified working:
+   - [ ] Rename `core.cljc` → `core_old.cljc` (backup)
+   - [ ] Rename `core_new.cljc` → `core.cljc`
+   - [ ] Delete `scittle.cljs` (replaced)
+   - [ ] Update symlink: `dev/scittle-demo/telemere-lite.cljs -> ../../src/telemere_lite/core.cljc`
+   - [ ] Commit working version
+   - [ ] Delete `core_old.cljc` (cleanup)
 
 **Files:**
-- `src/telemere_lite/core.cljc` - SINGLE unified implementation (BB + browser)
-- `src/telemere_lite/scittle.cljs` - DELETE (replaced by core.cljc)
-- `dev/scittle-demo/telemere-lite.cljs` - UPDATE symlink to point to core.cljc
+- `src/telemere_lite/core_new.cljc` - BUILD from scratch (SAFER!)
+- `src/telemere_lite/core.cljc` - Keep as reference, rename later
+- `src/telemere_lite/scittle.cljs` - Keep as reference, delete later
+- `dev/scittle-demo/telemere-lite.cljs` - UPDATE symlink after testing
 
 **Platform differences (all in ONE file with #?):**
 ```clojure
