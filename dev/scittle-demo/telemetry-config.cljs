@@ -109,9 +109,9 @@
       (fn []
         (println "📊 Telemetry Status:")
         (println "  Enabled:      " (deref #'tel/*telemetry-enabled*))
-        (println "  Console sink: " (deref tel/*console-enabled*))
-        (println "  Atom sink:    " (deref tel/*atom-sink-enabled*))
-        (println "  Remote sink:  " (deref tel/*remote-sink-enabled*))))
+        (println "  Console sink: " (deref tel/console-enabled))
+        (println "  Atom sink:    " (deref tel/atom-sink-enabled))
+        (println "  Remote sink:  " (deref tel/remote-sink-enabled))))
 
 (println "📊 Telemetry configuration complete")
 (println "   Runtime controls available:")

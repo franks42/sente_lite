@@ -47,15 +47,15 @@
      ;; THREE-SINK BROWSER ARCHITECTURE
 
      ;; Sink 1: Console (development/debugging) - enabled by default
-     (defonce *console-enabled* (atom true))
+     (defonce console-enabled (atom true))
 
      ;; Sink 2: Atom (testing/programmatic access) - disabled by default
-     (defonce *events* (atom []))
-     (defonce *atom-sink-enabled* (atom false))
+     (defonce events (atom []))
+     (defonce atom-sink-enabled (atom false))
 
      ;; Sink 3: WebSocket to server (centralized telemetry) - disabled by default
-     (defonce *send-fn* (atom nil))  ; Set by sente-lite client
-     (defonce *remote-sink-enabled* (atom false))))
+     (defonce send-fn (atom nil))  ; Set by sente-lite client
+     (defonce remote-sink-enabled (atom false))))
 
 ;;; ============================================================================
 ;;; Platform-specific helpers
@@ -197,18 +197,18 @@
      "Dispatch signal to browser sinks (THREE-SINK ARCHITECTURE)"
      [signal]
      ;; Sink 1: Console (development/debugging)
-     (when @*console-enabled*
+     (when @console-enabled
        (let [level (get signal :level :info)
              msg (get signal :msg "")]
          (js/console.log (str "[" level "] " msg " " (signal->json signal)))))
 
      ;; Sink 2: Atom (testing/programmatic access)
-     (when @*atom-sink-enabled*
-       (swap! *events* conj signal))
+     (when @atom-sink-enabled
+       (swap! events conj signal))
 
      ;; Sink 3: WebSocket (centralized telemetry to server)
-     (when (and @*remote-sink-enabled* @*send-fn*)
-       (@*send-fn* [:telemetry/event (assoc signal :source :browser)]))))
+     (when (and @remote-sink-enabled @send-fn)
+       (@send-fn [:telemetry/event (assoc signal :source :browser)]))))
 
 ;;; ============================================================================
 ;;; CORE LAZY SIGNAL! MACRO - The Key Innovation
@@ -379,44 +379,44 @@
      (defn enable-console-sink!
        "Enable console sink (development/debugging)"
        []
-       (reset! *console-enabled* true))
+       (reset! console-enabled true))
 
      (defn disable-console-sink!
        "Disable console sink"
        []
-       (reset! *console-enabled* false))
+       (reset! console-enabled false))
 
      (defn enable-atom-sink!
        "Enable atom sink (testing/programmatic access)"
        []
-       (reset! *atom-sink-enabled* true))
+       (reset! atom-sink-enabled true))
 
      (defn disable-atom-sink!
        "Disable atom sink"
        []
-       (reset! *atom-sink-enabled* false))
+       (reset! atom-sink-enabled false))
 
      (defn get-events
        "Get all collected events from atom sink"
        []
-       @*events*)
+       @events)
 
      (defn clear-events!
        "Clear all collected events from atom sink"
        []
-       (reset! *events* []))
+       (reset! events []))
 
      (defn enable-remote-sink!
        "Enable remote sink (centralized telemetry to server).
        send-fn: function that sends events to server via WebSocket"
        [send-fn]
-       (reset! *send-fn* send-fn)
-       (reset! *remote-sink-enabled* true))
+       (reset! send-fn send-fn)
+       (reset! remote-sink-enabled true))
 
      (defn disable-remote-sink!
        "Disable remote sink"
        []
-       (reset! *remote-sink-enabled* false))))
+       (reset! remote-sink-enabled false))))
 
 ;;; ============================================================================
 ;;; BB-specific: Handler infrastructure (copied from old core.cljc)
