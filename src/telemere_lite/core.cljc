@@ -183,14 +183,16 @@
        ;; Only send to Timbre if NO custom handlers configured (backwards compatibility)
        (when (empty? custom-handlers)
          (let [level (:level signal :info)
-               msg (:msg signal "")
-               context (dissoc signal :level :msg :timestamp :ns)]
+               msg-vec (:msg signal ["" {}])
+               ;; Extract message string and context from msg vector [message context]
+               message (first msg-vec)
+               msg-context (second msg-vec)]
            (case level
-             :debug (timbre/debug msg context)
-             :info  (timbre/info msg context)
-             :warn  (timbre/warn msg context)
-             :error (timbre/error msg context)
-             (timbre/info msg context)))))))
+             :debug (timbre/debug message msg-context)
+             :info  (timbre/info message msg-context)
+             :warn  (timbre/warn message msg-context)
+             :error (timbre/error message msg-context)
+             (timbre/info message msg-context)))))))
 
 #?(:cljs
    (defn dispatch-signal!
@@ -267,15 +269,19 @@
                ;; INSIDE DELAY: Evaluate :let bindings FIRST
                (let [~@let-bindings
 
-                     ;; Then build signal map using :let bindings
+                     ;; Build context map with location metadata and data
+                     context#
+                     (cond-> {:location {:file ~file
+                                         :line ~line
+                                         :ns   ~ns-str}}
+                       ~data-form (assoc :data ~data-form))
+
+                     ;; Build signal map with msg as [message context] vector
                      signal#
                      {:timestamp (now)
                       :level     ~level
                       :ns        ~ns-str
-                      :file      ~file
-                      :line      ~line
-                      :data      ~data-form   ; ← Can use :let bindings!
-                      :msg       ~msg-form}]  ; ← Can use :let bindings!
+                      :msg       [~msg-form context#]}]  ; ← msg is now [message, context]!
 
                  ;; Add event-id if present
                  (cond-> signal#
