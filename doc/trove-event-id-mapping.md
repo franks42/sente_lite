@@ -1,23 +1,29 @@
 # Trove Event ID Mapping for Sente-Lite Phase 2
 
-## ✅ Phase 2 Completion Status (2025-11-07)
+## ✅ Phase 2 + 2b Completion Status (2025-11-07)
 
-**STATUS**: **COMPLETE** - All 6 files migrated, committed, pushed, and tested!
+**STATUS**: **COMPLETE** - All 7 files migrated, committed, pushed, and tested!
 
 ### Actual Results
-- **Files completed**: 6/6 (100%)
-- **Total calls**: 98 → 87 (11 removed for verbosity)
-- **Migration rate**: 100% of remaining calls migrated
-- **Code reduction**: 11% fewer logging calls
+- **Server files (Phase 2)**: 6/6 (100%)
+- **Client files (Phase 2b)**: 1/1 (100%)
+- **Total calls**: 98 → 87 server + 21 client = 108 total
+- **Code reduction**: 11% fewer server logging calls
 - **Quality**: 0 linting errors, all tests passing
+- **Browser verified**: ✅ All Trove event IDs tested in Playwright
 
 ### Files Migrated
+
+**Phase 2 - Server (6 files):**
 1. ✅ `wire_format.cljc` - 9 calls migrated
 2. ✅ `wire_multiplexer.cljc` - 11 → 9 calls (2 removed)
 3. ✅ `transit_multiplexer.cljc` - 13 → 11 calls (2 removed)
 4. ✅ `channels.cljc` - 17 → 15 calls (2 removed)
 5. ✅ `server_simple.cljc` - 14 → 13 calls (1 removed)
 6. ✅ `server.cljc` - 39 → 34 calls (4 removed)
+
+**Phase 2b - Client (1 file):**
+7. ✅ `client_scittle.cljs` - 21 calls migrated (browser verified)
 
 ### Removed Events (11 total)
 Removed for being too verbose/noisy:
@@ -31,6 +37,8 @@ Removed for being too verbose/noisy:
 - Other serialization start/complete pairs
 
 ### Event ID Distribution
+
+**Server (87 total):**
 - `:sente-lite.server/*` - 25 events (connection, messages, lifecycle, broadcast)
 - `:sente-lite.heartbeat/*` - 5 events (lifecycle, timeout, errors)
 - `:sente-lite.pubsub/*` - 8 events (subscriptions, publishing)
@@ -39,6 +47,16 @@ Removed for being too verbose/noisy:
 - `:sente-lite.tmux/*` - 9 events (transit multiplexing)
 - `:sente-lite.format/*` - 6 events (wire format handling)
 
+**Client (21 total):**
+- `:sente-lite.client/*` - 21 events (connection, messages, lifecycle, reconnection)
+  - Connection: `creating`, `connected`, `reconnected`, `disconnected`
+  - Messages: `msg-sent`, `msg-recv`, `parse-failed`, `send-failed`
+  - Callbacks: `callback-on-open`, `callback-on-reconnect`
+  - Reconnection: `reconnect-scheduled`, `reconnect-attempt`, `reconnect-initiated`, `reconnect-failed`, `reconnect-retry`
+  - Control: `closing`, `reconnect-setting-updated`
+  - Errors: `ws-error`, `invalid-client-id`, `close-failed`, `reconnect-setting-failed`
+  - Internal: `handlers-attached`
+
 ### Log Level Distribution
 - **:trace** (40%): Internal flow, request/message handling, serialization
 - **:debug** (30%): Lifecycle events, connections, subscriptions, broadcasts
@@ -46,8 +64,9 @@ Removed for being too verbose/noisy:
 - **:warn** (5%): Anomalies, timeouts, rejections
 - **:error** (5%): Failures, parse errors, WebSocket errors
 
-### Commit
-See commit `be11868` - "feat: Complete Phase 2 - Migrate all sente-lite logging to Trove patterns"
+### Commits
+- Phase 2 (Server): `be11868` - "feat: Complete Phase 2 - Migrate all sente-lite logging to Trove patterns"
+- Phase 2b (Client): `2581940` - "feat: Migrate client logging to Trove patterns (21 calls)"
 
 ---
 
