@@ -53,7 +53,7 @@
            #?(:bb (json/parse-string json-string true)
               :clj (json/read-str json-string :key-fn keyword))
            (catch Exception e
-             (tel/error! {:msg "Failed to parse JSON payload"
+             (tel/error! {:id :sente-lite.tmux/json-parse-failed
                           :error e
                           :data {:payload json-string}})
              {:error "Invalid JSON" :raw json-string})))
@@ -63,7 +63,7 @@
          (try
            (edn/read-string edn-string)
            (catch Exception e
-             (tel/error! {:msg "Failed to parse EDN payload"
+             (tel/error! {:id :sente-lite.tmux/edn-parse-failed
                           :error e
                           :data {:payload edn-string}})
              {:error "Invalid EDN" :raw edn-string})))
@@ -73,7 +73,7 @@
          (try
            (.decode (Base64/getDecoder) base64-string)
            (catch Exception e
-             (tel/error! {:msg "Failed to decode base64 payload"
+             (tel/error! {:id :sente-lite.tmux/base64-decode-failed
                           :error e
                           :data {:payload base64-string}})
              {:error "Invalid base64" :raw base64-string})))
@@ -87,7 +87,7 @@
          (try
            (.decode (Base64/getDecoder) base64-binary)
            (catch Exception e
-             (tel/error! {:msg "Failed to decode binary payload"
+             (tel/error! {:id :sente-lite.tmux/binary-decode-failed
                           :error e
                           :data {:payload base64-binary}})
              {:error "Invalid binary" :raw base64-binary})))})
@@ -148,19 +148,17 @@
     (let [out (ByteArrayOutputStream.)
           writer (create-multiplexing-writer out)]
 
-      (tel/event! ::multiplex-serialize-start
-                  {:message-count (count messages)})
-
       (transit/write writer messages)
       (let [result (.toString out "UTF-8")]
 
-        (tel/event! ::multiplex-serialize-complete
-                    {:message-count (count messages)
-                     :total-size (count result)})
+        (tel/log! {:level :trace
+                   :id :sente-lite.tmux/mux-serial
+                   :data {:message-count (count messages)
+                          :total-size (count result)}})
 
         result))
     (catch Exception e
-      (tel/error! {:msg "Failed to multiplex serialize"
+      (tel/error! {:id :sente-lite.tmux/mux-serial-failed
                    :error e
                    :data {:message-count (count messages)}})
       nil)))
@@ -172,18 +170,16 @@
     (let [in (ByteArrayInputStream. (.getBytes wire-data "UTF-8"))
           reader (create-multiplexing-reader in)]
 
-      (tel/event! ::multiplex-deserialize-start
-                  {:wire-size (count wire-data)})
-
       (let [result (transit/read reader)]
 
-        (tel/event! ::multiplex-deserialize-complete
-                    {:wire-size (count wire-data)
-                     :message-count (if (coll? result) (count result) 1)})
+        (tel/log! {:level :trace
+                   :id :sente-lite.tmux/mux-deserial
+                   :data {:wire-size (count wire-data)
+                          :message-count (if (coll? result) (count result) 1)}})
 
         result))
     (catch Exception e
-      (tel/error! {:msg "Failed to multiplex deserialize"
+      (tel/error! {:id :sente-lite.tmux/mux-deserial-failed
                    :error e
                    :data {:wire-data-preview (subs wire-data 0 (min 100 (count wire-data)))}})
       nil)))
@@ -217,10 +213,10 @@
                           :binary (encode-binary-message message)
                           :raw (encode-raw-message message))]
 
-    (tel/event! ::channel-message-encoded
-                {:channel-id channel-id
-                 :encoding encoding
-                 :original-type (type message)})
+    (tel/log! {:level :trace
+               :id :sente-lite.tmux/chan-msg-encoded
+               :data {:channel-id channel-id
+                      :encoding encoding}})
 
     ;; Return envelope with metadata
     {:channel channel-id
@@ -318,12 +314,13 @@
         serialized (multiplex-serialize test-messages)
         deserialized (multiplex-deserialize serialized)]
 
-    (tel/log! :info "Transit multiplexing test"
-              {:original-messages (count test-messages)
-               :serialized-size (count serialized)
-               :deserialized-messages (if (coll? deserialized) (count deserialized) 1)
-               :round-trip-success (= (count test-messages)
-                                      (if (coll? deserialized) (count deserialized) 1))})
+    (tel/log! {:level :info
+               :id :sente-lite.tmux/test-result
+               :data {:original-messages (count test-messages)
+                      :serialized-size (count serialized)
+                      :deserialized-messages (if (coll? deserialized) (count deserialized) 1)
+                      :round-trip-success (= (count test-messages)
+                                             (if (coll? deserialized) (count deserialized) 1))}})
 
     {:original test-messages
      :serialized serialized
@@ -358,9 +355,10 @@
   (let [encoding (detect-payload-encoding payload)
         handler (get routing-map encoding)]
 
-    (tel/event! ::message-routed
-                {:encoding encoding
-                 :handler-found (some? handler)})
+    (tel/log! {:level :trace
+               :id :sente-lite.tmux/msg-routed
+               :data {:encoding encoding
+                      :handler-found (some? handler)}})
 
     (when handler
       (handler payload))))
