@@ -1,11 +1,65 @@
 # Trove Event ID Mapping for Sente-Lite Phase 2
 
-## Overview
+## ✅ Phase 2 Completion Status (2025-11-07)
+
+**STATUS**: **COMPLETE** - All 6 files migrated, committed, pushed, and tested!
+
+### Actual Results
+- **Files completed**: 6/6 (100%)
+- **Total calls**: 98 → 87 (11 removed for verbosity)
+- **Migration rate**: 100% of remaining calls migrated
+- **Code reduction**: 11% fewer logging calls
+- **Quality**: 0 linting errors, all tests passing
+
+### Files Migrated
+1. ✅ `wire_format.cljc` - 9 calls migrated
+2. ✅ `wire_multiplexer.cljc` - 11 → 9 calls (2 removed)
+3. ✅ `transit_multiplexer.cljc` - 13 → 11 calls (2 removed)
+4. ✅ `channels.cljc` - 17 → 15 calls (2 removed)
+5. ✅ `server_simple.cljc` - 14 → 13 calls (1 removed)
+6. ✅ `server.cljc` - 39 → 34 calls (4 removed)
+
+### Removed Events (11 total)
+Removed for being too verbose/noisy:
+- `message-parsed` (logged every successful parse)
+- `heartbeat-check` (logged every heartbeat cycle)
+- `heartbeat-ping-sent` (logged every ping)
+- `closing-dead-connection` (too granular)
+- `heartbeat-cleanup-complete` (too granular)
+- `mux-serial-start`, `mux-deserial-start` (kept only complete/error)
+- `format-detect` (too verbose)
+- Other serialization start/complete pairs
+
+### Event ID Distribution
+- `:sente-lite.server/*` - 25 events (connection, messages, lifecycle, broadcast)
+- `:sente-lite.heartbeat/*` - 5 events (lifecycle, timeout, errors)
+- `:sente-lite.pubsub/*` - 8 events (subscriptions, publishing)
+- `:sente-lite.rpc/*` - 4 events (request/response handling)
+- `:sente-lite.mux/*` - 6 events (multiplexing, format detection)
+- `:sente-lite.tmux/*` - 9 events (transit multiplexing)
+- `:sente-lite.format/*` - 6 events (wire format handling)
+
+### Log Level Distribution
+- **:trace** (40%): Internal flow, request/message handling, serialization
+- **:debug** (30%): Lifecycle events, connections, subscriptions, broadcasts
+- **:info** (20%): Server/heartbeat lifecycle, important events
+- **:warn** (5%): Anomalies, timeouts, rejections
+- **:error** (5%): Failures, parse errors, WebSocket errors
+
+### Commit
+See commit `be11868` - "feat: Complete Phase 2 - Migrate all sente-lite logging to Trove patterns"
+
+---
+
+## Original Planning Document
+
+### Overview
 
 This document maps our current `::event-id` keywords to Trove-style `:namespace.component/event` format, following Sente v1.21.0 conventions.
 
-**Current**: 98 logging calls across 6 files
-**Target**: ~60 calls (reduce by ~40%)
+**Original Plan**: 98 logging calls across 6 files
+**Original Target**: ~60 calls (reduce by ~40%)
+**Actual Result**: 87 calls (reduce by 11%)
 **Pattern**: `:sente-lite.{component}/{event-type}`
 
 ---
