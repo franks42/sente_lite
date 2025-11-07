@@ -38,14 +38,8 @@
         envelope {:format (wire/format-name wire-format)
                   :payload serialized-payload}]
 
-    (let [envelope-json (to-json envelope)]
-      (tel/event! ::message-wrapped
-                  {:format (wire/format-name wire-format)
-                   :payload-size (count serialized-payload)
-                   :envelope-size (count envelope-json)})
-
-      ;; Return serialized envelope
-      envelope-json)))
+    ;; Return serialized envelope
+    (to-json envelope)))
 
 (defn unwrap-message
   "Unwrap a message from its JSON envelope and deserialize payload"
@@ -72,16 +66,11 @@
             wire-format (wire/get-format format-spec)
             parsed-message (wire/deserialize wire-format payload-data)]
 
-        (tel/event! ::message-unwrapped
-                    {:format format-name
-                     :payload-size (count payload-data)
-                     :success (some? parsed-message)})
-
         {:format format-spec
          :message parsed-message}))
 
     (catch Exception e
-      (tel/error! {:msg "Failed to unwrap multiplexed message"
+      (tel/error! {:id :sente-lite.mux/unwrap-failed
                    :error e
                    :data {:raw-data (subs raw-envelope-data 0
                                           (min 100 (count raw-envelope-data)))}})
@@ -127,10 +116,10 @@
   [raw-message conn-id]
   (let [detected-format (detect-message-format raw-message)]
 
-    (tel/event! ::format-detection
-                {:conn-id conn-id
-                 :detected-format detected-format
-                 :message-preview (subs raw-message 0 (min 50 (count raw-message)))})
+    (tel/log! {:level :trace
+               :id :sente-lite.mux/format-detect
+               :data {:conn-id conn-id
+                      :detected-format detected-format}})
 
     (case detected-format
       :multiplexed
@@ -146,7 +135,7 @@
 
       :unknown
       (do
-        (tel/error! {:msg "Could not detect message format"
+        (tel/error! {:id :sente-lite.mux/parse-failed
                      :data {:conn-id conn-id
                             :message-preview (subs raw-message 0 (min 100 (count raw-message)))}})
         nil))))
@@ -162,9 +151,10 @@
   [channel-id format-spec]
   (let [wire-format (wire/get-format format-spec)]
     (swap! channel-formats assoc channel-id format-spec)
-    (tel/event! ::channel-format-set
-                {:channel-id channel-id
-                 :format (wire/format-name wire-format)})
+    (tel/log! {:level :debug
+               :id :sente-lite.mux/chan-fmt-set
+               :data {:channel-id channel-id
+                      :format (wire/format-name wire-format)}})
     format-spec))
 
 (defn get-channel-format
@@ -198,10 +188,11 @@
                             :else
                             default-format)]
 
-    (tel/event! ::format-negotiated
-                {:channel-id channel-id
-                 :requested-format requested-format
-                 :negotiated-format negotiated-format})
+    (tel/log! {:level :trace
+               :id :sente-lite.mux/fmt-negotiated
+               :data {:channel-id channel-id
+                      :requested-format requested-format
+                      :negotiated-format negotiated-format}})
 
     negotiated-format))
 
@@ -274,10 +265,11 @@
   (fn [message]
     ;; Could implement gradual migration logic here
     ;; For now, just log the intent
-    (tel/event! ::format-migration-candidate
-                {:from-format from-format
-                 :to-format to-format
-                 :message-type (:type message)})
+    (tel/log! {:level :debug
+               :id :sente-lite.mux/migration-candidate
+               :data {:from-format from-format
+                      :to-format to-format
+                      :message-type (:type message)}})
     to-format))
 
 ;; ============================================================================
@@ -294,18 +286,22 @@
       (let [wrapped (wrap-message test-message format-spec)
             unwrapped (unwrap-message wrapped)]
 
-        (tel/log! :info "Format test"
-                  {:format format-spec
-                   :wrapped-size (count wrapped)
-                   :success (some? (:message unwrapped))})
+        (tel/log! {:level :info
+                   :id :sente-lite.mux/test-result
+                   :data {:format format-spec
+                          :wrapped-size (count wrapped)
+                          :success (some? (:message unwrapped))}})
 
         ;; Verify round-trip
         (when-not (= test-message (:message unwrapped))
-          (tel/log! :warn "Round-trip failed" {:format format-spec}))))
+          (tel/log! {:level :warn
+                     :id :sente-lite.mux/test-failed
+                     :data {:format format-spec}}))))
 
     ;; Test auto-detection
     (let [json-msg (to-json test-message)
           detected (detect-message-format json-msg)]
-      (tel/log! :info "Auto-detection test"
-                {:sample (subs json-msg 0 20)
-                 :detected-format detected}))))
+      (tel/log! {:level :info
+                 :id :sente-lite.mux/test-detect
+                 :data {:sample (subs json-msg 0 20)
+                        :detected-format detected}}))))
