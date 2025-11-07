@@ -27,18 +27,22 @@
                    :last-activity (System/currentTimeMillis)
                    :message-count 0}]
     (swap! connections assoc channel conn-data)
-    (tel/event! ::connection-added {:conn-id conn-id
-                                    :total-connections (count @connections)})
+    (tel/log! {:level :debug
+               :id :sente-lite.server/conn-added
+               :data {:conn-id conn-id
+                      :total-connections (count @connections)}})
     conn-data))
 
 (defn- remove-connection! [channel]
   (when-let [conn-data (get @connections channel)]
     (let [duration (- (System/currentTimeMillis) (:opened-at conn-data))]
       (swap! connections dissoc channel)
-      (tel/event! ::connection-removed {:conn-id (:id conn-data)
-                                        :duration-ms duration
-                                        :message-count (:message-count conn-data)
-                                        :total-connections (count @connections)})
+      (tel/log! {:level :debug
+                 :id :sente-lite.server/conn-removed
+                 :data {:conn-id (:id conn-data)
+                        :duration-ms duration
+                        :message-count (:message-count conn-data)
+                        :total-connections (count @connections)}})
       conn-data)))
 
 ;; WebSocket handlers
@@ -48,36 +52,47 @@
     (http/send! channel (json/generate-string {:type :welcome
                                                :conn-id conn-id
                                                :server-time (System/currentTimeMillis)}))
-    (tel/event! ::websocket-opened {:conn-id conn-id})))
+    (tel/log! {:level :debug
+               :id :sente-lite.server/ws-open
+               :data {:conn-id conn-id}})))
 
 (defn- on-websocket-message [channel raw-message _config]
   (when-let [conn-data (get @connections channel)]
     (let [conn-id (:id conn-data)]
-      (tel/event! ::websocket-message-received {:conn-id conn-id
-                                                :size (count raw-message)})
+      (tel/log! {:level :trace
+                 :id :sente-lite.server/ws-msg-recv
+                 :data {:conn-id conn-id
+                        :size (count raw-message)}})
       (try
         (let [parsed (json/parse-string raw-message true)]
-          (tel/event! ::message-parsed {:conn-id conn-id :type (:type parsed)})
           ;; Echo back
           (http/send! channel (json/generate-string {:type :echo
                                                      :original parsed
                                                      :conn-id conn-id
                                                      :timestamp (System/currentTimeMillis)})))
         (catch Exception e
-          (tel/error! {:msg "Failed to parse message" :error e :data {:conn-id conn-id}}))))))
+          (tel/error! {:id :sente-lite.server/parse-failed
+                       :error e
+                       :data {:conn-id conn-id}}))))))
 
 (defn- on-websocket-close [channel status _config]
   (when-let [conn-data (remove-connection! channel)]
-    (tel/event! ::websocket-closed {:conn-id (:id conn-data) :status status})))
+    (tel/log! {:level :debug
+               :id :sente-lite.server/ws-close
+               :data {:conn-id (:id conn-data) :status status}})))
 
 (defn- on-websocket-error [channel throwable _config]
   (when-let [conn-data (get @connections channel)]
-    (tel/error! {:msg "WebSocket error" :error throwable :data {:conn-id (:id conn-data)}})
+    (tel/error! {:id :sente-lite.server/ws-error
+                 :error throwable
+                 :data {:conn-id (:id conn-data)}})
     (remove-connection! channel)))
 
 ;; WebSocket request handler
 (defn- websocket-handler [request config]
-  (tel/event! ::websocket-request {:uri (:uri request) :websocket? (:websocket? request)})
+  (tel/log! {:level :trace
+             :id :sente-lite.server/ws-req
+             :data {:uri (:uri request) :websocket? (:websocket? request)}})
   (if-not (:websocket? request)
     {:status 426 :headers {"Upgrade" "websocket"} :body "WebSocket upgrade required"}
     (http/as-channel request
@@ -89,7 +104,9 @@
 ;; HTTP request handler
 (defn- http-handler [config]
   (fn [request]
-    (tel/event! ::http-request {:method (:request-method request) :uri (:uri request)})
+    (tel/log! {:level :trace
+               :id :sente-lite.server/http-req
+               :data {:method (:request-method request) :uri (:uri request)}})
     (cond
       (:websocket? request)
       (websocket-handler request config)
@@ -119,7 +136,9 @@
        (tel/add-file-handler! (get-in merged-config [:telemetry :handler-id])
                               "sente-lite-server.log"))
 
-     (tel/event! ::server-starting merged-config)
+     (tel/log! {:level :info
+                :id :sente-lite.server/starting
+                :data merged-config})
 
      (let [server (http/run-server (http-handler merged-config)
                                    {:port (:port merged-config)
@@ -127,8 +146,10 @@
        (reset! server-state {:server server
                              :config merged-config
                              :start-time (System/currentTimeMillis)})
-       (tel/event! ::server-started {:port (:port merged-config)
-                                     :host (:host merged-config)})
+       (tel/log! {:level :info
+                  :id :sente-lite.server/started
+                  :data {:port (:port merged-config)
+                         :host (:host merged-config)}})
        server)))
   ([]
    (start-server! {})))
@@ -137,13 +158,17 @@
   "Stop the WebSocket server"
   []
   (when-let [state @server-state]
-    (tel/event! ::server-stopping {:active-connections (count @connections)})
+    (tel/log! {:level :info
+               :id :sente-lite.server/stopping
+               :data {:active-connections (count @connections)}})
     (doseq [[channel _conn-data] @connections]
       (http/close channel))
     ((:server state))
     (reset! server-state nil)
     (reset! connections {})
-    (tel/event! ::server-stopped {})
+    (tel/log! {:level :info
+               :id :sente-lite.server/stopped
+               :data {}})
     (tel/shutdown-telemetry!)))
 
 (defn get-server-stats
