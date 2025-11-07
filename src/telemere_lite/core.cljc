@@ -217,6 +217,7 @@
 #_{:clj-kondo/ignore [:unresolved-symbol]}
 (defmacro signal!
   "Core signal macro with LAZY :let evaluation (Telemere pattern).
+   NOW TROVE-COMPATIBLE: Accepts both :id (Trove) and :event-id (ours).
 
   Three-stage lazy evaluation:
   1. Filter FIRST (check *telemetry-enabled*, ns-filter, event-id-filter)
@@ -227,14 +228,21 @@
   Performance when enabled: ~180-350ns (same as before)
 
   Usage:
+    ;; Our convention:
     (signal! {:level :info
               :event-id ::my-event
               :let [x (expensive-fn)]  ; ← Only evaluated if signal passes filtering!
+              :data {:result x}})
+
+    ;; Trove convention:
+    (signal! {:level :debug
+              :id :namespace/event-name
               :data {:result x}})"
   [opts]
   (let [;; Extract compile-time values
         level     (get opts :level :info)
-        event-id  (get opts :event-id)
+        ;; TROVE COMPATIBILITY: Accept both :id (Trove) and :event-id (ours)
+        event-id  (or (get opts :id) (get opts :event-id))
         ns-str    (str *ns*)
         file      (str *file*)
         line      (:line (meta &form))
@@ -318,11 +326,21 @@
 
 (defmacro log!
   "Logging macro built on signal! (matching official Telemere API).
+   NOW TROVE-COMPATIBLE: Accepts {:level :id :data} format.
 
-  Supports lazy evaluation via :let bindings in opts map."
+  Supports lazy evaluation via :let bindings in opts map.
+
+  Usage:
+    ;; Trove-style (recommended going forward):
+    (log! {:level :debug :id :sente-lite.server/connection-added :data {:conn-id id}})
+
+    ;; Our legacy style (still supported):
+    (log! {:level :info :event-id ::my-event :msg \"Message\" :data {...}})
+    (log! :info \"Message\")
+    (log! :info \"Message\" {:key \"value\"})"
   ([opts-or-level]
    `(if (map? ~opts-or-level)
-      ;; Full options map: (log! {:level :info :msg "Message"})
+      ;; Full options map: (log! {:level :info :id :my/event :data {...}})
       (signal! ~opts-or-level)
       ;; Level only: (log! :info)
       (signal! {:level ~opts-or-level})))

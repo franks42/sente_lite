@@ -4,10 +4,15 @@
 
 Migrate sente-lite from hardcoded telemere-lite logging to Trove-based pluggable logging, following the architecture proven by Sente v1.21.0 (released 2025-11-04). This will make sente-lite a true zero-dependency library facade while preserving our robust telemetry infrastructure for development and testing.
 
-**Status**: Planning (2025-11-07)
+**Status**: Phase 1 Complete (2025-11-07) ✅
 **Complexity**: Medium
 **Timeline**: 2-3 days for Phase 1-2, 1 week for Phase 3
 **Breaking Changes**: No (backward compatible)
+
+**Progress**:
+- ✅ Phase 1: Trove wrapper added (2025-11-07)
+- ⏳ Phase 2: Migrate sente-lite calls (next)
+- ⏳ Phase 3: Extract backend (future)
 
 ---
 
@@ -264,6 +269,11 @@ Backend Choice:
 ## Detailed Steps
 
 ### Phase 1: Add Trove Wrapper to Telemere-Lite
+
+**Status**: ✅ **COMPLETED** (2025-11-07)
+**Implementation**: Modified `signal!` and `log!` macros in `src/telemere_lite/core.cljc` to accept both `:id` (Trove) and `:event-id` (ours).
+**Result**: Backward compatible - all existing code works, Trove-style calls now supported.
+**Tests**: All existing tests pass (exit code 0).
 
 **Step 1.1: Add Trove Dependency**
 
