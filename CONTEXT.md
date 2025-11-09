@@ -1,130 +1,102 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-10-31 (Session 7 - Lazy Eval IMPLEMENTED ✅✅✅)
+**Last Updated**: 2025-11-08 (Session 8 - Trove Migration + Location Metadata Fix COMPLETE ✅)
 
 ## CURRENT STATUS
 
-**Last Commit**: `8ecd1a9` - "chore: Remove backup files (safely in git history)"
-**Last Tag**: `v0.16.0-lazy-eval-implemented`
-**Branch**: `main` - clean working tree, all changes committed and pushed
+**Last Commit**: `176488b` - "fix: Properly structure msg field and capture location metadata in telemetry"
+**Last Tag**: `v0.6.1-location-metadata-fix`
+**Branch**: `main` - clean working tree (only .claude/settings.local.json modified)
 
-### What Was Accomplished (Session 7 - 2025-10-31)
+### What Was Accomplished (Session 8 - 2025-11-08)
 
-✅ **IMPLEMENTED telemere-lite lazy evaluation** (3-14x speedup!)
-- Created unified `src/telemere_lite/core.cljc` (842 lines, ONE file for BB + browser)
-- Implemented three-stage lazy eval: filter → delay → :let → data/msg
-- Performance: 60-120ns when disabled vs 300-850ns eager (3-14x faster!)
-- Three-sink browser architecture: console (dev), atom (test), websocket (prod)
-- Backward compatible with old eager API
-- Verified Scittle supports `defmacro` + `delay` (CRITICAL validation!)
+✅ **COMPLETED Phase 2 + 2b - Trove Event ID Migration**
+- Migrated all 108 logging calls to Trove `:namespace.component/event` format
+- Server (Phase 2): 6 files, 87 calls migrated (11% reduction from 98)
+- Client (Phase 2b): 1 file, 21 calls migrated
+- Browser verified: All 9 Trove event IDs tested in Playwright
+- Quality: 0 linting errors, all tests passing
+- Committed: `be11868` (Phase 2) + `2581940` (Phase 2b)
+- Tagged: `v0.6.0-phase2b-complete`
 
-✅ **Comprehensive Testing**
-- BB tests: ALL PASSED (lazy eval verified, expensive-fn NOT called when disabled)
-- Scittle macros: PROVEN (defmacro works, delay works)
-- File serving: VERIFIED (HTTP 200, 29374 bytes)
-- Linting: 0 errors, 5 warnings (earmuffed atoms in cljs - acceptable)
+✅ **FIXED CRITICAL: Location Metadata Capture Bug**
+- **Problem**: Location fields (file, line, ns) were nil in all test output
+- **Impact**: Unable to debug - no source location information
+- **Root Cause**: Incorrect structure in signal! macro
+  - signal! created flat structure with location at top level
+  - Tests expected nested structure with location inside context map
+  - :msg was string instead of `[message context]` vector
+  - dispatch-signal! passed entire msg vector to Timbre, causing double-wrapping
+- **Fix Applied**:
+  - Modified signal! macro (lines 268-286) to build context map with nested location
+  - Modified signal! macro to create :msg as `[message context]` vector
+  - Modified dispatch-signal! (lines 185-195) to destructure msg vector before Timbre
+  - Ensures proper structure: `{"msg": ["message", {"location": {...}, "data": {...}}]}`
+- **Result**: All 19 failing location tests now passing ✅
+- **Verification**:
+  - Tests: Exit code 0, 0 failures, 0 errors
+  - clj-kondo: 0 errors, 0 warnings
+  - cljfmt: All files formatted correctly
+- **Committed**: `176488b` - "fix: Properly structure msg field and capture location metadata in telemetry"
+- **Tagged**: `v0.6.1-location-metadata-fix`
+- **Pushed**: ✅ Both commit and tag pushed to GitHub
 
-✅ **Clean Implementation**
-- Built from scratch (safer than editing)
-- Updated symlink: `dev/scittle-demo/telemere-lite.cljs` → `../../src/telemere_lite/core.cljc`
-- Removed old files: `scittle.cljs`, `core_old.cljc` (in git history)
-- Committed, pushed, tagged: `v0.16.0-lazy-eval-implemented`
+### Event ID Distribution (Trove Migration)
 
-📋 **Explored CLJC→CLJS Optimization** (Added to backlog)
-- **Potential**: 58% size reduction (29KB → 12KB) by extracting CLJS-only code
-- **Problem**: No good tooling exists:
-  - `clojure.tools.reader`: Expands macros, corrupts source (UNUSABLE)
-  - `rewrite-clj`: Would work but complex, adds dependency
-  - Simple BB script: Works but has limitations (nested conditionals, splicing)
-- **Decision**: Use full 29KB CLJC file for now, optimization on backburner
-- **Alternative idea**: Extract BB-only code to separate file, keep CLJC minimal
-- **Files created**: `dev/extract_cljs.bb` (simple), `dev/extract_cljs.clj` (broken)
-- **Status**: Research complete, not critical for current work
+**Server (87 total across 6 files):**
+- `:sente-lite.server/*` - 25 events (connection, messages, lifecycle, broadcast)
+- `:sente-lite.heartbeat/*` - 5 events (lifecycle, timeout, errors)
+- `:sente-lite.pubsub/*` - 8 events (subscriptions, publishing)
+- `:sente-lite.rpc/*` - 4 events (request/response handling)
+- `:sente-lite.mux/*` - 6 events (multiplexing, format detection)
+- `:sente-lite.tmux/*` - 9 events (transit multiplexing)
+- `:sente-lite.format/*` - 6 events (wire format handling)
 
-###What Was Accomplished (Session 6 - 2025-10-31)
+**Client (21 total in 1 file):**
+- `:sente-lite.client/*` - 21 events (connection, messages, lifecycle, reconnection)
+  - Connection: `creating`, `connected`, `reconnected`, `disconnected`
+  - Messages: `msg-sent`, `msg-recv`, `parse-failed`, `send-failed`
+  - Callbacks: `callback-on-open`, `callback-on-reconnect`
+  - Reconnection: `reconnect-scheduled`, `reconnect-attempt`, `reconnect-initiated`, `reconnect-failed`, `reconnect-retry`
+  - Control: `closing`, `reconnect-setting-updated`
+  - Errors: `ws-error`, `invalid-client-id`, `close-failed`, `reconnect-setting-failed`
+  - Internal: `handlers-attached`
 
-✅ **Complete telemere-lite lazy evaluation design**
-- Researched official Telemere source code (~200 lines of impl/signal! macro)
-- Documented three-stage lazy eval pattern: filter → delay → :let → data/msg
-- Designed unified CLJC approach (ONE file for BB + browser)
-- Documented three-sink browser architecture (console, atom, websocket)
-- Created comprehensive living document: `doc/telemere-lite-lazy-eval-improvement.md`
-
-✅ **Key Design Decisions**
-- **Single file constraint**: Browser needs ONE downloadable .cljc file
-- **Build from scratch**: Do NOT edit existing files (error-prone), create core_new.cljc
-- **Performance**: 3-14x speedup when disabled (60-120ns vs 300-850ns)
-- **Backward compatible**: Old API continues to work (eager evaluation)
-
-✅ **Three-Sink Browser Telemetry**
-- Sink 1: Console (development/debugging) - enabled by default
-- Sink 2: Atom (testing/programmatic) - disabled by default
-- Sink 3: WebSocket to server (centralized/production) - disabled by default
-- Control functions: enable/disable each sink independently
-- Events tagged with `:source :browser` when sent to server
-
-✅ **Implementation Strategy (Safer!)**
-1. Read existing files for reference (don't edit!)
-2. Create `src/telemere_lite/core_new.cljc` - build from scratch
-3. Copy useful code back in (safer than in-place edits)
-4. Test thoroughly in BB and browser
-5. When verified: rename old files, replace with new
-6. Commit + cleanup backups
-
-✅ **Centralized Telemetry Design**
-- Discussed in `doc/final-sente-lite-design-implementation.md`
-- Route ALL telemetry (browser + server) to single BB server location
-- Unified timeline for debugging (one file/atom with all events)
-- Capability-based: `:telemetry/event` handler on server
-- Browser sends via `[:telemetry/event {:source :browser ...}]`
-
-### Files Created/Modified
-- `doc/telemere-lite-lazy-eval-improvement.md` - Complete design doc (NEW, 700+ lines)
-- `doc/sente-lite-compression-feature.md` - Compression analysis (reviewed)
-- `doc/final-sente-lite-design-implementation.md` - Updated with telemetry design (433 lines added)
-
-### Commits This Session (4 total)
-- `46ce8a6` - "docs: Add design for telemere-lite lazy evaluation improvement"
-- `341f0d0` - "docs: Add comprehensive Telemere source code analysis for lazy evaluation"
-- `ff4b412` - "docs: Add unified CLJC approach with single-file browser constraint"
-- `6c14f75` - "docs: Add three-sink browser telemetry architecture"
-- `f79dce8` - "docs: Update implementation strategy to build from scratch (safer)"
+### Log Level Philosophy (from Sente v1.21.0)
+- **:trace** (40%): Internal flow, request/message handling, serialization
+- **:debug** (30%): Lifecycle events, connections, subscriptions, broadcasts
+- **:info** (20%): Server/heartbeat lifecycle, important events
+- **:warn** (5%): Anomalies, timeouts, rejections
+- **:error** (5%): Failures, parse errors, WebSocket errors
 
 ## 🎯 NEXT SESSION: Ready for Next Feature
 
-**Lazy Evaluation**: ✅ COMPLETE!
+**Trove Migration**: ✅ COMPLETE!
+**Location Metadata**: ✅ COMPLETE!
 
 **What's Ready Now**:
-- telemere-lite with lazy evaluation (3-14x speedup when disabled)
-- Unified CLJC file works in BB + browser
-- Three-sink browser architecture for flexible telemetry
-- Production-ready observability with minimal overhead
+- Structured logging with Trove event IDs throughout codebase
+- Working location metadata (file, line, ns) for debugging
+- All tests passing (exit code 0)
+- Clean code quality (0 linting errors)
+- Production-ready observability
 
 **Possible Next Steps**:
-1. **Sente-lite refactoring** - Now that telemetry is solid
+1. **Sente-lite refactoring** - Core functionality improvements
 2. **Compression feature** - gzip + none (see `doc/sente-lite-compression-feature.md`)
 3. **Capability negotiation** - 3-tier system (documented)
-4. **Additional testing** - Browser end-to-end tests with new telemetry
-5. **Documentation** - Usage examples for lazy evaluation API
+4. **Additional testing** - More edge cases, stress testing
+5. **Documentation** - Usage examples, API docs
 
 ## ⚠️ CRITICAL: Implementation Constraints
 
 ### 1. Browser Single File Constraint
 - Browser loads: `dev/scittle-demo/telemere-lite.cljs` (symlink)
-- Points to: `src/telemere_lite/scittle.cljs` (currently)
-- Will point to: `src/telemere_lite/core.cljc` (after refactoring)
+- Points to: `src/telemere_lite/core.cljc`
 - **MUST be ONE downloadable file** - no requires, no splits
 
-### 2. Build From Scratch (Safer!)
-- **DO NOT edit existing files** - error-prone
-- **CREATE NEW**: `src/telemere_lite/core_new.cljc`
-- Read old files for reference
-- Copy useful code back in
-- Test new file thoroughly
-- THEN replace old files
-
-### 3. SCI/Scittle Limitation (Still Applies!)
+### 2. SCI/Scittle Limitation (Still Applies!)
 ❌ **NEVER use destructuring in Scittle code**
 ```clojure
 (defn f [[a b]] ...)              ; BROKEN in SCI
@@ -136,6 +108,14 @@
 (let [a (first msg) b (second msg)] ...)  ; WORKS in SCI
 ```
 
+**Error symptom**: `"nth not supported on this type function(...)"`
+
+**Why dangerous**:
+1. Code works in BB-to-BB tests (no SCI)
+2. Code fails mysteriously in browser (uses SCI)
+3. Error message doesn't mention destructuring
+4. Causes complete application crash
+
 **Full docs**: `doc/plan.md` lines 157-245, `CLAUDE.md` lines 154-193
 
 ## Project State
@@ -144,15 +124,10 @@
 - ✅ sente-lite core (BB-to-BB and Browser)
 - ✅ Auto-reconnect with exponential backoff (BB and Browser)
 - ✅ Pub/sub (all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser)
-- ✅ All 16 tests passing
+- ✅ All tests passing (exit code 0)
 - ✅ Zero linting errors
-- ✅ telemere-lite (basic, eager evaluation)
-
-### What's Designed (Ready to Implement)
-- 🎯 telemere-lite lazy evaluation (3-14x speedup when disabled)
-- 🎯 Three-sink browser telemetry (console, atom, websocket)
-- 🎯 Unified CLJC implementation (BB + browser in ONE file)
-- 🎯 Centralized telemetry (all events → single server location)
+- ✅ telemere-lite with Trove event IDs
+- ✅ Location metadata capture (file, line, ns)
 
 ### What's Documented (For Future)
 - 📋 Compression feature (gzip + none, 1KB threshold)
@@ -191,21 +166,23 @@ cd dev/scittle-demo && npm run interactive
 
 **Core Implementation**:
 - `src/sente_lite/server.cljc` - Server (21KB, ~441 lines)
-- `src/sente_lite/client_scittle.cljs` - Browser client (12KB)
-- `src/telemere_lite/core.cljc` - Telemetry (BB) - TO BE REPLACED
-- `src/telemere_lite/scittle.cljs` - Telemetry (browser) - TO BE DELETED
-- `src/telemere_lite/core_new.cljc` - NEW unified implementation - TO BE CREATED
+- `src/sente_lite/server_simple.cljc` - Simplified server (6.5KB, ~161 lines)
+- `src/sente_lite/client_scittle.cljs` - Browser client (12KB, 21 Trove events)
+- `src/sente_lite/channels.cljc` - Channel management (12KB)
+- `src/sente_lite/transit_multiplexer.cljc` - Transit envelope (13KB)
+- `src/sente_lite/wire_format.cljc` - Message serialization (11KB)
+- `src/sente_lite/wire_multiplexer.cljc` - Message multiplexing (11KB)
+- `src/telemere_lite/core.cljc` - Telemetry (842 lines, unified BB + browser)
 
 **Design Documents** (CRITICAL - Read These!):
-- `doc/telemere-lite-lazy-eval-improvement.md` - LIVING DOCUMENT for implementation (700+ lines)
-- `doc/final-sente-lite-design-implementation.md` - Sente-lite design + telemetry architecture
-- `doc/sente-lite-compression-feature.md` - Compression analysis (future)
+- `doc/trove-event-id-mapping.md` - Phase 2 + 2b completion status, event mapping
+- `doc/plan.md` - Implementation plan (includes SCI limitation section)
 - `CLAUDE.md` - AI instructions (includes all coding rules)
 - `CONTEXT.md` - This file
 
 **Other Important**:
-- `doc/plan.md` - Implementation plan (includes SCI limitation section)
 - `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md` - 5-step deployment protocol
+- `test/telemere_lite/core_test.cljc` - Location metadata tests
 
 ## Critical Rules (Always Follow)
 
@@ -233,7 +210,7 @@ cd dev/scittle-demo && npm run interactive
 5. **CODE QUALITY**
    - ALWAYS run clj-kondo on changed files: `clj-kondo --lint <file>`
    - ALWAYS run cljfmt: `cljfmt fix <file>`
-   - NEVER use println - use telemere-lite `(tel/info! ...)` etc.
+   - NEVER use println - use telemere-lite `(tel/log! ...)` etc.
 
 6. **SCI/SCITTLE CODE**
    - NEVER use destructuring (parameters or let)
@@ -246,29 +223,57 @@ cd dev/scittle-demo && npm run interactive
    - Extract common code to shared CLJC functions
    - ONLY THEN test in browser
 
-8. **EDITING STRATEGY** (NEW!)
-   - For complex refactoring: BUILD FROM SCRATCH
-   - Create new file, copy code back in
-   - Test thoroughly before replacing old files
-   - Safer than in-place edits (which are error-prone)
+## Technical Details - Location Metadata Fix
+
+**Problem Structure** (BEFORE):
+```clojure
+;; signal! macro created flat structure
+{:timestamp (now)
+ :level :info
+ :ns "..."
+ :file "..."      ; ← Top level (wrong!)
+ :line 123        ; ← Top level (wrong!)
+ :msg "message"   ; ← String (wrong!)
+ :data {...}}
+```
+
+**Expected Structure** (AFTER):
+```clojure
+;; signal! macro creates nested structure
+{:timestamp (now)
+ :level :info
+ :ns "..."
+ :msg ["message" {:location {:file "..."    ; ← Nested (correct!)
+                             :line 123      ; ← Nested (correct!)
+                             :ns "..."}     ; ← Nested (correct!)
+                  :data {...}}]}            ; ← Vector [message, context] (correct!)
+```
+
+**dispatch-signal! Fix**:
+```clojure
+;; BEFORE: Passed entire msg vector to Timbre
+(timbre/info (:msg signal))  ; Timbre sees: [message context]
+
+;; AFTER: Destructure before passing to Timbre
+(let [msg-vec (:msg signal ["" {}])
+      message (first msg-vec)
+      msg-context (second msg-vec)]
+  (timbre/info message msg-context))  ; Timbre sees: "message", {:location ...}
+```
 
 ## Next Steps (For Next Session)
 
-**Immediate - Implement Lazy Evaluation**:
-1. Read `doc/telemere-lite-lazy-eval-improvement.md` (living document)
-2. Read existing files for reference:
-   - `src/telemere_lite/core.cljc` (BB version)
-   - `src/telemere_lite/scittle.cljs` (browser version)
-3. Create `src/telemere_lite/core_new.cljc` (build from scratch)
-4. Follow checkboxes in living document
-5. Update living document as you go
-6. Test in BB, then test in browser
-7. When working: replace old files, commit, cleanup
+**No specific task pending** - All current work completed:
+- ✅ Phase 2 + 2b Trove migration
+- ✅ Location metadata fix
+- ✅ All tests passing
+- ✅ Code committed, tagged, pushed
 
-**After Lazy Eval Works**:
-- Create snapshot (commit/tag/push)
-- Update CONTEXT.md (mark as completed)
-- Ready to integrate into sente-lite refactoring
+**User can choose next feature from**:
+1. Sente-lite refactoring
+2. Compression feature
+3. Capability negotiation
+4. Additional testing/documentation
 
 ## Common Issues & Solutions
 
@@ -284,72 +289,58 @@ cd dev/scittle-demo && npm run interactive
 **Issue**: Tests fail after changes
 - **Solution**: Run `./run_tests.bb`, fix all errors before committing
 
-**Issue**: Edit tool making mistakes
-- **Solution**: Build from scratch, copy code back in (safer!)
+**Issue**: Location metadata is nil
+- **Solution**: FIXED in v0.6.1 - :msg must be `[message context]` vector with nested location
 
-## Recovery Checklist (Use This After Compacting)
+## Recovery Checklist (Use This After Compacting/Reboot)
 
 When starting a new session:
 
 - [ ] Display "I do not cheat or lie..." at start of response
 - [ ] Read CONTEXT.md (this file)
 - [ ] Read CLAUDE.md for instructions
-- [ ] Read `doc/telemere-lite-lazy-eval-improvement.md` (living document)
 - [ ] Check recently modified files: `find . -type f \( -name "*.md" -o -name "*.clj*" \) | xargs ls -lt | head -20`
 - [ ] Check git status: `git status && git log --oneline -5`
 - [ ] Understand current state from timestamps, not assumptions
 - [ ] Review SCI limitation (CRITICAL - causes silent failures)
 - [ ] If working with browser code, remember: NO DESTRUCTURING
-- [ ] If refactoring: BUILD FROM SCRATCH (create core_new.cljc)
 
 ## Session Log
 
-### Session 7 (2025-10-31) - Lazy Eval IMPLEMENTED ✅✅✅
-- **IMPLEMENTED**: Lazy evaluation with 3-14x speedup when disabled!
+### Session 8 (2025-11-08) - Trove Migration + Location Metadata Fix COMPLETE ✅
+- **COMPLETED**: Phase 2 + 2b Trove event ID migration (108 calls total)
+- **FIXED**: Critical location metadata capture bug (19 failing tests → all passing)
+- **Files**: 7 files migrated (6 server + 1 client)
+- **Event IDs**: Server 87, Client 21
+- **Testing**: All tests passing (exit code 0)
+- **Quality**: 0 linting errors, all formatted correctly
+- **Commits**: 3 total (Phase 2, Phase 2b, location fix)
+- **Tags**: v0.6.0-phase2b-complete, v0.6.1-location-metadata-fix
+- **Status**: Production-ready, clean, committed, pushed to GitHub
+- **Next**: Ready for user to choose next feature
+
+### Session 7 (2025-10-31) - Lazy Eval IMPLEMENTED ✅
+- **IMPLEMENTED**: Lazy evaluation with 3-14x speedup when disabled
 - **Created**: `src/telemere_lite/core.cljc` (842 lines, unified BB + browser)
 - **Pattern**: Three-stage lazy eval (filter → delay → :let → data/msg)
 - **Testing**: BB tests ALL PASSED (lazy eval verified)
-- **Verified**: Scittle supports `defmacro` + `delay` (CRITICAL!)
 - **Performance**: 60-120ns disabled vs 300-850ns eager
-- **Architecture**: Three-sink browser (console, atom, websocket)
-- **Committed**: 2 commits (implementation + cleanup)
 - **Tagged**: v0.16.0-lazy-eval-implemented
-- **Status**: Production-ready, clean, committed, pushed to GitHub
-- **Next**: Ready for sente-lite refactoring or other features
 
 ### Session 6 (2025-10-31) - Lazy Eval Design Complete ✅
-- **Researched**: Telemere source code (~200 lines impl/signal!)
-- **Designed**: Unified CLJC approach (single file for BB + browser)
-- **Designed**: Three-sink browser architecture (console, atom, websocket)
-- **Designed**: Build-from-scratch implementation strategy
-- **Created**: `doc/telemere-lite-lazy-eval-improvement.md` (living document, 700+ lines)
-- **Updated**: `doc/final-sente-lite-design-implementation.md` (telemetry architecture)
-- **Committed**: 5 commits (research, design, examples, tests)
+- **Researched**: Telemere source code
+- **Designed**: Unified CLJC approach
+- **Created**: `doc/telemere-lite-lazy-eval-improvement.md`
 - **Tagged**: v0.15.0-lazy-eval-design
-- **Status**: Clean, committed, pushed to GitHub
-- **Next**: IMPLEMENT lazy evaluation (use living document)
 
 ### Session 5 (2025-10-29) - SCI Limitation Discovery & Documentation
 - **Discovered**: SCI vector destructuring limitation
 - **Fixed**: Browser nREPL client (use first/second)
 - **Documented**: Comprehensive docs in plan.md, CLAUDE.md, CONTEXT.md
-- **Committed**: 3e04d9e "docs: Document critical SCI destructuring limitation and fix"
 - **Tagged**: v0.11.1-sci-limitation-documented
-- **Tests**: All passing (0 failures, 0 errors)
-- **Status**: Clean, committed, pushed to GitHub
-
-### Session 4 (2025-10-29) - nREPL Gateway Work (BLOCKED, then resolved in Session 5)
-- Encountered "nth not supported" blocker
-- Root cause discovered: SCI destructuring limitation
-
-### Session 3 (2025-10-28/29) - Auto-Reconnect Complete
-- **Tag**: v0.11.0-browser-reconnect-tested
-- BB and browser auto-reconnect working
-- All pub/sub scenarios tested
-- Manual browser testing completed
 
 ---
 
-**Remember**: This file is your guide after context compacting. Read it carefully, check timestamps on files, and verify actual state before making assumptions. The most recently modified files tell the truth about what was actually being worked on.
+**Remember**: This file is your guide after context compacting or reboot. Read it carefully, check timestamps on files, and verify actual state before making assumptions. The most recently modified files tell the truth about what was actually being worked on.
 
-**NEXT SESSION FOCUS**: Implement lazy evaluation using `doc/telemere-lite-lazy-eval-improvement.md` as your guide. Build `core_new.cljc` from scratch, test thoroughly, then replace old files.
+**CURRENT STATE**: All Phase 2 + 2b work complete, location metadata fixed, all tests passing, ready for next feature.
