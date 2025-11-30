@@ -1,0 +1,94 @@
+(ns sente-lite.logging
+  "Unified logging interface using Trove facade.
+
+  Provides a consistent logging API across all platforms (Babashka, JVM, browser).
+  Uses Trove as the logging facade (0 dependencies) with pluggable backends.
+
+  Usage:
+    (require '[sente-lite.logging :as log])
+    (log/info :app/started {:version \"1.0.0\"})
+    (log/error :app/error {:message \"Something failed\"})"
+  (:require [taoensso.trove :as trove]))
+
+;;; ============================================================================
+;;; Core Logging Function
+;;; ============================================================================
+
+(defn log!
+  "Log a message using Trove facade.
+
+  Args:
+    level - Log level keyword (:trace, :debug, :info, :warn, :error, :fatal)
+    id    - Event ID as keyword (e.g., :app/started, :ws/connected)
+    data  - Optional data map or string message
+
+  Returns:
+    nil
+
+  Examples:
+    (log! :info :app/started {:version \"1.0.0\"})
+    (log! :error :app/error \"Connection failed\")
+    (log! :debug :app/state {:user-id 123})"
+  [level id data]
+  (trove/log!
+   (merge {:level level :id id}
+          (when (map? data) data)
+          (when (string? data) {:msg data}))))
+
+;;; ============================================================================
+;;; Convenience Macros
+;;; ============================================================================
+
+(defmacro trace
+  "Log at trace level.
+
+  Usage:
+    (trace :app/event)
+    (trace :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :trace ~id ~data))
+
+(defmacro debug
+  "Log at debug level.
+
+  Usage:
+    (debug :app/event)
+    (debug :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :debug ~id ~data))
+
+(defmacro info
+  "Log at info level.
+
+  Usage:
+    (info :app/event)
+    (info :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :info ~id ~data))
+
+(defmacro warn
+  "Log at warn level.
+
+  Usage:
+    (warn :app/event)
+    (warn :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :warn ~id ~data))
+
+(defmacro error
+  "Log at error level.
+
+  Usage:
+    (error :app/event)
+    (error :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :error ~id ~data))
+
+(defmacro fatal
+  "Log at fatal level.
+
+  Usage:
+    (fatal :app/event)
+    (fatal :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :fatal ~id ~data))
