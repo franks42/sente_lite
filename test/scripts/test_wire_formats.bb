@@ -4,15 +4,10 @@
 (cp/add-classpath "src")
 
 (require '[sente-lite.wire-format :as wire]
-         '[telemere-lite.core :as tel]
          '[cheshire.core :as json]
          '[clojure.string])
 
 (println "=== Testing Sente-lite Wire Format System ===")
-
-;; Initialize telemetry
-(tel/startup!)
-(tel/add-stdout-handler! :wire-format-tests)
 
 ;; Test data with various Clojure types (Babashka compatible)
 (def comprehensive-test-data
@@ -41,7 +36,7 @@
   (try
     (let [format-info (wire/format-info format-spec)]
 
-      (tel/event! ::format-test-start {:format test-name})
+      (println (format "Testing format: %s" test-name))
 
       ;; Test format info
       (println (format "Format: %s" (:name format-info)))
@@ -71,18 +66,9 @@
                   (when (not= orig-val deser-val)
                     (println (format "  Key %s: %s -> %s" k (type orig-val) (type deser-val)))))))))
 
-        (tel/event! ::format-test-complete
-                   {:format test-name
-                    :success (:success result)
-                    :equal (:equal? result)
-                    :size (when (:serialized result) (count (:serialized result)))})
-
         result))
 
     (catch Exception e
-      (tel/error! {:msg "Format test failed"
-                   :error e
-                   :data {:format test-name}})
       (println (format "ERROR: %s" (.getMessage e)))
       {:success false :error (str e)})))
 
@@ -194,22 +180,9 @@
   (println (format "Successful serialization: %d" successful))
   (println (format "Lossless round-trips: %d" lossless))
 
-  (tel/event! ::wire-format-test-summary
-             {:total-formats (count test-results)
-              :successful successful
-              :lossless lossless}))
+  (println (format "Summary: %d formats, %d successful, %d lossless"
+                   (count test-results) successful lossless)))
 
-;; Telemetry stats
-(println "\n📊 Telemetry Statistics")
-(let [tel-stats (tel/get-handler-stats)]
-  (doseq [[handler-id stats] tel-stats]
-    (println (format "  %s: processed=%d queued=%d dropped=%d"
-                     handler-id
-                     (:processed stats)
-                     (:queued stats)
-                     (:dropped stats)))))
-
-(tel/shutdown-telemetry!)
 
 (println "\n✅ Wire Format System Test Complete!")
 (println "\nKey Capabilities Validated:")
