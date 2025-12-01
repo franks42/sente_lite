@@ -17,12 +17,12 @@
                      dev.weavejester/cljfmt {:mvn/version "0.15.6"}}}
 
   :test {:extra-paths ["test"]
-         :extra-deps {}
-         :main-opts ["-m" "telemere-lite.core-test"]}
+         :extra-deps {io.github.cognitect-labs/test-runner {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                      com.taoensso/timbre {:mvn/version "6.6.1"}}
+         :main-opts ["-m" "cognitect.test-runner"]}
 
   :bb {:replace-deps {}
-       :replace-paths ["src"]
-       :main-opts ["-m" "telemere-lite.core"]}
+       :replace-paths ["src"]}
 
   ;; Extract CLJS-only code from CLJC files
   :extract {:extra-deps {org.clojure/tools.reader {:mvn/version "1.5.2"}}}}}

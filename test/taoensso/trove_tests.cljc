@@ -1,0 +1,78 @@
+(ns taoensso.trove-tests
+  (:require
+   [clojure.test   :as test :refer [deftest testing is]]
+   [taoensso.trove :as trove]
+   [taoensso.trove.console]
+   #?@(:clj  [[taoensso.trove.timbre]]
+       :bb   [[taoensso.trove.timbre]]))
+
+  #?(:cljs
+     (:require-macros
+      [taoensso.trove-tests :refer [with-backend]])))
+
+(comment
+  (remove-ns      'taoensso.trove-tests)
+  (test/run-tests 'taoensso.trove-tests))
+
+;;;; Basics
+
+(defn capturing-log-fn [] (let [args_ (atom nil)] [args_ (fn [& args] (reset! args_ (vec args)))]))
+
+#?(:clj
+   (defmacro with-backend [& body]
+     `(let [[args_# lfn#] (capturing-log-fn)]
+        (binding [trove/*log-fn* lfn#]
+          ~@body @args_#))))
+
+(deftest basics
+  [(is (= (with-backend (trove/log! {}))         ["taoensso.trove-tests" [28 25] :info nil                      nil]))
+   (is (= (with-backend (trove/log! {:id ::id})) ["taoensso.trove-tests" [29 25] :info :taoensso.trove-tests/id nil]))
+   (is (= (with-backend (trove/log! {:ns "ns", :coords [12 34], :data {:k1 :v1}, :k2 :v2}))
+         ["ns" [12 34] :info nil {:data {:k1 :v1}, :kvs {:k2 :v2}}]))
+
+   (testing "Auto delay wrapping"
+     [(let [lazy_ (get (with-backend (trove/log! {:msg "abc"})) 4)]
+        [(is (not (delay? lazy_)))
+         (is (=   (force  lazy_) {:msg "abc"}))])
+
+      (let [lazy_ (get (with-backend (trove/log! {:msg (str "a" "b" "c")})) 4)]
+        [(is      (delay? lazy_))
+         (is (=   (force  lazy_) {:msg "abc"}))])])
+
+   (testing ":let option"
+     (let [lazy_
+           (get
+             (with-backend
+               (trove/log!
+                 {:let  [user-id 1234],
+                  :data {:user-id     user-id}
+                  :msg  (str "User: " user-id)
+                  :kv1              #{user-id}}))
+             4)]
+
+       [(is    (delay? lazy_))
+        (is (= (force  lazy_) {:msg "User: 1234", :data {:user-id 1234}, :kvs {:kv1 #{1234}}}))]))
+
+   (testing ":log-fn option"
+     (=
+       (get (let [[args_ lfn] (capturing-log-fn)] (trove/log! {:msg "Hello!" :log-fn lfn}) @args_) 4)
+       {:msg "Hello!"}))])
+
+;;;; Backends
+
+(comment
+  (do
+    (defn- log1! [] (trove/log! {:id ::my-d, :msg "msg", :data {:k1 :v1}, :k2 :v2}))
+
+    (with-out-str (binding [trove/*log-fn* (taoensso.trove.console/get-log-fn)]       (log1!)))
+    (with-out-str (binding [trove/*log-fn* (taoensso.trove.timbre/get-log-fn)]        (log1!)))))
+
+;;;;
+
+#?(:cljs
+   (defmethod test/report [:cljs.test/default :end-run-tests] [m]
+     (when-not (test/successful? m)
+       ;; Trigger non-zero `lein test-cljs` exit code for CI
+       (throw (ex-info "ClojureScript tests failed" {})))))
+
+#?(:cljs (test/run-tests))
