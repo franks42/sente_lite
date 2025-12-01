@@ -1,0 +1,166 @@
+# Building a Scittle Trove Plugin for CDN
+
+## Overview
+
+This document describes how to create a compiled `scittle.trove.js` file that can be served via CDN, similar to other Scittle plugins like `scittle.reagent.js`.
+
+## What the Build Does
+
+1. **Bundles all dependencies** - `trove.cljc`, `utils.cljc`, `console.cljc` → single JS file
+2. **Dead-code eliminates** - removes `:clj`-only code paths
+3. **Preserves SCI macros** - the `^:sci/macro` functions work at runtime
+4. **Minifies** - smaller download size
+
+## Project Structure
+
+```
+scittle-trove/
+├── bb.edn                              # Babashka tasks
+├── deps.edn                            # Clojure dependencies
+├── shadow-cljs.edn                     # Build configuration
+├── package.json                        # npm package config
+└── src/
+    ├── sci/configs/taoensso/trove.cljs # SCI namespace config
+    └── scittle/trove.cljs              # Plugin registration
+```
+
+## Key Files
+
+### `deps.edn`
+
+```clojure
+{:paths ["src"]
+ :deps {org.clojure/clojurescript {:mvn/version "1.11.132"}
+        borkdude/sci {:mvn/version "0.8.43"}
+        ;; Include Trove source (or use local path)
+        com.taoensso/trove {:mvn/version "1.1.0"}}}
+```
+
+### `shadow-cljs.edn`
+
+```clojure
+{:deps {:aliases [:dev]}
+ :builds
+ {:trove
+  {:target :browser
+   :modules {:scittle.trove {:entries [scittle.trove]
+                             :depends-on #{:scittle}}}
+   :output-dir "dist"}}}
+```
+
+### `src/scittle/trove.cljs`
+
+```clojure
+(ns scittle.trove
+  (:require [sci.core :as sci]
+            [scittle.core :as scittle]
+            [taoensso.trove :as trove]
+            [taoensso.trove.console :as console]))
+
+(def trove-ns
+  {'*log-fn*    trove/*log-fn*
+   'log!        (sci/copy-var trove/log! (the-ns 'taoensso.trove))
+   'set-log-fn! (sci/copy-var trove/set-log-fn! (the-ns 'taoensso.trove))})
+
+(def console-ns
+  {'get-log-fn console/get-log-fn})
+
+(def config
+  {:namespaces {'taoensso.trove trove-ns
+                'taoensso.trove.console console-ns}})
+
+(scittle/register-plugin! ::trove config)
+```
+
+### `package.json`
+
+```json
+{
+  "name": "scittle-trove",
+  "version": "1.0.0",
+  "description": "Trove logging plugin for Scittle",
+  "main": "dist/scittle.trove.js",
+  "files": ["dist"],
+  "repository": "github:taoensso/trove",
+  "license": "EPL-1.0"
+}
+```
+
+### `bb.edn`
+
+```clojure
+{:tasks
+ {clean {:task (do (babashka.fs/delete-tree "dist")
+                   (babashka.fs/delete-tree ".shadow-cljs"))}
+  
+  build {:doc "Build production JS"
+         :depends [clean]
+         :task (shell "npx shadow-cljs release trove")}
+  
+  publish {:doc "Publish to npm"
+           :depends [build]
+           :task (do (shell "npm version patch")
+                     (shell "npm publish"))}}}
+```
+
+## Build Steps
+
+```bash
+# 1. Install dependencies
+npm install shadow-cljs
+
+# 2. Build production JS
+bb build
+# or: npx shadow-cljs release trove
+
+# 3. Output is in dist/scittle.trove.js
+```
+
+## Publishing to npm
+
+```bash
+# Login to npm (once)
+npm login
+
+# Publish
+bb publish
+# or: npm publish
+```
+
+## CDN Usage (after publishing)
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle-trove@1.0.0/dist/scittle.trove.js"></script>
+
+<script type="application/x-scittle">
+  (require '[taoensso.trove :refer [log!]])
+  (log! {:level :info :id :my/event :msg "Hello from CDN!"})
+</script>
+```
+
+## Scittle's Build Process
+
+Looking at [babashka/scittle](https://github.com/babashka/scittle), their workflow is:
+
+1. **`bb prod`** - Runs shadow-cljs release build
+2. **`bb dist`** - Copies JS files to `dist/` folder
+3. **`bb npm-publish`** - Bumps version, pushes git tag, publishes to npm
+
+They don't use GitHub Actions for the build itself - it's manual via Babashka tasks. The CDN (jsdelivr) automatically picks up new npm versions.
+
+## Options for Trove Plugin
+
+| Option | Effort | Maintenance |
+|--------|--------|-------------|
+| **Upstream in Scittle** | PR to babashka/scittle | Maintained by Scittle team |
+| **Upstream in Trove** | Peter publishes `scittle-trove` | Maintained by Trove author |
+| **Your own package** | Create `@franks42/scittle-trove` | You maintain it |
+| **Current approach** | 3 script tags loading `.cljc` | Works now, no build needed |
+
+## Notes
+
+- The `:sci/macro` metadata is preserved through compilation
+- Macro expansion happens at Scittle runtime (in browser)
+- jsdelivr CDN auto-updates when new npm versions are published
+- No GitHub Actions needed - just `npm publish`
