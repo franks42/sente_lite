@@ -9,8 +9,8 @@
 
   Usage:
     (require '[sente-lite.logging :as log])
-    (log/info :app/started {:version \"1.0.0\"})
-    (log/error :app/error {:message \"Something failed\"})"
+    (log/log! {:level :info :id :app/started :data {:version \"1.0.0\"}})
+    (log/log! {:level :error :id :app/error :data {:message \"Something failed\"}})"
   #?(:clj-jvm (:require [taoensso.trove :as trove])
      :cljs (:require [taoensso.trove :as trove])))
 
@@ -22,70 +22,31 @@
   "Log a message using Trove facade (JVM/browser) or println (Babashka).
 
   Args:
-    level - Log level keyword (:trace, :debug, :info, :warn, :error, :fatal)
-    id    - Event ID as keyword (e.g., :app/started, :ws/connected)
-    data  - Optional data map or string message
+    opts - Map with keys:
+      :level - Log level keyword (:trace, :debug, :info, :warn, :error, :fatal)
+      :id    - Event ID as keyword (e.g., :app/started, :ws/connected)
+      :data  - Optional data map
+      :msg   - Optional message string
+      :error - Optional error/exception
 
   Returns:
     nil
 
   Examples:
-    (log! :info :app/started {:version \"1.0.0\"})
-    (log! :error :app/error \"Connection failed\")
-    (log! :debug :app/state {:user-id 123})"
-  [level id data]
-  #?(:bb
-     ;; Babashka: Simple println logging
-     (println (str "[" (name level) "] " id " " (pr-str data)))
-     :clj-jvm
-     ;; JVM: Use Trove logging facade
-     (trove/log!
-      (merge {:level level :id id}
-             (when (map? data) data)
-             (when (string? data) {:msg data})))
-     :cljs
-     ;; Browser: Use Trove logging facade
-     (trove/log!
-      (merge {:level level :id id}
-             (when (map? data) data)
-             (when (string? data) {:msg data})))))
-
-;;; ============================================================================
-;;; Convenience Macros
-;;; ============================================================================
-
-(defmacro trace
-  "Log at trace level.
-   Usage: (trace :app/event) or (trace :app/event {:data \"value\"})"
-  [id & [data]]
-  `(log! :trace ~id ~data))
-
-(defmacro debug
-  "Log at debug level.
-   Usage: (debug :app/event) or (debug :app/event {:data \"value\"})"
-  [id & [data]]
-  `(log! :debug ~id ~data))
-
-(defmacro info
-  "Log at info level.
-   Usage: (info :app/event) or (info :app/event {:data \"value\"})"
-  [id & [data]]
-  `(log! :info ~id ~data))
-
-(defmacro warn
-  "Log at warn level.
-   Usage: (warn :app/event) or (warn :app/event {:data \"value\"})"
-  [id & [data]]
-  `(log! :warn ~id ~data))
-
-(defmacro error
-  "Log at error level.
-   Usage: (error :app/event) or (error :app/event {:data \"value\"})"
-  [id & [data]]
-  `(log! :error ~id ~data))
-
-(defmacro fatal
-  "Log at fatal level.
-   Usage: (fatal :app/event) or (fatal :app/event {:data \"value\"})"
-  [id & [data]]
-  `(log! :fatal ~id ~data))
+    (log! {:level :info :id :app/started :data {:version \"1.0.0\"}})
+    (log! {:level :error :id :app/error :data {:message \"Connection failed\"}})
+    (log! {:level :debug :id :app/state :data {:user-id 123}})"
+  [opts]
+  (let [{:keys [level id data msg error]} opts]
+    #?(:bb
+       ;; Babashka: Simple println logging
+       (println (str "[" (name (or level :info)) "] " id " "
+                     (when msg (str msg " "))
+                     (when data (pr-str data))
+                     (when error (str " ERROR: " error))))
+       :clj-jvm
+       ;; JVM: Use Trove logging facade
+       (trove/log! opts)
+       :cljs
+       ;; Browser: Use Trove logging facade
+       (trove/log! opts))))

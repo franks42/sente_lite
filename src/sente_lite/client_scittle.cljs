@@ -53,25 +53,25 @@
   (let [client-id (:id client-state)
         config (:config client-state)
         is-reconnect? (> (:reconnect-count client-state) 0)]
-    (log/trace {:level :debug
-                :id (if is-reconnect? :sente-lite.client/reconnected :sente-lite.client/connected)
-                :data {:client-id client-id
-                       :url (:url config)
-                       :ready-state (.. event -target -readyState)
-                       :reconnect-count (:reconnect-count client-state)}})
+    (log/log! {:level :debug
+               :id (if is-reconnect? :sente-lite.client/reconnected :sente-lite.client/connected)
+               :data {:client-id client-id
+                      :url (:url config)
+                      :ready-state (.. event -target -readyState)
+                      :reconnect-count (:reconnect-count client-state)}})
     (swap! clients assoc-in [client-id :status] :connected)
 
     ;; Call appropriate callback
     (if is-reconnect?
       (when-let [on-reconnect (:on-reconnect config)]
-        (log/trace {:level :trace
-                    :id :sente-lite.client/callback-on-reconnect
-                    :data {:client-id client-id}})
+        (log/log! {:level :trace
+                   :id :sente-lite.client/callback-on-reconnect
+                   :data {:client-id client-id}})
         (on-reconnect))
       (when-let [on-open (:on-open config)]
-        (log/trace {:level :trace
-                    :id :sente-lite.client/callback-on-open
-                    :data {:client-id client-id}})
+        (log/log! {:level :trace
+                   :id :sente-lite.client/callback-on-open
+                   :data {:client-id client-id}})
         (on-open)))))
 
 (defn- parse-message
@@ -81,10 +81,10 @@
     #_{:clj-kondo/ignore [:unresolved-symbol]}
     (read-string raw-data)  ; read-string available in Scittle via SCI
     (catch js/Error e
-      (log/trace {:level :warn
-                  :id :sente-lite.client/parse-failed
-                  :data {:raw-data raw-data
-                         :error (.-message e)}})
+      (log/log! {:level :warn
+                 :id :sente-lite.client/parse-failed
+                 :data {:raw-data raw-data
+                        :error (.-message e)}})
       {:error :parse-failed :raw raw-data})))
 
 (defn- handle-message [client-state event]
@@ -93,21 +93,21 @@
         raw-data (.-data event)
         parsed-msg (parse-message raw-data)]
     (swap! clients update-in [client-id :message-count-received] inc)
-    (log/trace {:level :trace
-                :id :sente-lite.client/msg-recv
-                :data {:client-id client-id
-                       :message-size (.-length raw-data)
-                       :message-type (first parsed-msg)}})
+    (log/log! {:level :trace
+               :id :sente-lite.client/msg-recv
+               :data {:client-id client-id
+                      :message-size (.-length raw-data)
+                      :message-type (first parsed-msg)}})
     (when-let [on-message (:on-message config)]
       (on-message parsed-msg))))
 
 (defn- handle-error [client-state event]
   (let [client-id (:id client-state)
         ws (.-target event)]
-    (log/trace {:level :error
-                :id :sente-lite.client/ws-error
-                :data {:client-id client-id
-                       :ready-state (.-readyState ws)}})))
+    (log/log! {:level :error
+               :id :sente-lite.client/ws-error
+               :data {:client-id client-id
+                      :ready-state (.-readyState ws)}})))
 
 (declare attempt-reconnect!)  ; forward declaration
 
@@ -119,13 +119,13 @@
         was-clean (.-wasClean event)
         reconnect-enabled? (:reconnect-enabled? client-state)]
     (swap! clients assoc-in [client-id :status] :disconnected)
-    (log/trace {:level :debug
-                :id :sente-lite.client/disconnected
-                :data {:client-id client-id
-                       :code code
-                       :reason reason
-                       :was-clean was-clean
-                       :will-reconnect? reconnect-enabled?}})
+    (log/log! {:level :debug
+               :id :sente-lite.client/disconnected
+               :data {:client-id client-id
+                      :code code
+                      :reason reason
+                      :was-clean was-clean
+                      :will-reconnect? reconnect-enabled?}})
     (when-let [on-close (:on-close config)]
       (on-close event))
 
@@ -134,11 +134,11 @@
       (let [current-client-state (get @clients client-id)
             delay-ms (:reconnect-delay current-client-state)
             reconnect-count (:reconnect-count current-client-state)]
-        (log/trace {:level :debug
-                    :id :sente-lite.client/reconnect-scheduled
-                    :data {:client-id client-id
-                           :delay-ms delay-ms
-                           :reconnect-count reconnect-count}})
+        (log/log! {:level :debug
+                   :id :sente-lite.client/reconnect-scheduled
+                   :data {:client-id client-id
+                          :delay-ms delay-ms
+                          :reconnect-count reconnect-count}})
         (js/setTimeout #(attempt-reconnect! client-id) delay-ms)))))
 
 ;;; Reconnection Logic
@@ -151,11 +151,11 @@
             reconnect-count (:reconnect-count client-state)
             new-reconnect-count (inc reconnect-count)]
 
-        (log/trace {:level :debug
-                    :id :sente-lite.client/reconnect-attempt
-                    :data {:client-id client-id
-                           :reconnect-count new-reconnect-count
-                           :url url}})
+        (log/log! {:level :debug
+                   :id :sente-lite.client/reconnect-attempt
+                   :data {:client-id client-id
+                          :reconnect-count new-reconnect-count
+                          :url url}})
 
         (try
           ;; Increment reconnect count BEFORE creating WebSocket
@@ -180,23 +180,23 @@
             (set! (.-onerror ws) (partial handle-error updated-client-state))
             (set! (.-onclose ws) (partial handle-close updated-client-state))
 
-            (log/trace {:level :trace
-                        :id :sente-lite.client/reconnect-initiated
-                        :data {:client-id client-id}}))
+            (log/log! {:level :trace
+                       :id :sente-lite.client/reconnect-initiated
+                       :data {:client-id client-id}}))
 
           (catch js/Error e
-            (log/trace {:level :error
-                        :id :sente-lite.client/reconnect-failed
-                        :data {:client-id client-id
-                               :error (.-message e)
-                               :reconnect-count new-reconnect-count}})
+            (log/log! {:level :error
+                       :id :sente-lite.client/reconnect-failed
+                       :data {:client-id client-id
+                              :error (.-message e)
+                              :reconnect-count new-reconnect-count}})
             ;; Failed reconnect - try again after delay if still enabled
             (when (get-in @clients [client-id :reconnect-enabled?])
               (let [retry-delay (get-in @clients [client-id :reconnect-delay])]
-                (log/trace {:level :debug
-                            :id :sente-lite.client/reconnect-retry
-                            :data {:client-id client-id
-                                   :retry-delay retry-delay}})
+                (log/log! {:level :debug
+                           :id :sente-lite.client/reconnect-retry
+                           :data {:client-id client-id
+                                  :retry-delay retry-delay}})
                 (js/setTimeout #(attempt-reconnect! client-id) retry-delay)))))))))
 
 ;;; Public API
@@ -222,11 +222,11 @@
         url (:url config)
         ws (js/WebSocket. url)]
 
-    (log/trace {:level :debug
-                :id :sente-lite.client/creating
-                :data {:client-id client-id
-                       :url url
-                       :initial-state (.-readyState ws)}})
+    (log/log! {:level :debug
+               :id :sente-lite.client/creating
+               :data {:client-id client-id
+                      :url url
+                      :initial-state (.-readyState ws)}})
 
     ;; Store client state
     (swap! clients assoc client-id (assoc client-state :ws ws))
@@ -237,9 +237,9 @@
     (set! (.-onerror ws) (partial handle-error (get @clients client-id)))
     (set! (.-onclose ws) (partial handle-close (get @clients client-id)))
 
-    (log/trace {:level :trace
-                :id :sente-lite.client/handlers-attached
-                :data {:client-id client-id}})
+    (log/log! {:level :trace
+               :id :sente-lite.client/handlers-attached
+               :data {:client-id client-id}})
 
     ;; Return client-id as handle
     client-id))
@@ -257,23 +257,23 @@
         (let [serialized (pr-str message)]
           (.send ws serialized)
           (swap! clients update-in [client-id :message-count-sent] inc)
-          (log/trace {:level :trace
-                      :id :sente-lite.client/msg-sent
-                      :data {:client-id client-id
-                             :message-type (first message)
-                             :size (count serialized)}})
+          (log/log! {:level :trace
+                     :id :sente-lite.client/msg-sent
+                     :data {:client-id client-id
+                            :message-type (first message)
+                            :size (count serialized)}})
           true)
         (do
-          (log/trace {:level :warn
-                      :id :sente-lite.client/send-failed
-                      :data {:client-id client-id
-                             :ready-state ready-state
-                             :status (:status client-state)}})
+          (log/log! {:level :warn
+                     :id :sente-lite.client/send-failed
+                     :data {:client-id client-id
+                            :ready-state ready-state
+                            :status (:status client-state)}})
           false)))
     (do
-      (log/trace {:level :error
-                  :id :sente-lite.client/invalid-client-id
-                  :data {:client-id client-id}})
+      (log/log! {:level :error
+                 :id :sente-lite.client/invalid-client-id
+                 :data {:client-id client-id}})
       false)))
 
 (defn close!
@@ -281,16 +281,16 @@
   [client-id]
   (if-let [client-state (get @clients client-id)]
     (let [ws (:ws client-state)]
-      (log/trace {:level :debug
-                  :id :sente-lite.client/closing
-                  :data {:client-id client-id}})
+      (log/log! {:level :debug
+                 :id :sente-lite.client/closing
+                 :data {:client-id client-id}})
       (.close ws)
       (swap! clients dissoc client-id)
       true)
     (do
-      (log/trace {:level :warn
-                  :id :sente-lite.client/close-failed
-                  :data {:client-id client-id}})
+      (log/log! {:level :warn
+                 :id :sente-lite.client/close-failed
+                 :data {:client-id client-id}})
       false)))
 
 (defn get-status
@@ -321,13 +321,13 @@
   (if-let [client-state (get @clients client-id)]
     (do
       (swap! clients assoc-in [client-id :reconnect-enabled?] enabled?)
-      (log/trace {:level :debug
-                  :id :sente-lite.client/reconnect-setting-updated
-                  :data {:client-id client-id
-                         :enabled? enabled?}})
+      (log/log! {:level :debug
+                 :id :sente-lite.client/reconnect-setting-updated
+                 :data {:client-id client-id
+                        :enabled? enabled?}})
       true)
     (do
-      (log/trace {:level :warn
-                  :id :sente-lite.client/reconnect-setting-failed
-                  :data {:client-id client-id}})
+      (log/log! {:level :warn
+                 :id :sente-lite.client/reconnect-setting-failed
+                 :data {:client-id client-id}})
       false)))

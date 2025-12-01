@@ -38,7 +38,8 @@
       #?(:bb (json/generate-string data)
          :clj (json/write-str data))
       (catch Exception e
-        (log/error :sente-lite.format/json-serial-failed {:error e :input-type (type data)})
+        (log/log! {:level :error :id :sente-lite.format/json-serial-failed
+                   :data {:error e :input-type (type data)}})
         nil)))
 
   (deserialize [_ wire-data]
@@ -46,10 +47,10 @@
       #?(:bb (json/parse-string wire-data true)
          :clj (json/read-str wire-data :key-fn keyword))
       (catch Exception e
-        (log/error :sente-lite.format/json-deserial-failed
-                   {:error e
-                    :wire-data-preview (subs (str wire-data) 0
-                                             (min 100 (count wire-data)))})
+        (log/log! {:level :error :id :sente-lite.format/json-deserial-failed
+                   :data {:error e
+                          :wire-data-preview (subs (str wire-data) 0
+                                                   (min 100 (count wire-data)))}})
         nil)))
 
   (content-type [_] "application/json")
@@ -66,17 +67,18 @@
     (try
       (pr-str data)
       (catch Exception e
-        (log/error :sente-lite.format/edn-serial-failed {:error e :input-type (type data)})
+        (log/log! {:level :error :id :sente-lite.format/edn-serial-failed
+                   :data {:error e :input-type (type data)}})
         nil)))
 
   (deserialize [_ wire-data]
     (try
       (edn/read-string wire-data)
       (catch Exception e
-        (log/error :sente-lite.format/edn-deserial-failed
-                   {:error e
-                    :wire-data-preview (subs (str wire-data) 0
-                                             (min 100 (count wire-data)))})
+        (log/log! {:level :error :id :sente-lite.format/edn-deserial-failed
+                   :data {:error e
+                          :wire-data-preview (subs (str wire-data) 0
+                                                   (min 100 (count wire-data)))}})
         nil)))
 
   (content-type [_] "application/edn")
@@ -96,7 +98,8 @@
         (transit/write writer data)
         (.toString out "UTF-8"))
       (catch Exception e
-        (log/error :sente-lite.format/transit-serial-failed {:error e :input-type (type data)})
+        (log/log! {:level :error :id :sente-lite.format/transit-serial-failed
+                   :data {:error e :input-type (type data)}})
         nil)))
 
   (deserialize [_ wire-data]
@@ -105,10 +108,10 @@
             reader (transit/reader in :json {:read-transforms read-handlers})]
         (transit/read reader))
       (catch Exception e
-        (log/error :sente-lite.format/transit-deserial-failed
-                   {:error e
-                    :wire-data-preview (subs (str wire-data) 0
-                                             (min 100 (count wire-data)))})
+        (log/log! {:level :error :id :sente-lite.format/transit-deserial-failed
+                   :data {:error e
+                          :wire-data-preview (subs (str wire-data) 0
+                                                   (min 100 (count wire-data)))}})
         nil)))
 
   (content-type [_] "application/transit+json")
@@ -129,7 +132,8 @@
         (transit/write writer data)
         (.toString out "UTF-8"))
       (catch Exception e
-        (log/error :sente-lite.format/bencode-serial-failed {:error e :input-type (type data)})
+        (log/log! {:level :error :id :sente-lite.format/bencode-serial-failed
+                   :data {:error e :input-type (type data)}})
         nil)))
 
   (deserialize [_ wire-data]
@@ -138,10 +142,10 @@
             reader (transit/reader in :json {:read-transforms read-handlers})]
         (transit/read reader))
       (catch Exception e
-        (log/error :sente-lite.format/bencode-deserial-failed
-                   {:error e
-                    :wire-data-preview (subs (str wire-data) 0
-                                             (min 100 (count wire-data)))})
+        (log/log! {:level :error :id :sente-lite.format/bencode-deserial-failed
+                   :data {:error e
+                          :wire-data-preview (subs (str wire-data) 0
+                                                   (min 100 (count wire-data)))}})
         nil)))
 
   (content-type [_] "application/transit+json+bencode")
@@ -198,8 +202,8 @@
   "Register a custom wire format implementation"
   [format-key wire-format]
   (swap! format-registry assoc format-key wire-format)
-  (log/debug :sente-lite.format/registered {:format-key format-key
-                                            :format-name (format-name wire-format)})
+  (log/log! {:level :debug :id :sente-lite.format/registered
+             :data {:format-key format-key :format-name (format-name wire-format)}})
   wire-format)
 
 (defn get-format

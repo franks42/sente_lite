@@ -43,10 +43,10 @@
                    :message-count 0}]
     (swap! connections assoc channel conn-data)
     (swap! connection-index assoc conn-id channel)
-    (log/trace {:level :debug
-                :id :sente-lite.server/conn-added
-                :data {:conn-id conn-id
-                       :total-connections (count @connections)}})
+    (log/log! {:level :debug
+               :id :sente-lite.server/conn-added
+               :data {:conn-id conn-id
+                      :total-connections (count @connections)}})
     conn-data))
 
 (defn- remove-connection! [channel]
@@ -60,12 +60,12 @@
       (swap! connections dissoc channel)
       (swap! connection-index dissoc conn-id)
 
-      (log/trace {:level :debug
-                  :id :sente-lite.server/conn-removed
-                  :data {:conn-id conn-id
-                         :duration-ms duration
-                         :message-count (:message-count conn-data)
-                         :total-connections (count @connections)}})
+      (log/log! {:level :debug
+                 :id :sente-lite.server/conn-removed
+                 :data {:conn-id conn-id
+                        :duration-ms duration
+                        :message-count (:message-count conn-data)
+                        :total-connections (count @connections)}})
       conn-data)))
 
 (defn- update-connection-activity! [channel]
@@ -100,12 +100,12 @@
     (let [parsed (wire/deserialize wire-format raw-message)]
       parsed)
     (catch Exception e
-      (log/error {:id :sente-lite.server/parse-failed
-                  :error e
-                  :data {:conn-id conn-id
-                         :raw-message raw-message
-                         :format (wire/format-name wire-format)
-                         :error-type (type e)}})
+      (log/log! {:level :error :id :sente-lite.server/parse-failed
+                 :error e
+                 :data {:conn-id conn-id
+                        :raw-message raw-message
+                        :format (wire/format-name wire-format)
+                        :error-type (type e)}})
       nil)))
 
 (defn- send-message! [channel message wire-format]
@@ -114,19 +114,19 @@
     (let [wire-data (wire/serialize wire-format message)]
       (when wire-data
         #?(:bb (http/send! channel wire-data))
-        (log/trace {:level :trace
-                    :id :sente-lite.server/msg-sent
-                    :data {:channel-id (str channel)
-                           :type (:type message)
-                           :size (count wire-data)
-                           :format (wire/format-name wire-format)}})
+        (log/log! {:level :trace
+                   :id :sente-lite.server/msg-sent
+                   :data {:channel-id (str channel)
+                          :type (:type message)
+                          :size (count wire-data)
+                          :format (wire/format-name wire-format)}})
         true))
     (catch Exception e
-      (log/error {:id :sente-lite.server/send-failed
-                  :error e
-                  :data {:channel-id (str channel)
-                         :message-type (:type message)
-                         :format (wire/format-name wire-format)}})
+      (log/log! {:level :error :id :sente-lite.server/send-failed
+                 :error e
+                 :data {:channel-id (str channel)
+                        :message-type (:type message)
+                        :format (wire/format-name wire-format)}})
       false)))
 
 ;; Forward declarations
@@ -137,9 +137,9 @@
   "Route parsed message to appropriate handler"
   [conn-id parsed-message config]
   (let [msg-type (:type parsed-message)]
-    (log/trace {:level :trace
-                :id :sente-lite.server/msg-routing
-                :data {:conn-id conn-id :type msg-type}})
+    (log/log! {:level :trace
+               :id :sente-lite.server/msg-routing
+               :data {:conn-id conn-id :type msg-type}})
 
     (case (keyword msg-type)
       ;; Ping/pong for connection health
@@ -252,11 +252,11 @@
         (if (> time-since-pong timeout-ms)
           ;; Connection is dead - mark for removal
           (do
-            (log/trace {:level :warn
-                        :id :sente-lite.heartbeat/timeout
-                        :data {:conn-id conn-id
-                               :time-since-pong-ms time-since-pong
-                               :timeout-ms timeout-ms}})
+            (log/log! {:level :warn
+                       :id :sente-lite.heartbeat/timeout
+                       :data {:conn-id conn-id
+                              :time-since-pong-ms time-since-pong
+                              :timeout-ms timeout-ms}})
             (swap! dead-conns conj [channel conn-id]))
           ;; Connection alive - send ping
           (send-message! channel {:type :ping
@@ -273,10 +273,10 @@
   (let [interval-ms (get-in config [:heartbeat :interval-ms] 30000)
         enabled? (get-in config [:heartbeat :enabled] true)]
 
-    (log/trace {:level :info
-                :id :sente-lite.heartbeat/starting
-                :data {:enabled enabled?
-                       :interval-ms interval-ms}})
+    (log/log! {:level :info
+               :id :sente-lite.heartbeat/starting
+               :data {:enabled enabled?
+                      :interval-ms interval-ms}})
 
     (when enabled?
       #?(:bb
@@ -286,12 +286,12 @@
                (Thread/sleep interval-ms)
                (when @server-state  ; Check again after sleep
                  (send-heartbeat-pings! config)))
-             (log/trace {:level :info
-                         :id :sente-lite.heartbeat/stopped
-                         :data {}})
+             (log/log! {:level :info
+                        :id :sente-lite.heartbeat/stopped
+                        :data {}})
              (catch Exception e
-               (log/error {:id :sente-lite.heartbeat/task-error
-                           :error e}))))
+               (log/log! {:level :error :id :sente-lite.heartbeat/task-error
+                          :error e}))))
          :clj
          (future
            (try
@@ -299,15 +299,15 @@
                (Thread/sleep interval-ms)
                (when @server-state
                  (send-heartbeat-pings! config)))
-             (log/trace {:level :info
-                         :id :sente-lite.heartbeat/stopped
-                         :data {}})
+             (log/log! {:level :info
+                        :id :sente-lite.heartbeat/stopped
+                        :data {}})
              (catch Exception e
-               (log/error {:id :sente-lite.heartbeat/task-error
-                           :error e}))))
+               (log/log! {:level :error :id :sente-lite.heartbeat/task-error
+                          :error e}))))
          :cljs
-         (log/error {:id :sente-lite.heartbeat/cljs-not-supported
-                     :data {}})))))
+         (log/log! {:level :error :id :sente-lite.heartbeat/cljs-not-supported
+                    :data {}})))))
 
 ;; WebSocket handlers
 (defn- on-websocket-open [channel config]
@@ -321,11 +321,11 @@
                             :server-time (System/currentTimeMillis)}
                    wire-format)
 
-    (log/trace {:level :debug
-                :id :sente-lite.server/ws-open
-                :data {:conn-id conn-id
-                       :config (select-keys config [:port :host])
-                       :wire-format (wire/format-name wire-format)}})))
+    (log/log! {:level :debug
+               :id :sente-lite.server/ws-open
+               :data {:conn-id conn-id
+                      :config (select-keys config [:port :host])
+                      :wire-format (wire/format-name wire-format)}})))
 
 (defn- on-websocket-message [channel raw-message config]
   (when-let [conn-data (get @connections channel)]
@@ -333,44 +333,44 @@
           wire-format (get-wire-format config)]
       (update-connection-activity! channel)
 
-      (log/trace {:level :trace
-                  :id :sente-lite.server/ws-msg-recv
-                  :data {:conn-id conn-id
-                         :size (count raw-message)}})
+      (log/log! {:level :trace
+                 :id :sente-lite.server/ws-msg-recv
+                 :data {:conn-id conn-id
+                        :size (count raw-message)}})
 
       (when-let [parsed-message (parse-message raw-message conn-id wire-format)]
         (let [response (route-message conn-id parsed-message config)]
-          (log/trace {:level :trace
-                      :id :sente-lite.server/msg-processed
-                      :data {:conn-id conn-id
-                             :type (:type parsed-message)
-                             :response-type (:type response)}})
+          (log/log! {:level :trace
+                     :id :sente-lite.server/msg-processed
+                     :data {:conn-id conn-id
+                            :type (:type parsed-message)
+                            :response-type (:type response)}})
           ;; Send response back to client
           (send-message! channel response wire-format))))))
 
 (defn- on-websocket-close [channel status _config]
   (when-let [conn-data (remove-connection! channel)]
-    (log/trace {:level :debug
-                :id :sente-lite.server/ws-close
-                :data {:conn-id (:id conn-data)
-                       :status status
-                       :final-message-count (:message-count conn-data)}})))
+    (log/log! {:level :debug
+               :id :sente-lite.server/ws-close
+               :data {:conn-id (:id conn-data)
+                      :status status
+                      :final-message-count (:message-count conn-data)}})))
 
 (defn- on-websocket-error [channel throwable _config]
   (when-let [conn-data (get @connections channel)]
-    (log/error {:id :sente-lite.server/ws-error
-                :error throwable
-                :data {:conn-id (:id conn-data)
-                       :error-type (type throwable)}})
+    (log/log! {:level :error :id :sente-lite.server/ws-error
+               :error throwable
+               :data {:conn-id (:id conn-data)
+                      :error-type (type throwable)}})
     (remove-connection! channel)))
 
 ;; WebSocket request handler
 (defn- websocket-handler [request config]
-  (log/trace {:level :trace
-              :id :sente-lite.server/ws-req
-              :data {:method (:request-method request)
-                     :uri (:uri request)
-                     :websocket? (:websocket? request)}})
+  (log/log! {:level :trace
+             :id :sente-lite.server/ws-req
+             :data {:method (:request-method request)
+                    :uri (:uri request)
+                    :websocket? (:websocket? request)}})
 
   (if-not (:websocket? request)
     {:status 426
@@ -389,11 +389,11 @@
 ;; HTTP request handler
 (defn- http-handler [config]
   (fn [request]
-    (log/trace {:level :trace
-                :id :sente-lite.server/http-req
-                :data {:method (:request-method request)
-                       :uri (:uri request)
-                       :user-agent (get-in request [:headers "user-agent"])}})
+    (log/log! {:level :trace
+               :id :sente-lite.server/http-req
+               :data {:method (:request-method request)
+                      :uri (:uri request)
+                      :user-agent (get-in request [:headers "user-agent"])}})
 
     (cond
       ;; WebSocket upgrade requests
@@ -437,9 +437,9 @@
   ([config]
    (let [merged-config (merge default-config config)]
 
-     (log/trace {:level :info
-                 :id :sente-lite.server/starting
-                 :data merged-config})
+     (log/log! {:level :info
+                :id :sente-lite.server/starting
+                :data merged-config})
 
      ;; Start HTTP-Kit server
      #?(:bb
@@ -454,12 +454,12 @@
                                 :actual-port actual-port
                                 :start-time (System/currentTimeMillis)})
 
-          (log/trace {:level :info
-                      :id :sente-lite.server/started
-                      :data {:requested-port (:port merged-config)
-                             :actual-port actual-port
-                             :host (:host merged-config)
-                             :ephemeral? (zero? (:port merged-config))}})
+          (log/log! {:level :info
+                     :id :sente-lite.server/started
+                     :data {:requested-port (:port merged-config)
+                            :actual-port actual-port
+                            :host (:host merged-config)
+                            :ephemeral? (zero? (:port merged-config))}})
 
           ;; Start heartbeat task
           (start-heartbeat-task! merged-config)
@@ -472,9 +472,9 @@
   "Stop the WebSocket server"
   []
   (when-let [state @server-state]
-    (log/trace {:level :info
-                :id :sente-lite.server/stopping
-                :data {:active-connections (count @connections)}})
+    (log/log! {:level :info
+               :id :sente-lite.server/stopping
+               :data {:active-connections (count @connections)}})
 
     ;; Close all active connections
     (doseq [[channel _conn-data] @connections]
@@ -491,9 +491,9 @@
     (reset! connections {})
     (reset! connection-index {})
 
-    (log/trace {:level :info
-                :id :sente-lite.server/stopped
-                :data {}})))
+    (log/log! {:level :info
+               :id :sente-lite.server/stopped
+               :data {}})))
 
 (defn get-server-port
   "Get the actual bound port of the running server.
@@ -532,10 +532,10 @@
 (defn broadcast-message!
   "Send message to all connected clients"
   [message]
-  (log/trace {:level :debug
-              :id :sente-lite.server/broadcast-start
-              :data {:message-type (:type message)
-                     :target-connections (count @connections)}})
+  (log/log! {:level :debug
+             :id :sente-lite.server/broadcast-start
+             :data {:message-type (:type message)
+                    :target-connections (count @connections)}})
 
   (let [sent-count (atom 0)
         wire-format (get-wire-format (:config @server-state))]
@@ -543,10 +543,10 @@
       (when (send-message! channel (assoc message :broadcast true) wire-format)
         (swap! sent-count inc)))
 
-    (log/trace {:level :debug
-                :id :sente-lite.server/broadcast-complete
-                :data {:sent-count @sent-count
-                       :total-connections (count @connections)}})
+    (log/log! {:level :debug
+               :id :sente-lite.server/broadcast-complete
+               :data {:sent-count @sent-count
+                      :total-connections (count @connections)}})
     @sent-count))
 
 ;; Channel integration functions
@@ -563,25 +563,25 @@
             delivered (atom 0)
             wire-format (get-wire-format (:config @server-state))]
 
-        (log/trace {:level :debug
-                    :id :sente-lite.server/chan-broadcast-start
-                    :data {:channel-id channel-id
-                           :subscriber-count (count subscribers)}})
+        (log/log! {:level :debug
+                   :id :sente-lite.server/chan-broadcast-start
+                   :data {:channel-id channel-id
+                          :subscriber-count (count subscribers)}})
 
         (doseq [conn-id subscribers]
           (when (send-to-connection! conn-id message-with-meta wire-format)
             (swap! delivered inc)))
 
-        (log/trace {:level :debug
-                    :id :sente-lite.server/chan-broadcast-complete
-                    :data {:channel-id channel-id
-                           :delivered @delivered
-                           :target-count (count subscribers)}})
+        (log/log! {:level :debug
+                   :id :sente-lite.server/chan-broadcast-complete
+                   :data {:channel-id channel-id
+                          :delivered @delivered
+                          :target-count (count subscribers)}})
         @delivered)
       (do
-        (log/trace {:level :warn
-                    :id :sente-lite.server/broadcast-failed
-                    :data {:channel-id channel-id :reason :channel-not-found}})
+        (log/log! {:level :warn
+                   :id :sente-lite.server/broadcast-failed
+                   :data {:channel-id channel-id :reason :channel-not-found}})
         0))))
 
 (defn send-message-to-connection!
