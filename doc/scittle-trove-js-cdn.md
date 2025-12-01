@@ -149,14 +149,38 @@ Looking at [babashka/scittle](https://github.com/babashka/scittle), their workfl
 
 They don't use GitHub Actions for the build itself - it's manual via Babashka tasks. The CDN (jsdelivr) automatically picks up new npm versions.
 
+## How Scittle Plugins Are Distributed
+
+All official Scittle plugins are built together in the main `babashka/scittle` repo:
+
+```clojure
+;; From shadow-cljs.edn
+:modules
+{:scittle {:entries [scittle.core]}
+ :scittle.nrepl {:entries [scittle.nrepl]}
+ :scittle.promesa {:entries [scittle.promesa]}
+ :scittle.js-interop {:entries [scittle.js-interop]}
+ :scittle.pprint {:entries [scittle.pprint]}
+ :scittle.reagent {:entries [scittle.reagent]}
+ :scittle.replicant {:entries [scittle.replicant]}
+ :scittle.re-frame {:entries [scittle.re-frame]}
+ :scittle.cljs-ajax {:entries [scittle.cljs-ajax]}}
+```
+
+They are:
+- Built in a single shadow-cljs build
+- Published together under the `scittle` npm package
+- Available at `cdn.jsdelivr.net/npm/scittle@VERSION/dist/scittle.PLUGIN.js`
+
 ## Options for Trove Plugin
 
 | Option | Effort | Maintenance |
 |--------|--------|-------------|
-| **Upstream in Scittle** | PR to babashka/scittle | Maintained by Scittle team |
-| **Upstream in Trove** | Peter publishes `scittle-trove` | Maintained by Trove author |
-| **Your own package** | Create `@franks42/scittle-trove` | You maintain it |
+| **PR to babashka/scittle** | Add `scittle.trove` module | Maintained by Scittle team |
+| **PR to taoensso/trove** | Peter publishes separate `scittle-trove` | Maintained by Trove author |
 | **Current approach** | 3 script tags loading `.cljc` | Works now, no build needed |
+
+The cleanest solution is a PR to `babashka/scittle` adding Trove as an official plugin.
 
 ## Notes
 
