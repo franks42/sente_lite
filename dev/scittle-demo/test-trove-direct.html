@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove Direct API Test</title>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load Trove source files BEFORE requiring them -->
+  <script src="src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove.cljc" type="application/x-scittle"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    h1 { color: #333; }
+    .log-container { background: white; border: 1px solid #ddd; padding: 15px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Trove Direct API Test</h1>
+  
+  <div>
+    <h2>Test Status</h2>
+    <p id="status">Loading...</p>
+  </div>
+
+  <div class="log-container">
+    <h2>Console Logs</h2>
+    <div id="logs"></div>
+  </div>
+
+  <script type="application/x-scittle">
+    ;; Test Trove using direct API calls (no macros)
+    (println "🧪 Testing Trove Direct API...")
+    
+    ;; Load Trove namespaces
+    (require '[taoensso.trove :as trove])
+    (require '[taoensso.trove.console :as console])
+    (println "✅ Trove loaded!")
+    
+    ;; Get the console log function
+    (let [log-fn (console/get-log-fn)]
+      (println "✅ Console log function obtained!")
+      
+      ;; Test direct API calls (bypassing macro)
+      ;; log-fn signature: [ns coords level id lazy_]
+      ;; lazy_ is a delay containing {:msg :data :error :kvs}
+      
+      ;; Test 1: Simple trace log
+      (log-fn "test-ns" [1 1] :trace :test/trace (delay {:msg "Trace test"}))
+      (println "✅ Trace logged!")
+      
+      ;; Test 2: Debug log
+      (log-fn "test-ns" [2 1] :debug :test/debug (delay {:msg "Debug test"}))
+      (println "✅ Debug logged!")
+      
+      ;; Test 3: Info log
+      (log-fn "test-ns" [3 1] :info :test/info (delay {:msg "Info test"}))
+      (println "✅ Info logged!")
+      
+      ;; Test 4: Warn log
+      (log-fn "test-ns" [4 1] :warn :test/warn (delay {:msg "Warn test"}))
+      (println "✅ Warn logged!")
+      
+      ;; Test 5: Error log
+      (log-fn "test-ns" [5 1] :error :test/error (delay {:msg "Error test"}))
+      (println "✅ Error logged!")
+      
+      ;; Test 6: Fatal log
+      (log-fn "test-ns" [6 1] :fatal :test/fatal (delay {:msg "Fatal test"}))
+      (println "✅ Fatal logged!")
+      
+      ;; Test 7: Log with data
+      (log-fn "test-ns" [7 1] :info :test/with-data 
+              (delay {:msg "Data test" :data {:user-id 123 :action "login"}}))
+      (println "✅ Log with data!")
+      
+      ;; Test 8: Log with error
+      (log-fn "test-ns" [8 1] :error :test/with-error
+              (delay {:msg "Error occurred" :error (js/Error. "Test error")}))
+      (println "✅ Log with error!")
+      
+    )
+    
+    ;; Update status
+    (set! (.-innerHTML (js/document.getElementById "status"))
+      "✅ All Trove direct API tests completed!")
+    
+    (println "✅ All tests completed successfully!")
+  </script>
+</body>
+</html>
