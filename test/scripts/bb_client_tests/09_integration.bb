@@ -5,11 +5,10 @@
 (cp/add-classpath "test/scripts/bb_client_tests")
 
 (require '[sente-lite.server :as server]
-         '[telemere-lite.core :as tel]
          '[ws-client-managed :as wsm]
          '[clojure.set :as set])
 
-(tel/log! :info "=== Phase 6e: Connection Management Integration Test ===")
+(println "[info] " "=== Phase 6e: Connection Management Integration Test ===")
 
 ;;
 ;; Phase 6e: Integration test combining all Phase 6 features
@@ -35,11 +34,11 @@
                          :failures []}))
 
 (defn record-pass! [test-name]
-  (tel/log! :info "✓ PASSED" {:test test-name})
+  (println "[info] " "✓ PASSED" {:test test-name})
   (swap! test-results update :tests-passed inc))
 
 (defn record-fail! [test-name reason]
-  (tel/error! "✗ FAILED" {:test test-name :reason reason})
+  (println "ERROR:" "✗ FAILED" {:test test-name :reason reason})
   (swap! test-results
          (fn [r]
            (-> r
@@ -53,7 +52,7 @@
 
 ;; Helper to start server
 (defn start-test-server! []
-  (tel/log! :info "Starting server with heartbeat enabled")
+  (println "[info] " "Starting server with heartbeat enabled")
   (reset! test-server
           (server/start-server!
            {:port 3000
@@ -68,7 +67,7 @@
 
 ;; Helper to stop server
 (defn stop-test-server! []
-  (tel/log! :info "Stopping server")
+  (println "[info] " "Stopping server")
   (when @test-server
     (server/stop-server!)
     (reset! test-server nil)
@@ -103,7 +102,7 @@
                 :backoff-multiplier 2}}))
 
 ;; Test 1: Initial connection and state
-(tel/log! :info "=== Test 1: Initial connection ===")
+(println "[info] " "=== Test 1: Initial connection ===")
 ((:connect! client1))
 (Thread/sleep 1500)
 
@@ -113,7 +112,7 @@
     (record-fail! "Initial connection" {:expected :open :actual state})))
 
 ;; Test 2: Subscribe to channels (Phase 6d)
-(tel/log! :info "=== Test 2: Channel subscriptions ===")
+(println "[info] " "=== Test 2: Channel subscriptions ===")
 ((:subscribe! client1) "test-channel-1")
 (Thread/sleep 200)
 ((:subscribe! client1) "test-channel-2")
@@ -125,23 +124,23 @@
     (record-fail! "Channel subscriptions" {:expected #{"test-channel-1" "test-channel-2"} :actual subs})))
 
 ;; Test 3: Verify server heartbeat enabled (Phase 6a)
-(tel/log! :info "=== Test 3: Heartbeat configuration ===")
+(println "[info] " "=== Test 3: Heartbeat configuration ===")
 ;; Note: Individual phase tests (6a, 6b) verify heartbeat message flow works.
 ;; Integration test focuses on state management integration.
 (record-pass! "Heartbeat and auto-pong configured")
 
 ;; Test 4: Verify subscription state tracked
-(tel/log! :info "=== Test 4: Subscription state ===")
+(println "[info] " "=== Test 4: Subscription state ===")
 (let [subs ((:get-subscriptions client1))]
   (if (= 2 (count subs))
     (record-pass! "Subscription state maintained")
     (record-fail! "Subscription state" {:expected 2 :actual (count subs)})))
 
 ;; Test 5: Connection loss and auto-reconnection (Phase 6c)
-(tel/log! :info "=== Test 5: Connection loss and reconnection ===")
+(println "[info] " "=== Test 5: Connection loss and reconnection ===")
 (reset! state-changes [])
 (stop-test-server!)
-(tel/log! :info "Server stopped - waiting for reconnection attempt")
+(println "[info] " "Server stopped - waiting for reconnection attempt")
 (Thread/sleep 1000)
 
 ;; Check that we transitioned to reconnecting
@@ -152,7 +151,7 @@
 
 ;; Restart server and verify reconnection
 (start-test-server!)
-(tel/log! :info "Server restarted - waiting for reconnection")
+(println "[info] " "Server restarted - waiting for reconnection")
 (Thread/sleep 4000) ; Wait for reconnection with backoff
 
 (let [state ((:get-state client1))]
@@ -161,7 +160,7 @@
     (record-fail! "Auto-reconnection" {:expected :open :actual state})))
 
 ;; Test 6: Subscription restoration (Phase 6d)
-(tel/log! :info "=== Test 6: Subscription restoration ===")
+(println "[info] " "=== Test 6: Subscription restoration ===")
 (Thread/sleep 1000) ; Give restoration time
 
 (let [subs ((:get-subscriptions client1))]
@@ -170,7 +169,7 @@
     (record-fail! "Subscription restoration" {:expected #{"test-channel-1" "test-channel-2"} :actual subs})))
 
 ;; Test 7: Verify connection remains stable
-(tel/log! :info "=== Test 7: Connection stability ===")
+(println "[info] " "=== Test 7: Connection stability ===")
 ;; Note: Individual tests verify message flow. Integration test verifies state consistency.
 (Thread/sleep 1000)
 (let [state ((:get-state client1))
@@ -181,7 +180,7 @@
     (record-fail! "Connection stability" {:state state :subs-count (count subs)})))
 
 ;; Test 8: State consistency after reconnection
-(tel/log! :info "=== Test 8: State consistency ===")
+(println "[info] " "=== Test 8: State consistency ===")
 ;; Verify all state is consistent: connection open, subscriptions preserved
 (let [state ((:get-state client1))
       subs ((:get-subscriptions client1))]
@@ -191,9 +190,9 @@
     (record-fail! "State consistency" {:state state :subs subs})))
 
 ;; Test 9: Multiple disconnect/reconnect cycles
-(tel/log! :info "=== Test 9: Multiple reconnect cycles ===")
+(println "[info] " "=== Test 9: Multiple reconnect cycles ===")
 (dotimes [i 2]
-  (tel/log! :info "Reconnect cycle" {:cycle (inc i)})
+  (println "[info] " "Reconnect cycle" {:cycle (inc i)})
   (stop-test-server!)
   (Thread/sleep 800)
   (start-test-server!)
@@ -205,7 +204,7 @@
     (record-fail! "Multiple reconnect cycles" {:expected :open :actual state})))
 
 ;; Test 10: Independent client management
-(tel/log! :info "=== Test 10: Multiple independent clients ===")
+(println "[info] " "=== Test 10: Multiple independent clients ===")
 (def client2-messages (atom []))
 (def client2
   (wsm/create-managed-client
@@ -238,7 +237,7 @@
                                       :client2-subs client2-subs})))
 
 ;; Test 11: Verify independent subscription state
-(tel/log! :info "=== Test 11: Independent subscription management ===")
+(println "[info] " "=== Test 11: Independent subscription management ===")
 ;; Note: Message routing tested in individual tests. Integration test verifies state isolation.
 (Thread/sleep 500)
 
@@ -252,19 +251,19 @@
                                                :client2 client2-subs})))
 
 ;; Cleanup
-(tel/log! :info "Cleaning up")
+(println "[info] " "Cleaning up")
 ((:disconnect! client1))
 ((:disconnect! client2))
 (Thread/sleep 500)
 (stop-test-server!)
 
 ;; Report results
-(tel/log! :info "=== Test Results ===")
+(println "[info] " "=== Test Results ===")
 (let [results @test-results
       passed (:tests-passed results)
       failed (:tests-failed results)
       total (+ passed failed)]
-  (tel/log! :info "Tests completed"
+  (println "[info] " "Tests completed"
             {:passed passed
              :failed failed
              :total total
@@ -273,12 +272,12 @@
                              "N/A")})
 
   (when (> failed 0)
-    (tel/error! "Failed tests" {:failures (:failures results)}))
+    (println "ERROR:" "Failed tests" {:failures (:failures results)}))
 
   (if (= 0 failed)
     (do
-      (tel/log! :info "Phase 6e PASSED: All connection management features working correctly")
+      (println "[info] " "Phase 6e PASSED: All connection management features working correctly")
       (System/exit 0))
     (do
-      (tel/error! "Phase 6e FAILED: Some tests failed" {:failures (:failures results)})
+      (println "ERROR:" "Phase 6e FAILED: Some tests failed" {:failures (:failures results)})
       (System/exit 1))))

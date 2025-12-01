@@ -5,11 +5,10 @@
 (cp/add-classpath "test/scripts/bb_client_tests")
 
 (require '[sente-lite.server :as server]
-         '[telemere-lite.core :as tel]
          '[ws-client :as ws]
          '[cheshire.core :as json])
 
-(tel/log! :info "=== Phase 4: Channel Pub/Sub Test ===")
+(println "[info] " "=== Phase 4: Channel Pub/Sub Test ===")
 
 ;;
 ;; Phase 4: Multiple clients subscribing to channels and receiving published messages
@@ -28,7 +27,7 @@
 (def clients-ready (promise))
 
 ;; Start server with channel system
-(tel/log! :info "Starting server with channel system on port 3000")
+(println "[info] " "Starting server with channel system on port 3000")
 (def test-server
   (server/start-server!
    {:port 3000
@@ -48,13 +47,13 @@
           msg (try
                 (json/parse-string data-str true) ; true = keywordize keys
                 (catch Exception e
-                  (tel/error! "Failed to parse message" {:error e :data data-str})
+                  (println "ERROR:" "Failed to parse message" {:error e :data data-str})
                   nil))]
       (when msg
-        (tel/log! :info "Client received message" {:client client-id :message msg})
+        (println "[info] " "Client received message" {:client client-id :message msg})
         (swap! received-messages update client-id (fnil conj []) msg)))))
 
-(tel/log! :info "Connecting 3 WebSocket clients")
+(println "[info] " "Connecting 3 WebSocket clients")
 
 ;; Connect client 1
 (def client1
@@ -74,11 +73,11 @@
    {:uri "ws://localhost:3000/"
     :on-message (message-handler :client3)}))
 
-(tel/log! :info "All clients connected")
+(println "[info] " "All clients connected")
 (Thread/sleep 1000) ; Wait for welcome messages
 
 ;; Subscribe clients to channels
-(tel/log! :info "Subscribing clients to channels")
+(println "[info] " "Subscribing clients to channels")
 
 ;; Client 1 and 2 subscribe to "announcements" channel
 (ws/send! client1 (json/generate-string
@@ -100,7 +99,7 @@
 (reset! received-messages {})
 
 ;; Publish message to "announcements" channel
-(tel/log! :info "Publishing message to 'announcements' channel from client1")
+(println "[info] " "Publishing message to 'announcements' channel from client1")
 (ws/send! client1 (json/generate-string
                    {:type "publish"
                     :channel-id "announcements"
@@ -110,7 +109,7 @@
 (Thread/sleep 2000) ; Wait for message delivery
 
 ;; Publish message to "alerts" channel
-(tel/log! :info "Publishing message to 'alerts' channel from client2")
+(println "[info] " "Publishing message to 'alerts' channel from client2")
 (ws/send! client2 (json/generate-string
                    {:type "publish"
                     :channel-id "alerts"
@@ -120,25 +119,25 @@
 (Thread/sleep 2000) ; Wait for message delivery
 
 ;; Check results
-(tel/log! :info "Checking received messages")
+(println "[info] " "Checking received messages")
 
 (def client1-msgs (get @received-messages :client1 []))
 (def client2-msgs (get @received-messages :client2 []))
 (def client3-msgs (get @received-messages :client3 []))
 
-(tel/log! :info "Phase 4 Summary"
+(println "[info] " "Phase 4 Summary"
           {:data {:client1-received (count client1-msgs)
                   :client2-received (count client2-msgs)
                   :client3-received (count client3-msgs)}})
 
 ;; Cleanup
-(tel/log! :info "Closing clients")
+(println "[info] " "Closing clients")
 (ws/close! client1)
 (ws/close! client2)
 (ws/close! client3)
 (Thread/sleep 500)
 
-(tel/log! :info "Stopping server")
+(println "[info] " "Stopping server")
 (server/stop-server!)
 
 ;; Validate results
@@ -158,10 +157,10 @@
   (and (or (has-announcement-message? client1-msgs)
            (has-announcement-message? client2-msgs))
        (has-alert-message? client3-msgs))
-  (tel/log! :info "Phase 4 PASSED: Channel pub/sub working")
+  (println "[info] " "Phase 4 PASSED: Channel pub/sub working")
 
   :else
-  (tel/error! "Phase 4 FAILED: Channel pub/sub not working correctly"
+  (println "ERROR:" "Phase 4 FAILED: Channel pub/sub not working correctly"
               {:error "Expected messages not received"
                :client1-msgs client1-msgs
                :client2-msgs client2-msgs

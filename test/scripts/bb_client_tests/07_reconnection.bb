@@ -5,10 +5,9 @@
 (cp/add-classpath "test/scripts/bb_client_tests")
 
 (require '[sente-lite.server :as server]
-         '[telemere-lite.core :as tel]
          '[ws-client-managed :as wsm])
 
-(tel/log! :info "=== Phase 6c: Auto-Reconnection Test ===")
+(println "[info] " "=== Phase 6c: Auto-Reconnection Test ===")
 
 ;;
 ;; Phase 6c: Auto-reconnection with exponential backoff
@@ -27,7 +26,7 @@
 
 ;; Helper to start server
 (defn start-test-server! []
-  (tel/log! :info "Starting server on port 3000")
+  (println "[info] " "Starting server on port 3000")
   (reset! test-server
           (server/start-server!
            {:port 3000
@@ -46,26 +45,26 @@
 
 ;; Helper to stop server
 (defn stop-test-server! []
-  (tel/log! :info "Stopping server")
+  (println "[info] " "Stopping server")
   (when @test-server
     (server/stop-server!)
     (reset! test-server nil)
     (Thread/sleep 500)))
 
 ;; Test 1: Successful reconnection after server restart
-(tel/log! :info "Test 1: Reconnection after server restart")
+(println "[info] " "Test 1: Reconnection after server restart")
 (start-test-server!)
 
 (def client1
   (wsm/create-managed-client
    {:uri "ws://localhost:3000/"
     :on-state-change (fn [old-state new-state]
-                       (tel/log! :info "State changed" {:old old-state :new new-state})
+                       (println "[info] " "State changed" {:old old-state :new new-state})
                        (swap! state-log conj {:old old-state :new new-state}))
     :on-message (fn [msg]
-                  (tel/log! :info "Message received" {:type (:type msg)}))
+                  (println "[info] " "Message received" {:type (:type msg)}))
     :on-open (fn [ws]
-               (tel/log! :info "Connection opened")
+               (println "[info] " "Connection opened")
                (swap! connection-count inc))
     :heartbeat {:auto-pong true}
     :reconnect {:enabled true
@@ -79,35 +78,35 @@
 (Thread/sleep 1500)
 
 (def state-after-connect ((:get-state client1)))
-(tel/log! :info "State after connect" {:state state-after-connect})
+(println "[info] " "State after connect" {:state state-after-connect})
 
 (when (not= :open state-after-connect)
-  (tel/error! "FAILED: Client should be :open after connect" {:actual state-after-connect}))
+  (println "ERROR:" "FAILED: Client should be :open after connect" {:actual state-after-connect}))
 
 (def connections-before-restart @connection-count)
 
 ;; Simulate connection loss by stopping server
 (stop-test-server!)
-(tel/log! :info "Server stopped - connection should be lost")
+(println "[info] " "Server stopped - connection should be lost")
 (Thread/sleep 500)
 
 ;; Restart server - client should reconnect
 (start-test-server!)
-(tel/log! :info "Server restarted - waiting for reconnection")
+(println "[info] " "Server restarted - waiting for reconnection")
 (Thread/sleep 3000) ; Wait for reconnection with backoff
 
 (def state-after-reconnect ((:get-state client1)))
 (def connections-after-reconnect @connection-count)
 (def reconnected? (> connections-after-reconnect connections-before-restart))
 
-(tel/log! :info "Reconnection result"
+(println "[info] " "Reconnection result"
           {:connections-before connections-before-restart
            :connections-after connections-after-reconnect
            :state state-after-reconnect
            :reconnected? reconnected?})
 
 ;; Test 2: Max attempts exceeded
-(tel/log! :info "Test 2: Max attempts exceeded")
+(println "[info] " "Test 2: Max attempts exceeded")
 ((:disconnect! client1))
 (Thread/sleep 500)
 
@@ -122,7 +121,7 @@
   (wsm/create-managed-client
    {:uri "ws://localhost:3000/"
     :on-state-change (fn [old-state new-state]
-                       (tel/log! :info "Client2 state" {:old old-state :new new-state})
+                       (println "[info] " "Client2 state" {:old old-state :new new-state})
                        (swap! state-log conj {:old old-state :new new-state}))
     :reconnect {:enabled true
                 :max-attempts 3
@@ -131,12 +130,12 @@
                 :backoff-multiplier 2}}))
 
 ;; Try to connect (will fail and retry until max attempts)
-(tel/log! :info "Attempting to connect to stopped server...")
+(println "[info] " "Attempting to connect to stopped server...")
 ((:connect! client2))
 (Thread/sleep 5000) ; Wait for all retry attempts
 
 (def final-state ((:get-state client2)))
-(tel/log! :info "Final state after retries" {:state final-state})
+(println "[info] " "Final state after retries" {:state final-state})
 
 ;; Verify reached :failed state
 (def reached-failed (= :failed final-state))
@@ -148,10 +147,10 @@
                  log)))
 
 (def reconnecting-attempts (count-transitions @state-log :connecting :reconnecting))
-(tel/log! :info "Reconnection attempts observed" {:count reconnecting-attempts})
+(println "[info] " "Reconnection attempts observed" {:count reconnecting-attempts})
 
 ;; Cleanup
-(tel/log! :info "Cleaning up")
+(println "[info] " "Cleaning up")
 ((:disconnect! client1))
 (stop-test-server!)
 
@@ -162,13 +161,13 @@
   (and reconnected?
        (= :open state-after-reconnect)
        reached-failed)
-  (tel/log! :info "Phase 6c PASSED: Auto-reconnection working correctly"
+  (println "[info] " "Phase 6c PASSED: Auto-reconnection working correctly"
             {:reconnected? reconnected?
              :final-state-correct? (= :open state-after-reconnect)
              :max-attempts-works? reached-failed})
 
   :else
-  (tel/error! "Phase 6c FAILED: Auto-reconnection not working correctly"
+  (println "ERROR:" "Phase 6c FAILED: Auto-reconnection not working correctly"
               {:error "Reconnection tests failed"
                :reconnected? reconnected?
                :state-after-reconnect state-after-reconnect

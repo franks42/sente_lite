@@ -3,8 +3,7 @@
 (require '[babashka.classpath :as cp])
 (cp/add-classpath "src")
 
-(require '[telemere-lite.core :as tel]
-         '[babashka.process :as p])
+(require '[babashka.process :as p])
 
 ;;
 ;; Multi-Process Test Runner
@@ -12,7 +11,7 @@
 ;; Runs all multi-process tests in sequence and reports results.
 ;;
 
-(tel/log! :info "=== Multi-Process Test Suite ===")
+(println "[info] " "=== Multi-Process Test Suite ===")
 
 (def script-dir (-> *file* babashka.fs/parent str))
 
@@ -45,8 +44,8 @@
 (def results (atom []))
 
 (doseq [test tests]
-  (tel/log! :info "Running test" {:id (:id test) :name (:name test)})
-  (tel/log! :info "Description" {:desc (:description test)})
+  (println "[info] " "Running test" {:id (:id test) :name (:name test)})
+  (println "[info] " "Description" {:desc (:description test)})
 
   (def start-time (System/currentTimeMillis))
 
@@ -60,13 +59,13 @@
 
     (if (zero? (:exit result))
       (do
-        (tel/log! :info "✅ PASSED" {:test (:name test)
+        (println "[info] " "✅ PASSED" {:test (:name test)
                                       :duration-sec duration-sec})
         (swap! results conj {:test test
                              :status :passed
                              :duration-sec duration-sec}))
       (do
-        (tel/error! "❌ FAILED" {:test (:name test)
+        (println "ERROR:" "❌ FAILED" {:test (:name test)
                                   :exit-code (:exit result)
                                   :duration-sec duration-sec})
         (swap! results conj {:test test
@@ -77,7 +76,7 @@
     (catch Exception e
       (def duration-ms (- (System/currentTimeMillis) start-time))
       (def duration-sec (/ duration-ms 1000.0))
-      (tel/error! "❌ ERROR" {:test (:name test)
+      (println "ERROR:" "❌ ERROR" {:test (:name test)
                                :error (str e)
                                :duration-sec duration-sec})
       (swap! results conj {:test test
@@ -85,18 +84,18 @@
                            :error (str e)
                            :duration-sec duration-sec})))
 
-  (tel/log! :info "---"))
+  (println "[info] " "---"))
 
 ;; Report summary
-(tel/log! :info "")
-(tel/log! :info "=== Test Suite Summary ===")
+(println "[info] " "")
+(println "[info] " "=== Test Suite Summary ===")
 
 (def passed-count (count (filter #(= :passed (:status %)) @results)))
 (def failed-count (count (filter #(= :failed (:status %)) @results)))
 (def error-count (count (filter #(= :error (:status %)) @results)))
 (def total-count (count @results))
 
-(tel/log! :info "Results"
+(println "[info] " "Results"
           {:total total-count
            :passed passed-count
            :failed failed-count
@@ -107,18 +106,18 @@
                     :passed "✅ PASSED"
                     :failed "❌ FAILED"
                     :error "❌ ERROR"))
-  (tel/log! :info status-str
+  (println "[info] " status-str
             {:test (get-in result [:test :name])
              :duration-sec (:duration-sec result)}))
 
 (def total-duration (reduce + (map :duration-sec @results)))
-(tel/log! :info "Total duration" {:seconds total-duration})
+(println "[info] " "Total duration" {:seconds total-duration})
 
 ;; Exit with appropriate code
 (if (and (zero? failed-count) (zero? error-count))
   (do
-    (tel/log! :info "✅ All tests passed!")
+    (println "[info] " "✅ All tests passed!")
     (System/exit 0))
   (do
-    (tel/error! "❌ Some tests failed")
+    (println "ERROR:" "❌ Some tests failed")
     (System/exit 1)))

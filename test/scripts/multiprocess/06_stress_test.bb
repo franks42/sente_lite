@@ -6,7 +6,6 @@
 
 (require '[babashka.process :as p]
          '[babashka.fs :as fs]
-         '[telemere-lite.core :as tel]
          '[mp-utils :as mp])
 
 ;;
@@ -16,7 +15,7 @@
 ;; Validates: Server handles high concurrent load, no message loss, performance
 ;;
 
-(tel/log! :info "=== Test 6: Stress Test ===")
+(println "[info] " "=== Test 6: Stress Test ===")
 
 (def test-id "stress-06")
 (def test-duration-sec 20)
@@ -25,13 +24,13 @@
 (def message-interval-ms 1000) ; 1 msg/sec per client = 20 msg/sec total
 
 ;; Cleanup from any previous run
-(tel/log! :info "Cleaning up previous test files")
+(println "[info] " "Cleaning up previous test files")
 (def process-ids (concat ["server"]
                          (map #(str "client-" %) (range 1 (inc client-count)))))
 (mp/cleanup-test-files! test-id process-ids)
 
 ;; Start server process in background
-(tel/log! :info "Starting server process")
+(println "[info] " "Starting server process")
 (def script-dir (-> *file* babashka.fs/parent str))
 (def server-process
   (p/process ["bb" (str script-dir "/mp_server.bb") test-id (str test-duration-sec)]
@@ -39,22 +38,22 @@
               :err :inherit}))
 
 ;; Wait for server ready
-(tel/log! :info "Waiting for server ready signal")
+(println "[info] " "Waiting for server ready signal")
 (try
   (mp/wait-for-ready test-id "server" 5000)
-  (tel/log! :info "Server is ready")
+  (println "[info] " "Server is ready")
   (catch Exception e
-    (tel/error! "Server failed to become ready" {:error (str e)})
+    (println "ERROR:" "Server failed to become ready" {:error (str e)})
     (try (babashka.process/destroy server-process) (catch Exception _))
     (mp/cleanup-test-files! test-id process-ids)
     (System/exit 1)))
 
 ;; Get server port
 (def server-port (mp/read-port test-id 1000))
-(tel/log! :info "Server port discovered" {:port server-port})
+(println "[info] " "Server port discovered" {:port server-port})
 
 ;; Start all clients SIMULTANEOUSLY
-(tel/log! :info "Starting stress test clients"
+(println "[info] " "Starting stress test clients"
           {:count client-count
            :messages-per-client messages-per-client
            :message-interval-ms message-interval-ms
@@ -71,16 +70,16 @@
                 {:out :inherit
                  :err :inherit}))))
 
-(tel/log! :info "All client processes started" {:count (count client-processes)})
+(println "[info] " "All client processes started" {:count (count client-processes)})
 
 ;; Wait for all clients to complete
-(tel/log! :info "Waiting for all clients to complete")
+(println "[info] " "Waiting for all clients to complete")
 (def client-process-ids (map #(str "client-" %) (range 1 (inc client-count))))
 (try
   (mp/wait-for-all-ready test-id client-process-ids 45000)
-  (tel/log! :info "All clients completed")
+  (println "[info] " "All clients completed")
   (catch Exception e
-    (tel/error! "Clients failed to complete" {:error (str e)})
+    (println "ERROR:" "Clients failed to complete" {:error (str e)})
     (try (babashka.process/destroy server-process) (catch Exception _))
     (doseq [proc client-processes]
       (try (babashka.process/destroy proc) (catch Exception _)))
@@ -88,22 +87,22 @@
     (System/exit 1)))
 
 ;; Wait for processes to exit
-(tel/log! :info "Waiting for processes to exit")
+(println "[info] " "Waiting for processes to exit")
 (doseq [proc client-processes]
   @proc)
 (Thread/sleep 1000)
 
 ;; Kill server
-(tel/log! :info "Stopping server")
+(println "[info] " "Stopping server")
 (try
   (babashka.process/destroy server-process)
   (catch Exception e
-    (tel/log! :warn "Could not stop server" {:error (str e)})))
+    (println "[warn] " "Could not stop server" {:error (str e)})))
 
 ;; Read client results
-(tel/log! :info "Reading test results")
+(println "[info] " "Reading test results")
 (def results (mp/read-all-results test-id client-process-ids 5000))
-(tel/log! :info "Results collected" {:count (count results)})
+(println "[info] " "Results collected" {:count (count results)})
 
 ;; Calculate test duration
 (def end-time (System/currentTimeMillis))
@@ -112,7 +111,7 @@
 
 ;; Analyze results
 (def aggregated (mp/aggregate-results results))
-(tel/log! :info "Test results" {:summary aggregated})
+(println "[info] " "Test results" {:summary aggregated})
 
 ;; Calculate performance metrics
 (def total-messages-sent (reduce + (map #(:messages-sent % 0) results)))
@@ -122,7 +121,7 @@
                         (/ total-messages-sent total-duration-sec)
                         0))
 
-(tel/log! :info "Performance metrics"
+(println "[info] " "Performance metrics"
           {:total-messages-sent total-messages-sent
            :total-messages-received total-messages-received
            :total-connections total-connections
@@ -130,7 +129,7 @@
            :messages-per-sec (format "%.2f" messages-per-sec)})
 
 ;; Cleanup
-(tel/log! :info "Cleaning up test files")
+(println "[info] " "Cleaning up test files")
 (mp/cleanup-test-files! test-id process-ids)
 
 ;; Validate
@@ -174,7 +173,7 @@
 ;; Report results
 (if (empty? @validation-failures)
   (do
-    (tel/log! :info "✅ Test 6 PASSED: Stress test working"
+    (println "[info] " "✅ Test 6 PASSED: Stress test working"
               {:client-count client-count
                :total-messages total-messages-sent
                :duration-sec total-duration-sec
@@ -182,7 +181,7 @@
                :sample-client (first results)})
     (System/exit 0))
   (do
-    (tel/error! "❌ Test 6 FAILED: Validation failures"
+    (println "ERROR:" "❌ Test 6 FAILED: Validation failures"
                 {:failures @validation-failures
                  :results results})
     (System/exit 1)))

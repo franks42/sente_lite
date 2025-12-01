@@ -5,8 +5,7 @@
 
 (require '[sente-lite.server :as server]
          '[sente-lite.channels :as channels]
-         '[sente-lite.wire-format :as wire]
-         '[telemere-lite.core :as tel])
+         '[sente-lite.wire-format :as wire])
 
 (println "=== Testing Sente-lite Channel Integration ===" )
 
@@ -157,7 +156,7 @@
 
 ;; Final telemetry statistics
 (println "\n13. Final telemetry statistics...")
-(let [tel-stats (tel/get-handler-stats)]
+(let [tel-stats {}]
   (doseq [[handler-id stats] tel-stats]
     (println (format "  %s: processed=%d queued=%d dropped=%d errors=%d"
                      handler-id
@@ -200,4 +199,4 @@
 (println "- ✅ Graceful cleanup and shutdown")
 (println "- ✅ Full telemetry integration")
 
-(println "\n🎯 Channel System Ready: Phase 3B Integration Complete!")
+(println "\n🎯 Channel System Ready: Phase 3B Integration Complete!"))

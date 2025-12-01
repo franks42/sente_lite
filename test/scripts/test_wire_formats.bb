@@ -183,7 +183,6 @@
   (println (format "Summary: %d formats, %d successful, %d lossless"
                    (count test-results) successful lossless)))
 
-
 (println "\n✅ Wire Format System Test Complete!")
 (println "\nKey Capabilities Validated:")
 (println "- ✅ Pluggable serialization architecture")

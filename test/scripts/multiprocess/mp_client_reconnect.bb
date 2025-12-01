@@ -5,8 +5,7 @@
 (cp/add-classpath "test/scripts/multiprocess")
 (cp/add-classpath "test/scripts/bb_client_tests")
 
-(require '[telemere-lite.core :as tel]
-         '[mp-utils :as mp]
+(require '[mp-utils :as mp]
          '[ws-client-managed :as wsm]
          '[cheshire.core :as json])
 
@@ -35,7 +34,7 @@
                 initial-message-count post-reconnect-message-count]} (parse-args args)
         process-id (str "client-" client-id)]
 
-    (tel/log! :info "=== Multi-Process Test Client (Reconnection) ==="
+    (println "[info] " "=== Multi-Process Test Client (Reconnection) ==="
               {:test-id test-id
                :client-id client-id
                :channel channel-id
@@ -58,26 +57,26 @@
       (wsm/create-managed-client
        {:uri (str "ws://localhost:" port "/")
         :on-state-change (fn [old-state new-state]
-                           (tel/log! :info "State changed"
+                           (println "[info] " "State changed"
                                      {:old old-state :new new-state})
                            (swap! state-log conj {:old old-state :new new-state})
 
                             ;; Detect disconnection
                            (when (and (= :open old-state)
                                       (not= :open new-state))
-                             (tel/log! :info "Disconnection detected")
+                             (println "[info] " "Disconnection detected")
                              (reset! disconnection-detected true))
 
                             ;; Detect reconnection
                            (when (and @disconnection-detected
                                       (= :open new-state))
-                             (tel/log! :info "Reconnection detected")
+                             (println "[info] " "Reconnection detected")
                              (reset! reconnection-detected true)))
         :on-message (fn [msg]
-                      (tel/log! :info "Message received" {:msg msg})
+                      (println "[info] " "Message received" {:msg msg})
                       (swap! messages-received conj msg))
         :on-open (fn [ws]
-                   (tel/log! :info "Connection opened")
+                   (println "[info] " "Connection opened")
                    (swap! connection-count inc))
         :heartbeat {:auto-pong true}
         :reconnect {:enabled true
@@ -86,7 +85,7 @@
                     :max-delay-ms 5000}}))
 
     ;; Connect
-    (tel/log! :info "Connecting to server")
+    (println "[info] " "Connecting to server")
     ((:connect! client))
     (Thread/sleep 1000)
 
@@ -94,10 +93,10 @@
     (def state ((:get-state client)))
     (when (not= :open state)
       (swap! failures conj {:type :connection :expected :open :actual state})
-      (tel/error! "Failed to connect" {:state state}))
+      (println "ERROR:" "Failed to connect" {:state state}))
 
     ;; Subscribe to channel
-    (tel/log! :info "Subscribing to channel" {:channel channel-id})
+    (println "[info] " "Subscribing to channel" {:channel channel-id})
     ((:subscribe! client) channel-id)
     (Thread/sleep 500)
 
@@ -107,10 +106,10 @@
       (swap! failures conj {:type :subscription
                             :expected channel-id
                             :actual subs})
-      (tel/error! "Failed to subscribe" {:subs subs}))
+      (println "ERROR:" "Failed to subscribe" {:subs subs}))
 
     ;; Send initial messages
-    (tel/log! :info "Sending initial messages" {:count initial-message-count})
+    (println "[info] " "Sending initial messages" {:count initial-message-count})
     (dotimes [i initial-message-count]
       (let [msg {:type :initial-message
                  :client-id client-id
@@ -123,9 +122,9 @@
           (Thread/sleep 100)
           (catch Exception e
             (swap! failures conj {:type :send-initial :error (str e)})
-            (tel/error! "Failed to send initial" {:error e})))))
+            (println "ERROR:" "Failed to send initial" {:error e})))))
 
-    (tel/log! :info "Initial messages sent, waiting for server restart")
+    (println "[info] " "Initial messages sent, waiting for server restart")
 
     ;; Wait for disconnection detection and reconnection
     ;; Poll for test-complete signal
@@ -133,7 +132,7 @@
       (if (>= attempts 60)  ; 60 seconds max
         (do
           (swap! failures conj {:type :timeout :reason "test-complete signal not received"})
-          (tel/error! "Timeout waiting for test-complete signal"))
+          (println "ERROR:" "Timeout waiting for test-complete signal"))
         (let [signal-found (try
                              (mp/wait-for-ready test-id "test-complete" 1000)
                              true
@@ -141,7 +140,7 @@
                                false))]
           (if signal-found
             (do
-              (tel/log! :info "Test-complete signal received")
+              (println "[info] " "Test-complete signal received")
               ;; Continue to post-reconnect phase
               nil)
             (do
@@ -150,7 +149,7 @@
 
     ;; After reconnection, send post-reconnect messages
     (when @reconnection-detected
-      (tel/log! :info "Sending post-reconnect messages" {:count post-reconnect-message-count})
+      (println "[info] " "Sending post-reconnect messages" {:count post-reconnect-message-count})
       (dotimes [i post-reconnect-message-count]
         (let [msg {:type :post-reconnect-message
                    :client-id client-id
@@ -163,15 +162,15 @@
             (Thread/sleep 100)
             (catch Exception e
               (swap! failures conj {:type :send-post-reconnect :error (str e)})
-              (tel/error! "Failed to send post-reconnect" {:error e}))))))
+              (println "ERROR:" "Failed to send post-reconnect" {:error e}))))))
 
     ;; Wait for final responses
-    (tel/log! :info "Waiting for final responses")
+    (println "[info] " "Waiting for final responses")
     (Thread/sleep 2000)
 
     ;; Signal client ready/done
     (mp/signal-ready! test-id process-id)
-    (tel/log! :info "Client done signal sent")
+    (println "[info] " "Client done signal sent")
 
     ;; Disconnect
     ((:disconnect! client))
@@ -194,7 +193,7 @@
                  :failure-details @failures})
 
     (mp/write-result! test-id process-id result)
-    (tel/log! :info "Client result written" {:result result})
+    (println "[info] " "Client result written" {:result result})
 
     (System/exit (if (empty? @failures) 0 1))))
 

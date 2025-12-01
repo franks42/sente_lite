@@ -4,20 +4,16 @@
 (cp/add-classpath "src")
 
 (require '[org.httpkit.server :as http]
-         '[telemere-lite.core :as tel]
-         '[clojure.data.json :as json])
+         '[cheshire.core :as json])
 
 (println "=== Testing WebSocket Foundation ===")
 
 ;; Initialize telemetry
-(tel/startup!)
-(tel/add-stdout-handler! :ws-events)
-
 ;; Test data
 (def test-connections (atom {}))
 
 (defn websocket-handler [request]
-  (tel/event! ::websocket-request {:method (:request-method request)
+  (println "Event: " {:method (:request-method request)
                                    :uri (:uri request)
                                    :headers (select-keys (:headers request)
                                                        ["upgrade" "connection" "sec-websocket-key"])})
@@ -28,42 +24,42 @@
       {:on-open (fn [ch]
                   (let [conn-id (str (gensym "conn-"))]
                     (swap! test-connections assoc ch {:id conn-id :opened-at (System/currentTimeMillis)})
-                    (tel/event! ::connection-opened {:conn-id conn-id :channel-info (str ch)})
-                    (http/send! ch (json/write-str {:type :welcome :conn-id conn-id}))))
+                    (println "Event: " {:conn-id conn-id :channel-info (str ch)})
+                    (http/send! ch (json/generate-string {:type :welcome :conn-id conn-id}))))
 
        :on-message (fn [ch message]
                      (let [conn-info (get @test-connections ch)
                            conn-id (:id conn-info)]
-                       (tel/event! ::message-received {:conn-id conn-id :message message})
+                       (println "Event: " {:conn-id conn-id :message message})
                        (try
-                         (let [parsed (json/read-str message :key-fn keyword)]
-                           (tel/event! ::message-parsed {:conn-id conn-id :type (:type parsed)})
+                         (let [parsed (json/parse-string message :key-fn keyword)]
+                           (println "Event: " {:conn-id conn-id :type (:type parsed)})
                            ;; Echo back with connection info
-                           (http/send! ch (json/write-str {:type :echo
+                           (http/send! ch (json/generate-string {:type :echo
                                                           :original parsed
                                                           :conn-id conn-id
                                                           :timestamp (System/currentTimeMillis)})))
                          (catch Exception e
-                           (tel/error! e "Failed to parse message" {:conn-id conn-id :raw-message message})
-                           (http/send! ch (json/write-str {:type :error :error "Invalid JSON"}))))))
+                           (println "ERROR:" e "Failed to parse message" {:conn-id conn-id :raw-message message})
+                           (http/send! ch (json/generate-string {:type :error :error "Invalid JSON"}))))))
 
        :on-close (fn [ch status]
                    (let [conn-info (get @test-connections ch)
                          conn-id (:id conn-info)
                          duration (when (:opened-at conn-info)
                                    (- (System/currentTimeMillis) (:opened-at conn-info)))]
-                     (tel/event! ::connection-closed {:conn-id conn-id :status status :duration-ms duration})
+                     (println "Event: " {:conn-id conn-id :status status :duration-ms duration})
                      (swap! test-connections dissoc ch)))
 
        :on-error (fn [ch throwable]
                    (let [conn-info (get @test-connections ch)
                          conn-id (:id conn-info)]
-                     (tel/error! throwable "WebSocket error" {:conn-id conn-id})
+                     (println "ERROR:" throwable "WebSocket error" {:conn-id conn-id})
                      (swap! test-connections dissoc ch)))})))
 
 ;; Simple HTTP handler for non-WebSocket requests
 (defn http-handler [request]
-  (tel/event! ::http-request {:method (:request-method request) :uri (:uri request)})
+  (println "Event: " {:method (:request-method request) :uri (:uri request)})
   (cond
     (= (:uri request) "/")
     {:status 200
@@ -114,7 +110,7 @@
 (println "Starting WebSocket server on port 3000...")
 (def server (http/run-server http-handler {:port 3000}))
 
-(tel/event! ::server-started {:port 3000 :server-info (str server)})
+(println "Event: " {:port 3000 :server-info (str server)})
 
 (println "Server started! Test WebSocket at:")
 (println "  HTTP: http://localhost:3000")
@@ -127,7 +123,7 @@
   (loop []
     (Thread/sleep 5000)
     (let [active-connections (count @test-connections)]
-      (tel/event! ::connection-stats {:active-connections active-connections})
+      (println "Event: " {:active-connections active-connections})
       (when (pos? active-connections)
         (println (format "Active connections: %d" active-connections))))
     (recur)))
@@ -138,10 +134,9 @@
     (Thread/sleep 1000)
     (recur))
   (catch Exception e
-    (tel/event! ::server-stopping {:reason "Exception" :error (str e)})
+    (println "Event: " {:reason "Exception" :error (str e)})
     (println "Stopping server...")))
 
 ;; Cleanup
 (server)
-(tel/event! ::server-stopped {})
-(tel/shutdown-telemetry!)
+(println "Event: " {})

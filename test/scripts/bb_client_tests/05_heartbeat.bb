@@ -5,11 +5,10 @@
 (cp/add-classpath "test/scripts/bb_client_tests")
 
 (require '[sente-lite.server :as server]
-         '[telemere-lite.core :as tel]
          '[ws-client :as ws]
          '[cheshire.core :as json])
 
-(tel/log! :info "=== Phase 6a: Server Heartbeat Test ===")
+(println "[info] " "=== Phase 6a: Server Heartbeat Test ===")
 
 ;;
 ;; Phase 6a: Server heartbeat detection and dead connection cleanup
@@ -28,7 +27,7 @@
 (def client2-closed (promise))
 
 ;; Start server with aggressive heartbeat settings for testing
-(tel/log! :info "Starting server with heartbeat: interval=2s, timeout=5s")
+(println "[info] " "Starting server with heartbeat: interval=2s, timeout=5s")
 (def test-server
   (server/start-server!
    {:port 3000
@@ -44,42 +43,42 @@
 (Thread/sleep 500) ; Let server initialize
 
 ;; Client 1: Responsive (auto-responds to pings)
-(tel/log! :info "Connecting responsive client1")
+(println "[info] " "Connecting responsive client1")
 (def client1
   (ws/connect!
    {:uri "ws://localhost:3000/"
     :on-message (fn [ws data last]
                   (let [data-str (str data)
                         msg (json/parse-string data-str true)]
-                    (tel/log! :info "Client1 received message" {:type (:type msg)})
+                    (println "[info] " "Client1 received message" {:type (:type msg)})
                     ;; Auto-respond to pings
                     (when (= "ping" (:type msg))
                       (swap! pings-received inc)
-                      (tel/log! :info "Client1 auto-responding to ping")
+                      (println "[info] " "Client1 auto-responding to ping")
                       (ws/send! ws (json/generate-string
                                     {:type "pong"
                                      :timestamp (System/currentTimeMillis)
                                      :original-timestamp (:timestamp msg)})))))
     :on-close (fn [ws status reason]
-                (tel/log! :info "Client1 closed" {:status status :reason reason})
+                (println "[info] " "Client1 closed" {:status status :reason reason})
                 (deliver client1-closed true))}))
 
 ;; Client 2: Unresponsive (ignores pings)
-(tel/log! :info "Connecting unresponsive client2")
+(println "[info] " "Connecting unresponsive client2")
 (def client2
   (ws/connect!
    {:uri "ws://localhost:3000/"
     :on-message (fn [ws data last]
                   (let [data-str (str data)
                         msg (json/parse-string data-str true)]
-                    (tel/log! :info "Client2 received message but ignoring pings" {:type (:type msg)})
+                    (println "[info] " "Client2 received message but ignoring pings" {:type (:type msg)})
                     ;; Deliberately NOT responding to pings
                     ))
     :on-close (fn [ws status reason]
-                (tel/log! :info "Client2 closed by server" {:status status :reason reason})
+                (println "[info] " "Client2 closed by server" {:status status :reason reason})
                 (deliver client2-closed true))}))
 
-(tel/log! :info "Both clients connected")
+(println "[info] " "Both clients connected")
 (Thread/sleep 1000) ; Wait for welcome messages
 
 ;; Wait 10 seconds to observe heartbeat behavior
@@ -91,25 +90,25 @@
 ;; - t=6s: client2 should be closed
 ;; - t=10s: test ends, client1 still connected
 
-(tel/log! :info "Waiting 10 seconds to observe heartbeat...")
+(println "[info] " "Waiting 10 seconds to observe heartbeat...")
 (Thread/sleep 10000)
 
 ;; Check results
 (def client1-still-connected (not (realized? client1-closed)))
 (def client2-was-closed (realized? client2-closed))
 
-(tel/log! :info "Test results"
+(println "[info] " "Test results"
           {:pings-received @pings-received
            :client1-still-connected client1-still-connected
            :client2-was-closed client2-was-closed})
 
 ;; Cleanup
-(tel/log! :info "Cleaning up")
+(println "[info] " "Cleaning up")
 (when client1-still-connected
   (ws/close! client1))
 (Thread/sleep 500)
 
-(tel/log! :info "Stopping server")
+(println "[info] " "Stopping server")
 (server/stop-server!)
 
 ;; Validate results
@@ -119,10 +118,10 @@
   (and client1-still-connected
        client2-was-closed
        (>= @pings-received 3))  ; Should have received at least 3 pings in 10s
-  (tel/log! :info "Phase 6a PASSED: Server heartbeat working correctly")
+  (println "[info] " "Phase 6a PASSED: Server heartbeat working correctly")
 
   :else
-  (tel/error! "Phase 6a FAILED: Heartbeat not working correctly"
+  (println "ERROR:" "Phase 6a FAILED: Heartbeat not working correctly"
               {:error "Expected responsive client to stay connected and unresponsive to be closed"
                :client1-still-connected client1-still-connected
                :client2-was-closed client2-was-closed

@@ -6,8 +6,7 @@
 (cp/add-classpath "test/scripts/bb_client_tests")
 (cp/add-classpath "test/scripts/multiprocess")
 
-(require '[telemere-lite.core :as tel]
-         '[cheshire.core :as json]
+(require '[cheshire.core :as json]
          '[ws-client-managed :as wsm]
          '[mp-utils :as mp])
 
@@ -19,7 +18,7 @@
 
 (defn parse-args [args]
   (when (< (count args) 5)
-    (tel/error! "Usage: mp_client_stress.bb <test-id> <client-id> <channel-id> <message-count> <interval-ms>")
+    (println "ERROR:" "Usage: mp_client_stress.bb <test-id> <client-id> <channel-id> <message-count> <interval-ms>")
     (System/exit 1))
   {:test-id (nth args 0)
    :client-id (nth args 1)
@@ -31,7 +30,7 @@
   (let [{:keys [test-id client-id channel-id message-count interval-ms]} (parse-args args)
         process-id (str "client-" client-id)]
 
-    (tel/log! :info "Stress test client starting"
+    (println "[info] " "Stress test client starting"
               {:process-id process-id
                :test-id test-id
                :channel-id channel-id
@@ -48,44 +47,43 @@
 
     ;; Get server port
     (def port (mp/read-port test-id 5000))
-    (tel/log! :info "Discovered server port" {:client-id client-id :port port})
+    (println "[info] " "Discovered server port" {:client-id client-id :port port})
 
     ;; Create managed client
     (def client
       (wsm/create-managed-client
        {:uri (str "ws://localhost:" port "/")
         :on-state-change (fn [old-state new-state]
-                           (tel/event! ::state-change
-                                       {:old old-state
+                           (println "Event: " {:old old-state
                                         :new new-state
                                         :client-id client-id}))
         :on-message (fn [msg]
                       (swap! receive-times conj (System/currentTimeMillis))
                       (swap! messages-received conj msg))
         :on-open (fn [ws]
-                   (tel/event! ::connection-opened {:client-id client-id})
+                   (println "Event: " {:client-id client-id})
                    (swap! connection-count inc))
         :on-error (fn [ws error]
-                    (tel/error! "Client error"
+                    (println "ERROR:" "Client error"
                                 {:client-id client-id :error (str error)})
                     (swap! failures inc))
         :heartbeat {:auto-pong true}
         :reconnect {:enabled false}}))
 
     ;; Connect
-    (tel/log! :info "Connecting to server" {:client-id client-id :port port})
+    (println "[info] " "Connecting to server" {:client-id client-id :port port})
     ((:connect! client))
 
     ;; Wait for connection
     (Thread/sleep 1000)
 
     ;; Subscribe to channel
-    (tel/log! :info "Subscribing to channel" {:client-id client-id :channel channel-id})
+    (println "[info] " "Subscribing to channel" {:client-id client-id :channel channel-id})
     ((:subscribe! client) channel-id)
     (Thread/sleep 500)
 
     ;; Send messages at controlled rate
-    (tel/log! :info "Sending messages"
+    (println "[info] " "Sending messages"
               {:client-id client-id :count message-count :interval-ms interval-ms})
 
     (def start-time (System/currentTimeMillis))
@@ -102,7 +100,7 @@
             (swap! messages-sent inc)
             (swap! send-times conj send-time))
           (do
-            (tel/error! "Failed to send message"
+            (println "ERROR:" "Failed to send message"
                         {:client-id client-id :sequence i})
             (swap! failures inc))))
       ;; Rate limiting
@@ -116,7 +114,7 @@
     (Thread/sleep 1000)
 
     ;; Disconnect
-    (tel/log! :info "Disconnecting" {:client-id client-id})
+    (println "[info] " "Disconnecting" {:client-id client-id})
     ((:disconnect! client))
     (Thread/sleep 500)
 
@@ -135,7 +133,7 @@
                  :duration-ms duration-ms
                  :actual-rate-msg-sec (format "%.2f" actual-rate)})
 
-    (tel/log! :info "Stress test client completed"
+    (println "[info] " "Stress test client completed"
               {:process-id process-id :result result})
 
     ;; Write result and signal ready

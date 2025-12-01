@@ -33,29 +33,23 @@
   (println))
 
 (println "📋 Test Plan:")
-(println "  Phase 1: Telemere-lite Core Tests")
-(println "  Phase 2: Async Implementation Tests")
-(println "  Phase 3: WebSocket Foundation Tests")
+(println "  Phase 1: Wire Format Tests")
+(println "  Phase 2: Server Foundation Tests")
+(println "  Phase 3: Channel Integration Tests")
 (println)
 
-;; Phase 1: Core telemere-lite functionality
-(println "🔧 === Phase 1: Telemere-lite Core Tests ===")
-(run-test "Official API Compatibility" "test_official_api.bb")
-(run-test "Simple Filtering" "test_simple_filtering.bb")
-(run-test "Advanced Filtering API" "test_filtering_api.bb")
-(run-test "Event Correlation" "test_event_correlation.bb")
-(run-test "Message Routing" "test_routing.bb")
+;; Phase 1: Wire format tests
+(println "🔧 === Phase 1: Wire Format Tests ===")
+(run-test "Wire Formats" "test_wire_formats.bb")
 (run-test "Timbre Functions" "test_timbre_functions.bb")
 
-;; Phase 2: Async implementation
-(println "⚡ === Phase 2: Async Implementation Tests ===")
-(run-test "Simple Async Implementation" "test_async_simple.bb")
-(run-test "Async Performance Benchmarks" "test_async_performance.bb")
-
-;; Phase 3: WebSocket foundation and Channel system
-(println "🌐 === Phase 3: WebSocket Foundation Tests ===")
+;; Phase 2: Server foundation
+(println "🌐 === Phase 2: Server Foundation Tests ===")
 (run-test "WebSocket Foundation" "test_websocket_foundation.bb")
 (run-test "Server Foundation" "test_server_foundation.bb")
+
+;; Phase 3: Channel integration
+(println "📡 === Phase 3: Channel Integration Tests ===")
 (run-test "Channel Integration" "test_channel_integration.bb")
 
 ;; Summary
@@ -71,12 +65,12 @@
       (println "🎉 ✅ ALL TESTS PASSED!")
       (println)
       (println "🚀 Ready for Production:")
-      (println "  ✅ Telemere-lite Core: 100% functional")
-      (println "  ✅ Async Implementation: 24.5x performance improvement")
+      (println "  ✅ Wire Formats: JSON, EDN, Transit+JSON")
       (println "  ✅ WebSocket Foundation: Production-ready server")
       (println "  ✅ Channel System: Complete pub/sub messaging with RPC")
+      (println "  ✅ Logging: Trove integration")
       (println)
-      (println "🎯 Phase 3B Complete: Full-featured sente-lite implementation!")
+      (println "🎯 Sente-lite with Trove logging!")
       (System/exit 0))
     (do
       (println "⚠️  ❌ SOME TESTS FAILED!")

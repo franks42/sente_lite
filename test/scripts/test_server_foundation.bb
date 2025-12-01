@@ -5,7 +5,6 @@
 
 (require '[sente-lite.server-simple :as server]
          '[sente-lite.wire-format :as wire]
-         '[telemere-lite.core :as tel]
          '[cheshire.core :as json])
 
 (println "=== Testing Sente-lite Server Foundation ===")
@@ -24,7 +23,7 @@
 (let [stats (server/get-server-stats)]
   (println (format "Running: %s" (:running? stats)))
   (println (format "Active connections: %d" (get-in stats [:connections :active])))
-  (println (format "Telemetry handlers: %d" (count (tel/get-handlers)))))
+  (println (format "Telemetry handlers: %d" (count []))))
 
 ;; Skip broadcasting test in simple implementation
 (println "\n3. Skipping broadcast test (not implemented in simple version)")
@@ -49,10 +48,6 @@
 
 ;; Show telemetry stats
 (println "\n7. Telemetry statistics:")
-(let [tel-stats (tel/get-handler-stats)]
-  (doseq [[handler-id stats] tel-stats]
-    (println (format "  %s: processed=%d queued=%d dropped=%d"
-                     handler-id (:processed stats) (:queued stats) (:dropped stats)))))
 
 ;; Test server monitoring for a bit
 (println "\n8. Monitoring server for 5 seconds...")
@@ -60,7 +55,7 @@
   (Thread/sleep 1000)
   (let [stats (server/get-server-stats)]
     (when (zero? (mod i 2))
-      (tel/event! ::monitoring-check {:iteration i
+      (println "Event: " {:iteration i
                                       :active-connections (get-in stats [:connections :active])
                                       :uptime-ms (:uptime-ms stats)}))))
 

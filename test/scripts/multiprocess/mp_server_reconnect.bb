@@ -5,7 +5,6 @@
 (cp/add-classpath "test/scripts/multiprocess")
 
 (require '[sente-lite.server :as server]
-         '[telemere-lite.core :as tel]
          '[mp-utils :as mp])
 
 ;;
@@ -29,11 +28,11 @@
   (let [{:keys [test-id port duration-sec]} (parse-args args)
         process-id "server"]
 
-    (tel/log! :info "=== Multi-Process Test Server (Reconnection) ==="
+    (println "[info] " "=== Multi-Process Test Server (Reconnection) ==="
               {:test-id test-id :port port :duration duration-sec})
 
     ;; Start server on fixed port
-    (tel/log! :info "Starting server on fixed port" {:port port})
+    (println "[info] " "Starting server on fixed port" {:port port})
     (def server-instance
       (server/start-server!
        {:port port
@@ -48,16 +47,16 @@
     ;; Get actual port and verify (unless ephemeral port was requested)
     (def actual-port (server/get-server-port))
     (when (and (not= port 0) (not= port actual-port))
-      (tel/error! "Port mismatch" {:expected port :actual actual-port})
+      (println "ERROR:" "Port mismatch" {:expected port :actual actual-port})
       (server/stop-server!)
       (System/exit 1))
 
-    (tel/log! :info "Server started" {:port actual-port})
+    (println "[info] " "Server started" {:port actual-port})
     (mp/write-port! test-id actual-port)
 
     ;; Signal server ready
     (mp/signal-ready! test-id process-id)
-    (tel/log! :info "Server ready signal sent")
+    (println "[info] " "Server ready signal sent")
 
     ;; Track connection events
     (def connections (atom 0))
@@ -65,12 +64,12 @@
     (def messages-sent (atom 0))
 
     ;; Run for specified duration
-    (tel/log! :info "Running test" {:duration-sec duration-sec})
+    (println "[info] " "Running test" {:duration-sec duration-sec})
     (Thread/sleep (* duration-sec 1000))
 
     ;; Get server stats
     (def stats (server/get-server-stats))
-    (tel/log! :info "Server stats" {:stats stats})
+    (println "[info] " "Server stats" {:stats stats})
 
     ;; Write result
     (def result {:status :passed
@@ -82,11 +81,11 @@
                  :failures 0})
 
     (mp/write-result! test-id process-id result)
-    (tel/log! :info "Server result written" {:result result})
+    (println "[info] " "Server result written" {:result result})
 
     ;; Stop server
     (server/stop-server!)
-    (tel/log! :info "Server stopped")
+    (println "[info] " "Server stopped")
 
     (System/exit 0)))
 
