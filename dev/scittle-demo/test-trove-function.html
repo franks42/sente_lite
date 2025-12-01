@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove Function Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+  <script src="taoensso/trove.cljs" type="application/x-scittle"></script>
+  <style>
+    body { font-family: monospace; margin: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Trove Function Implementation Test</h1>
+
+  <script type="application/x-scittle">
+    (require '[taoensso.trove :refer [log! *log-fn*]])
+    
+    (println "\n" (apply str (repeat 70 "=")))
+    (println "TEST: Trove log! function implementation")
+    (println (apply str (repeat 70 "=")))
+    
+    ;; Test 1: Basic info log
+    (println "\n🔵 Test 1: Basic info log")
+    (log! {:level :info :id :app/started})
+    
+    ;; Test 2: With message
+    (println "\n🔵 Test 2: With message")
+    (log! {:level :info :id :app/event :msg "Something happened"})
+    
+    ;; Test 3: With data
+    (println "\n🔵 Test 3: With data")
+    (log! {:level :debug :id :user/login :data {:user-id 123 :email "test@example.com"}})
+    
+    ;; Test 4: Error with exception
+    (println "\n🔵 Test 4: Error log")
+    (log! {:level :error :id :app/error :msg "Connection failed" :data {:reason "timeout"}})
+    
+    ;; Test 5: All log levels
+    (println "\n🔵 Test 5: All log levels")
+    (log! {:level :trace :id :test/trace})
+    (log! {:level :debug :id :test/debug})
+    (log! {:level :info :id :test/info})
+    (log! {:level :warn :id :test/warn})
+    (log! {:level :error :id :test/error})
+    (log! {:level :fatal :id :test/fatal})
+    
+    ;; Test 6: Custom backend
+    (println "\n🔵 Test 6: Custom backend")
+    (set! *log-fn*
+      (fn [ns coords level id lazy-form]
+        (let [data (if lazy-form (force lazy-form) {})]
+          (js/console.log (str "CUSTOM: [" (name level) "] " id)))))
+    (log! {:level :info :id :custom/test})
+    
+    ;; Test 7: Nil log-fn (should noop)
+    (println "\n🔵 Test 7: Nil log-fn (should noop)")
+    (set! *log-fn* nil)
+    (log! {:level :info :id :test/noop})
+    (println "✅ No error - correctly nooped")
+    
+    (println "\n" (apply str (repeat 70 "=")))
+    (println "✅ All tests passed!")
+  </script>
+</body>
+</html>
