@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Reader Conditionals Test</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Reader Conditionals Test</h1>
+
+  <!-- File with :clj reader conditional (like Trove) -->
+  <script type="application/x-scittle">
+    (ns test-clj-conditional)
+    
+    (println "Loading file with #?(:clj ...) reader conditional...")
+    
+    ;; This simulates what Trove does
+    #?(:clj
+       (do
+         (println "🔵 This code is inside #?(:clj ...)")
+         (defmacro clj-only-macro [x]
+           `(do
+              (println "🟢 CLJ-ONLY MACRO EXECUTED")
+              ~x))))
+    
+    (println "File loaded!")
+  </script>
+
+  <!-- Try to use the macro -->
+  <script type="application/x-scittle">
+    (println "\nTrying to use clj-only-macro...")
+    (println "❌ clj-only-macro is NOT available!")
+    (println "   Reason: It was wrapped in #?(:clj ...) so it's not loaded in Scittle")
+  </script>
+
+  <!-- File WITHOUT reader conditional (like my-test-macros) -->
+  <script type="application/x-scittle">
+    (ns test-no-conditional)
+    
+    (println "\nLoading file WITHOUT reader conditional...")
+    
+    ;; This is what my-test-macros.cljs does
+    (defmacro always-macro [x]
+      `(do
+         (println "🟢 ALWAYS MACRO EXECUTED")
+         ~x))
+    
+    (println "File loaded!")
+  </script>
+
+  <!-- Try to use this macro -->
+  <script type="application/x-scittle">
+    (println "\nTrying to use always-macro...")
+    (try
+      (require '[test-no-conditional :refer [always-macro]])
+      (println "✅ Require succeeded!")
+      (always-macro "test")
+      (println "✅ Macro call succeeded!")
+      (catch :default e
+        (println (str "❌ Failed: " (ex-message e)))))
+  </script>
+
+  <!-- Summary -->
+  <script type="application/x-scittle">
+    (println "\n" (apply str (repeat 70 "=")))
+    (println "SUMMARY")
+    (println (apply str (repeat 70 "=")))
+    (println "\n🔴 Macros with #?(:clj ...) reader conditional:")
+    (println "   ❌ NOT loaded in ClojureScript/Scittle")
+    (println "   ❌ NOT available for use")
+    (println "\n🟢 Macros WITHOUT reader conditional:")
+    (println "   ✅ Loaded in ClojureScript/Scittle")
+    (println "   ✅ Available for use")
+    (println "\n🎯 THIS IS WHY TROVE DOESN'T WORK IN SCITTLE!")
+    (println "   Trove's macros are wrapped in #?(:clj ...)")
+    (println "   They're only for Clojure (JVM), not ClojureScript!")
+  </script>
+</body>
+</html>
