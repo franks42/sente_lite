@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Sente-lite Logging Test</title>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load Trove (logging facade for browser) -->
+  <script src="https://cdn.jsdelivr.net/npm/com.taoensso/trove@1.1.0/dist/trove.umd.js"
+          type="application/javascript"></script>
+
+  <style>
+    body {
+      font-family: monospace;
+      margin: 20px;
+      background-color: #f5f5f5;
+    }
+    h1 {
+      color: #333;
+    }
+    .log-container {
+      background-color: white;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .log-entry {
+      padding: 5px 0;
+      border-bottom: 1px solid #eee;
+      font-size: 12px;
+    }
+    .log-entry:last-child {
+      border-bottom: none;
+    }
+    .trace { color: #999; }
+    .debug { color: #0066cc; }
+    .info { color: #009900; }
+    .warn { color: #ff9900; }
+    .error { color: #cc0000; }
+    .fatal { color: #990000; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Sente-lite Logging Test</h1>
+  
+  <div>
+    <h2>Test Status</h2>
+    <p id="status">Loading...</p>
+  </div>
+
+  <div class="log-container">
+    <h2>Console Logs</h2>
+    <div id="logs"></div>
+  </div>
+
+  <script type="application/x-scittle">
+    ;; Test Trove logging directly
+    (println "🧪 Testing Trove Logging...")
+    
+    ;; Test all log levels
+    (taoensso.trove/log! {:level :trace :id :test/trace-level :data {:message "Trace level test"}})
+    (taoensso.trove/log! {:level :debug :id :test/debug-level :data {:message "Debug level test"}})
+    (taoensso.trove/log! {:level :info :id :test/info-level :data {:message "Info level test"}})
+    (taoensso.trove/log! {:level :warn :id :test/warn-level :data {:message "Warn level test"}})
+    (taoensso.trove/log! {:level :error :id :test/error-level :data {:message "Error level test"}})
+    (taoensso.trove/log! {:level :fatal :id :test/fatal-level :data {:message "Fatal level test"}})
+
+    ;; Test complex data
+    (taoensso.trove/log! {:level :debug
+                          :id :test/complex-data
+                          :data {:user {:id 123 :name "Test User"}
+                                 :nested {:level1 {:level2 "deep"}}
+                                 :timestamp (js/Date.now)}})
+
+    ;; Test error logging
+    (try
+      (throw (js/Error. "Test error"))
+      (catch js/Error e
+        (taoensso.trove/log! {:level :error
+                              :id :test/error-with-exception
+                              :data {:error e :message (.-message e)}})))
+
+    ;; Update status
+    (set! (.-innerHTML (js/document.getElementById "status"))
+      "✅ Trove logging tests completed! Check console logs below.")
+
+    (println "✅ All Trove tests completed!")
+  </script>
+</body>
+</html>

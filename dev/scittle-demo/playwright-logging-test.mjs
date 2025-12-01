@@ -43,8 +43,8 @@ async function testTroveLogging() {
   });
 
   try {
-    console.log('📄 Loading page: http://localhost:1341\n');
-    await page.goto('http://localhost:1341', { waitUntil: 'networkidle' });
+    console.log('📄 Loading page: http://localhost:1341/test-logging.html\n');
+    await page.goto('http://localhost:1341/test-logging.html', { waitUntil: 'networkidle' });
 
     // Wait for Scittle and Trove to load
     console.log('⏳ Waiting for Scittle and Trove to load...\n');
