@@ -48,7 +48,12 @@
       "Bash(/Users/franksiebenlist/Development/sente_lite/dev/extract_cljs.bb)",
       "Bash(clojure -X:deps find-versions:*)",
       "Bash(clojure -M:extract:*)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cat:*)",
+      "Bash(/tmp/dispatch_signal.clj)",
+      "Bash(/tmp/core_new.cljc)",
+      "Bash(jobs:*)"
     ],
     "deny": [],
     "ask": []
