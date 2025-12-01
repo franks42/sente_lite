@@ -70,24 +70,34 @@
 - **:warn** (5%): Anomalies, timeouts, rejections
 - **:error** (5%): Failures, parse errors, WebSocket errors
 
-## 🎯 NEXT SESSION: Ready for Next Feature
+## 🎯 CURRENT SESSION (Nov 30, 2025): Logging Refactoring
 
-**Trove Migration**: ✅ COMPLETE!
-**Location Metadata**: ✅ COMPLETE!
+**Status**: Planning phase - Ready for implementation
 
-**What's Ready Now**:
-- Structured logging with Trove event IDs throughout codebase
-- Working location metadata (file, line, ns) for debugging
-- All tests passing (exit code 0)
-- Clean code quality (0 linting errors)
-- Production-ready observability
+**What We Did**:
+1. Investigated Trove compatibility with Scittle
+2. Discovered Trove macros don't work in Scittle (by design - runtime interpreter limitation)
+3. Created function-based Trove implementation for Scittle (`trove-scittle.cljs`)
+4. Removed telemere-lite dependencies from `logging.cljc`
+5. Identified that convenience macros (trace, debug, info, etc.) are still being used
 
-**Possible Next Steps**:
-1. **Sente-lite refactoring** - Core functionality improvements
-2. **Compression feature** - gzip + none (see `doc/sente-lite-compression-feature.md`)
-3. **Capability negotiation** - 3-tier system (documented)
-4. **Additional testing** - More edge cases, stress testing
-5. **Documentation** - Usage examples, API docs
+**What We're Doing Now**:
+- Refactoring all logging calls to use single `log/log!` function
+- Replacing 97 logging calls across 7 files
+- Removing convenience macros after refactoring
+
+**What's Next**:
+1. Refactor server.cljc (29 calls)
+2. Refactor client_scittle.cljs (21 calls)
+3. Refactor channels.cljc (15 calls)
+4. Refactor server_simple.cljc (13 calls)
+5. Refactor wire_format.cljc (9 calls)
+6. Refactor wire_multiplexer.cljc (9 calls)
+7. Refactor logging/bb.cljc (1 call)
+8. Remove convenience macros from logging.cljc
+9. Verify, lint, format, commit
+
+**See**: `REFACTORING_PLAN.md` for detailed plan
 
 ## ⚠️ CRITICAL: Implementation Constraints
 
@@ -306,6 +316,15 @@ When starting a new session:
 - [ ] If working with browser code, remember: NO DESTRUCTURING
 
 ## Session Log
+
+### Session 9 (2025-11-30) - Logging Refactoring Planning ⏳
+- **INVESTIGATED**: Trove compatibility with Scittle
+- **DISCOVERED**: Trove macros don't work in Scittle (runtime interpreter limitation)
+- **CREATED**: Function-based Trove implementation (`trove-scittle.cljs`)
+- **IDENTIFIED**: 97 logging calls across 7 files using convenience macros
+- **PLANNING**: Refactor to single `log/log!` function
+- **STATUS**: Planning phase complete, ready for implementation
+- **NEXT**: Execute refactoring plan (see REFACTORING_PLAN.md)
 
 ### Session 8 (2025-11-08) - Trove Migration + Location Metadata Fix COMPLETE ✅
 - **COMPLETED**: Phase 2 + 2b Trove event ID migration (108 calls total)

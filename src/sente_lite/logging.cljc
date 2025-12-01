@@ -50,3 +50,42 @@
              (when (map? data) data)
              (when (string? data) {:msg data})))))
 
+;;; ============================================================================
+;;; Convenience Macros
+;;; ============================================================================
+
+(defmacro trace
+  "Log at trace level.
+   Usage: (trace :app/event) or (trace :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :trace ~id ~data))
+
+(defmacro debug
+  "Log at debug level.
+   Usage: (debug :app/event) or (debug :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :debug ~id ~data))
+
+(defmacro info
+  "Log at info level.
+   Usage: (info :app/event) or (info :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :info ~id ~data))
+
+(defmacro warn
+  "Log at warn level.
+   Usage: (warn :app/event) or (warn :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :warn ~id ~data))
+
+(defmacro error
+  "Log at error level.
+   Usage: (error :app/event) or (error :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :error ~id ~data))
+
+(defmacro fatal
+  "Log at fatal level.
+   Usage: (fatal :app/event) or (fatal :app/event {:data \"value\"})"
+  [id & [data]]
+  `(log! :fatal ~id ~data))
