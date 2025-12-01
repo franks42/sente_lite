@@ -1,213 +1,249 @@
-# Telemetry Control for BB-to-BB Tests
+# Sente-lite Telemetry Guide
 
 ## Overview
 
-Telemetry is **disabled by default** for maximum performance. Enable it via environment variables or nREPL to see the 99 telemetry calls across sente-lite source code (56 unique event IDs).
+Sente-lite uses **Trove** (`taoensso.trove`) for structured logging and telemetry. This guide covers how logging works across different platforms and how to configure it.
 
-## Quick Start: Enable Telemetry via Environment Variables
+## Architecture
 
-### 1. Run Tests with Telemetry
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    taoensso.trove/log!                      │
+│         (single API for all logging calls)                  │
+└─────────────────────────────────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+   ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+   │  Babashka   │     │    JVM      │     │   Browser   │
+   │   Timbre    │     │   Timbre    │     │   Console   │
+   │  → File     │     │  → File     │     │  → DevTools │
+   └─────────────┘     └─────────────┘     └─────────────┘
+```
+
+## Default Configuration
+
+| Platform | Backend | Output | Min Level |
+|----------|---------|--------|-----------|
+| Babashka | Timbre  | `logs/trove.log` | `:info` |
+| JVM      | Timbre  | `logs/trove.log` | `:info` |
+| Browser  | Console | DevTools console | `:info` |
+
+**Key point:** Babashka/JVM logging goes to **file only** (no stdout pollution).
+
+## Log Levels
+
+From least to most severe:
+- `:trace` - Very detailed debugging
+- `:debug` - Debugging information
+- `:info` - Normal operational events (default)
+- `:warn` - Warning conditions
+- `:error` - Error conditions
+- `:fatal` - Fatal errors
+
+## Viewing Logs
+
+### Babashka/JVM: File Logs
 
 ```bash
-# Enable telemetry for all test processes
-TELEMETRY=1 bb test/scripts/multiprocess/01_basic_multiprocess.bb
+# View live logs
+tail -f logs/trove.log
 
-# Enable with specific level
-TELEMETRY=1 TELEMETRY_LEVEL=debug bb test/scripts/multiprocess/01_basic_multiprocess.bb
+# View recent logs
+tail -50 logs/trove.log
 
-# Run entire test suite with telemetry
-TELEMETRY=1 ./run_tests.bb
+# Search for errors
+grep ":error" logs/trove.log
+
+# Search for specific event IDs
+grep ":sente-lite.server/starting" logs/trove.log
 ```
 
-### 2. Telemetry Levels
+### Browser: DevTools Console
 
-- `debug` - Show all events (very verbose)
-- `info` - Show info, warn, error (default)
-- `warn` - Show only warnings and errors
-- `error` - Show only errors
+Open browser DevTools (F12) → Console tab. Logs appear with appropriate console methods (info, warn, error).
 
-### 3. Per-Process Control
+## Log Format
 
-```bash
-# Server only
-TELEMETRY=1 bb test/scripts/multiprocess/mp_server.bb test-001 30
+Each log entry contains:
 
-# Client only
-TELEMETRY=1 bb test/scripts/multiprocess/mp_client.bb test-001 client-1 channel-1 10
+```
+TIMESTAMP HOSTNAME LEVEL [NAMESPACE:LINE] - :event-id
+  data: {...}
 ```
 
-## Alternative: Enable via nREPL-MCP (Runtime Control)
-
-### For BB Server (mp_server.bb)
-
-Connect to the server's nREPL and eval:
-
-```clojure
-(require '[telemere-lite.core :as tel])
-
-;; Enable telemetry globally
-(tel/set-enabled! true)
-
-;; Add stdout handler (shows all events in console)
-(tel/add-stdout-handler!)
-
-;; Verify it's on
-(tel/get-enabled?)  ;=> true
+Example:
+```
+2025-12-01T06:09:04.114Z localhost INFO [sente-lite.server-simple:122] - :sente-lite.server/starting
+  data: {:port 3001, :host "localhost"}
 ```
 
-### For BB Client (mp_client.bb)
+## Event IDs in Sente-lite
 
-Same commands in client's nREPL:
+Sente-lite uses structured event IDs following the pattern `:namespace/event-name`:
 
-```clojure
-(require '[telemere-lite.core :as tel])
-(tel/set-enabled! true)
-(tel/add-stdout-handler!)
-```
-
-### 3. For Browser (Scittle)
-
-Telemetry is **already enabled** in `dev/scittle-demo/telemetry-config.cljs` with console sink.
-
-You can also control it from browser console:
-
-```javascript
-// Runtime controls
-window.telemetryEnable()
-window.telemetryDisable()
-window.telemetryStatus()
-window.telemetryConsoleOn()
-window.telemetryConsoleOff()
-```
-
-Or via browser's nREPL (port 1339):
-
-```clojure
-(require '[telemere-lite.core :as tel])
-(tel/set-enabled! true)
-(tel/enable-console-sink!)
-```
-
-## Filtering by Log Level
-
-Control verbosity by filtering event levels:
-
-```clojure
-;; Show only errors and warnings
-(tel/set-ns-filter! {:allow ["sente-lite.*"]})
-
-;; Show specific event IDs
-(tel/set-id-filter! {:allow ["::connection-added" "::message-sent"]})
-
-;; Reset to show all
-(tel/clear-filters!)
-```
-
-## Meta-Telemetry: Monitoring the Monitor
-
-The telemetry system itself emits events when its configuration changes. These meta-telemetry events track:
-
-**Configuration Events:**
-- `::telemetry-enabled-changed` - When telemetry is enabled/disabled
-- `::ns-filter-changed` - When namespace filters change
-- `::event-id-filter-changed` - When event ID filters change
-- `::filters-cleared` - When all filters are cleared
-
-**Handler Events:**
-- `::handler-added` - When a handler is added
-- `::handler-removed` - When a handler is removed
-- `::handlers-cleared` - When all handlers are cleared
-
-**Browser Sink Events (CLJS):**
-- `::console-sink-enabled` / `::console-sink-disabled` - Console sink changes
-- `::atom-sink-enabled` / `::atom-sink-disabled` - Atom sink changes
-- `::atom-events-cleared` - When atom sink events are cleared
-- `::remote-sink-enabled` / `::remote-sink-disabled` - Remote sink changes
-
-These events are emitted after the configuration change takes effect, ensuring they're captured if telemetry was just enabled.
-
-## What You'll See
-
-With telemetry enabled, you'll see **66 different event types** (56 application + 10 meta-telemetry):
+**Server Events:**
+- `:sente-lite.server/starting` - Server startup initiated
+- `:sente-lite.server/started` - Server successfully started
+- `:sente-lite.server/stopping` - Server shutdown initiated
+- `:sente-lite.server/stopped` - Server stopped
 
 **Connection Events:**
-- `::connection-added`, `::connection-removed`
-- `::websocket-opened`, `::websocket-closed`
+- `:sente-lite.server/connection-opened` - WebSocket connected
+- `:sente-lite.server/connection-closed` - WebSocket disconnected
 
-**Message Events:**
-- `::message-parsed`, `::message-sent`, `::message-routed`
-- `::message-published`, `::message-unwrapped`
+**Channel Events:**
+- `:sente-lite.channels/subscribed` - Client subscribed to channel
+- `:sente-lite.channels/unsubscribed` - Client unsubscribed
+- `:sente-lite.channels/published` - Message published to channel
 
-**Heartbeat Events:**
-- `::heartbeat-check`, `::heartbeat-ping-sent`
-- `::heartbeat-timeout`, `::heartbeat-cleanup-complete`
+**Wire Format Events:**
+- `:sente-lite.format/json-serial-failed` - JSON serialization error
+- `:sente-lite.format/registered` - Custom format registered
 
-**Pub/Sub Events:**
-- `::subscription-added`, `::subscription-removed`
-- `::broadcast-start`, `::broadcast-complete`
+## Configuring Logging
 
-**RPC Events:**
-- `::rpc-request-sent`, `::rpc-response-sent`
-- `::rpc-request-expired`
-
-**Format Events:**
-- `::format-negotiated`, `::format-detection`
-- `::multiplex-serialize-complete`
-
-...and 41 more!
-
-## Handlers
-
-### Stdout Handler (best for tests)
-```clojure
-(tel/add-stdout-handler!)  ;; See events in console
-```
-
-### File Handler (best for production)
-```clojure
-(tel/add-file-handler! "logs/test-telemetry.jsonl")
-```
-
-### Stderr Handler
-```clojure
-(tel/add-stderr-handler!)
-```
-
-### Check Handler Stats
-```clojure
-(tel/get-handler-stats)
-(tel/get-handler-health)
-```
-
-## Performance Impact
-
-- **Disabled**: ~60-120ns per call (just boolean check)
-- **Enabled**: ~180-350ns per call (includes serialization)
-- **99 telemetry calls** exist in source code
-- **All use lazy evaluation** - `:let` params not evaluated when disabled
-
-## Example Session
+### Change Log Level (Runtime)
 
 ```clojure
-;; 1. Start server with nREPL
-(cd test/scripts/multiprocess && bb mp_server.bb test-001 30)
+(require '[taoensso.timbre :as timbre])
 
-;; 2. Connect to nREPL via nrepl-mcp
-
-;; 3. Enable telemetry
-(require '[telemere-lite.core :as tel])
-(tel/set-enabled! true)
-(tel/add-stdout-handler!)
-
-;; 4. Run client - you'll now see all events!
-;; Connection events, message events, heartbeat events, etc.
-
-;; 5. Disable when done
-(tel/set-enabled! false)
+;; Set minimum level
+(timbre/set-min-level! :debug)  ; More verbose
+(timbre/set-min-level! :warn)   ; Less verbose
 ```
+
+### Add Console Output (Babashka/JVM)
+
+```clojure
+(require '[taoensso.timbre :as timbre])
+
+;; Enable console appender alongside file
+(timbre/merge-config!
+  {:appenders {:println {:enabled? true}}})
+```
+
+### Disable File Logging
+
+```clojure
+(require '[taoensso.timbre :as timbre])
+
+(timbre/merge-config!
+  {:appenders {:spit {:enabled? false}}})
+```
+
+### Custom Log File Path
+
+```clojure
+(require '[taoensso.timbre :as timbre])
+
+(timbre/merge-config!
+  {:appenders {:spit (timbre/spit-appender 
+                       {:fname "my-custom-path.log"})}})
+```
+
+## Using Trove in Your Code
+
+### Basic Logging
+
+```clojure
+(require '[taoensso.trove :as trove])
+
+;; Structured log with event ID and data
+(trove/log! {:level :info
+             :id :my-app/user-login
+             :data {:user-id 123 :ip "192.168.1.1"}})
+
+;; With message
+(trove/log! {:level :warn
+             :id :my-app/rate-limit
+             :msg "Rate limit exceeded"
+             :data {:requests 100 :limit 50}})
+
+;; Error with exception
+(trove/log! {:level :error
+             :id :my-app/db-error
+             :error exception
+             :data {:query "SELECT ..."}})
+```
+
+### Log Levels Shorthand
+
+```clojure
+;; These all work
+(trove/log! {:level :trace :id ::my-event})
+(trove/log! {:level :debug :id ::my-event})
+(trove/log! {:level :info  :id ::my-event})
+(trove/log! {:level :warn  :id ::my-event})
+(trove/log! {:level :error :id ::my-event})
+(trove/log! {:level :fatal :id ::my-event})
+```
+
+## Running Tests with Logging
+
+### View Logs During Tests
+
+```bash
+# Terminal 1: Watch logs
+tail -f logs/trove.log
+
+# Terminal 2: Run tests
+bb test/scripts/multiprocess/01_basic_multiprocess.bb
+```
+
+### Run All Multiprocess Tests
+
+```bash
+bb test/scripts/multiprocess/run_multiprocess_tests.bb
+```
+
+Tests available:
+1. `01_basic_multiprocess.bb` - 1 server + 2 clients
+2. `02_ephemeral_reconnection.bb` - Server port changes
+3. `03_reconnection.bb` - Auto-reconnect after restart
+4. `04_concurrent_startup.bb` - 10 simultaneous clients
+5. `05_process_failure.bb` - Client crash recovery
+6. `06_stress_test.bb` - 20 clients, high throughput
+
+## Troubleshooting
+
+### No logs appearing?
+
+1. Check file exists: `ls -la logs/trove.log`
+2. Check permissions: `touch logs/trove.log`
+3. Verify Trove is loaded: `(require '[taoensso.trove])`
+
+### Too verbose?
+
+```clojure
+(timbre/set-min-level! :warn)
+```
+
+### Need stdout for debugging?
+
+```clojure
+(timbre/merge-config!
+  {:appenders {:println {:enabled? true}}})
+```
+
+### Clear old logs?
+
+```bash
+> logs/trove.log  # Truncate file
+```
+
+## Files Reference
+
+| File | Purpose |
+|------|---------|
+| `src/taoensso/trove.cljc` | Trove facade (configures Timbre) |
+| `src/taoensso/trove/timbre.cljc` | Timbre backend |
+| `src/taoensso/trove/console.cljc` | Console backend (browser) |
+| `logs/trove.log` | Default log output |
 
 ## See Also
 
-- Source code telemetry calls: `grep "tel/" src/sente_lite/*.{cljc,cljs}`
-- Event IDs list: `grep "::event!" src/sente_lite/*.{cljc,cljs} | sed 's/.*::/::/;s/ .*//' | sort -u`
-- Performance docs: `doc/telemere-lite-lazy-eval-improvement.md`
+- Find all log calls: `grep "trove/log!" src/sente_lite/*.cljc`
+- Find event IDs: `grep ":sente-lite" src/sente_lite/*.cljc`
+- Trove docs: https://github.com/taoensso/trove
+- Timbre docs: https://github.com/taoensso/timbre
