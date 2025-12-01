@@ -1,6 +1,6 @@
 (ns sente-lite.channels
   "Channel system for pub/sub messaging and RPC patterns"
-  (:require [sente-lite.logging :as log])
+  (:require [taoensso.trove :as trove])
   (:import [java.lang System]))
 
 ;; Channel state management
@@ -30,8 +30,8 @@
                :message-count 0
                :retained-messages []})
 
-       (log/log! {:level :debug :id :sente-lite.channels/created
-                  :data {:channel-id channel-id :config merged-config}})
+       (trove/log! {:level :debug :id :sente-lite.channels/created
+                    :data {:channel-id channel-id :config merged-config}})
        true))))
 
 (defn delete-channel!
@@ -46,8 +46,8 @@
       ;; Remove the channel
       (swap! channels dissoc channel-id)
 
-      (log/log! {:level :debug :id :sente-lite.channels/deleted
-                 :data {:channel-id channel-id :subscriber-count subscriber-count}})
+      (trove/log! {:level :debug :id :sente-lite.channels/deleted
+                   :data {:channel-id channel-id :subscriber-count subscriber-count}})
       true)))
 
 (defn get-channel-info
@@ -67,8 +67,8 @@
 (defn subscribe!
   "Subscribe a connection to a channel"
   [conn-id channel-id]
-  (log/log! {:level :trace :id :sente-lite.pubsub/sub-req
-             :data {:conn-id conn-id :channel-id channel-id}})
+  (trove/log! {:level :trace :id :sente-lite.pubsub/sub-req
+               :data {:conn-id conn-id :channel-id channel-id}})
 
   (if-let [channel (get @channels channel-id)]
     (let [current-subs (count (:subscribers channel))
@@ -76,12 +76,12 @@
 
       (if (>= current-subs max-subs)
         (do
-          (log/log! {:level :warn :id :sente-lite.pubsub/sub-rejected
-                     :data {:conn-id conn-id
-                            :channel-id channel-id
-                            :reason :max-subscribers-reached
-                            :current current-subs
-                            :max max-subs}})
+          (trove/log! {:level :warn :id :sente-lite.pubsub/sub-rejected
+                       :data {:conn-id conn-id
+                              :channel-id channel-id
+                              :reason :max-subscribers-reached
+                              :current current-subs
+                              :max max-subs}})
           {:success false :reason :max-subscribers-reached})
 
         (do
@@ -89,28 +89,28 @@
           (swap! channels update-in [channel-id :subscribers] conj conn-id)
           (swap! subscriptions update conn-id (fnil conj #{}) channel-id)
 
-          (log/log! {:level :debug :id :sente-lite.pubsub/sub-added
-                     :data {:conn-id conn-id
-                            :channel-id channel-id
-                            :total-subscribers (inc current-subs)}})
+          (trove/log! {:level :debug :id :sente-lite.pubsub/sub-added
+                       :data {:conn-id conn-id
+                              :channel-id channel-id
+                              :total-subscribers (inc current-subs)}})
 
           ;; Send retained messages if any
           (let [retained (:retained-messages channel)]
             (when (seq retained)
-              (log/log! {:level :info :id :sente-lite.pubsub/retained-sent
-                         :data {:conn-id conn-id
-                                :channel-id channel-id
-                                :message-count (count retained)}})))
+              (trove/log! {:level :info :id :sente-lite.pubsub/retained-sent
+                           :data {:conn-id conn-id
+                                  :channel-id channel-id
+                                  :message-count (count retained)}})))
 
           {:success true
            :subscriber-count (inc current-subs)
            :retained-messages (:retained-messages channel)})))
 
     (do
-      (log/log! {:level :warn :id :sente-lite.pubsub/sub-rejected
-                 :data {:conn-id conn-id
-                        :channel-id channel-id
-                        :reason :channel-not-found}})
+      (trove/log! {:level :warn :id :sente-lite.pubsub/sub-rejected
+                   :data {:conn-id conn-id
+                          :channel-id channel-id
+                          :reason :channel-not-found}})
       {:success false :reason :channel-not-found})))
 
 (defn unsubscribe!
@@ -120,11 +120,11 @@
     (swap! channels update-in [channel-id :subscribers] disj conn-id)
     (swap! subscriptions update conn-id disj channel-id)
 
-    (log/log! {:level :debug :id :sente-lite.pubsub/sub-removed
-               :data {:conn-id conn-id
-                      :channel-id channel-id
-                      :remaining-subscribers
-                      (count (get-in @channels [channel-id :subscribers]))}})
+    (trove/log! {:level :debug :id :sente-lite.pubsub/sub-removed
+                 :data {:conn-id conn-id
+                        :channel-id channel-id
+                        :remaining-subscribers
+                        (count (get-in @channels [channel-id :subscribers]))}})
     true))
 
 (defn unsubscribe-all!
@@ -137,8 +137,8 @@
 
       (swap! subscriptions dissoc conn-id)
 
-      (log/log! {:level :debug :id :sente-lite.pubsub/all-subs-removed
-                 :data {:conn-id conn-id :channel-count unsubscribed-count}})
+      (trove/log! {:level :debug :id :sente-lite.pubsub/all-subs-removed
+                   :data {:conn-id conn-id :channel-count unsubscribed-count}})
       unsubscribed-count)))
 
 (defn get-subscriptions
@@ -174,11 +174,11 @@
                        (subvec new-msgs (- (count new-msgs) retention))
                        new-msgs))))))
 
-      (log/log! {:level :trace :id :sente-lite.pubsub/msg-published
-                 :data {:channel-id channel-id
-                        :message-id (:message-id message-with-meta)
-                        :target-subscriber-count (count target-subscribers)
-                        :total-subscriber-count (count subscribers)}})
+      (trove/log! {:level :trace :id :sente-lite.pubsub/msg-published
+                   :data {:channel-id channel-id
+                          :message-id (:message-id message-with-meta)
+                          :target-subscriber-count (count target-subscribers)
+                          :total-subscriber-count (count subscribers)}})
 
       {:success true
        :message-id (:message-id message-with-meta)
@@ -186,8 +186,8 @@
        :subscribers target-subscribers})
 
     (do
-      (log/log! {:level :error :id :sente-lite.pubsub/msg-publish-failed
-                 :data {:channel-id channel-id :reason :channel-not-found}})
+      (trove/log! {:level :error :id :sente-lite.pubsub/msg-publish-failed
+                   :data {:channel-id channel-id :reason :channel-not-found}})
       {:success false :reason :channel-not-found})))
 
 ;; RPC Patterns
@@ -217,12 +217,12 @@
                            :sender-conn-id conn-id
                            :exclude-sender? true)]
 
-      (log/log! {:level :trace :id :sente-lite.rpc/req-sent
-                 :data {:request-id request-id
-                        :conn-id conn-id
-                        :target-channel-id target-channel-id
-                        :timeout-ms timeout-ms
-                        :delivery-result result}})
+      (trove/log! {:level :trace :id :sente-lite.rpc/req-sent
+                   :data {:request-id request-id
+                          :conn-id conn-id
+                          :target-channel-id target-channel-id
+                          :timeout-ms timeout-ms
+                          :delivery-result result}})
 
       {:request-id request-id
        :delivery result})))
@@ -241,18 +241,18 @@
       ;; Remove the tracked request
       (swap! rpc-requests dissoc request-id)
 
-      (log/log! {:level :trace :id :sente-lite.rpc/resp-sent
-                 :data {:request-id request-id
-                        :target-conn-id (:conn-id request-info)
-                        :error? error?}})
+      (trove/log! {:level :trace :id :sente-lite.rpc/resp-sent
+                   :data {:request-id request-id
+                          :target-conn-id (:conn-id request-info)
+                          :error? error?}})
 
       {:success true
        :target-conn-id (:conn-id request-info)
        :response response-message})
 
     (do
-      (log/log! {:level :error :id :sente-lite.rpc/resp-failed
-                 :data {:request-id request-id :reason :request-not-found}})
+      (trove/log! {:level :error :id :sente-lite.rpc/resp-failed
+                   :data {:request-id request-id :reason :request-not-found}})
       {:success false :reason :request-not-found})))
 
 (defn cleanup-expired-rpc-requests!
@@ -267,10 +267,10 @@
     (when (seq expired-requests)
       (doseq [[request-id request-info] expired-requests]
         (swap! rpc-requests dissoc request-id)
-        (log/log! {:level :warn :id :sente-lite.rpc/req-expired
-                   :data {:request-id request-id
-                          :conn-id (:conn-id request-info)
-                          :age-ms (- now (:created-at request-info))}}))
+        (trove/log! {:level :warn :id :sente-lite.rpc/req-expired
+                     :data {:request-id request-id
+                            :conn-id (:conn-id request-info)
+                            :age-ms (- now (:created-at request-info))}}))
 
       (count expired-requests))
 

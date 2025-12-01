@@ -1,6 +1,6 @@
 (ns sente-lite.server-simple
   "Simple WebSocket server foundation for sente-lite with embedded telemetry"
-  (:require [sente-lite.logging :as log]
+  (:require [taoensso.trove :as trove]
             [cheshire.core :as json]
             [org.httpkit.server :as http])
   (:import [java.lang System Exception]))
@@ -27,19 +27,19 @@
                    :last-activity (System/currentTimeMillis)
                    :message-count 0}]
     (swap! connections assoc channel conn-data)
-    (log/log! {:level :debug :id :sente-lite.server/conn-added
-               :data {:conn-id conn-id :total-connections (count @connections)}})
+    (trove/log! {:level :debug :id :sente-lite.server/conn-added
+                 :data {:conn-id conn-id :total-connections (count @connections)}})
     conn-data))
 
 (defn- remove-connection! [channel]
   (when-let [conn-data (get @connections channel)]
     (let [duration (- (System/currentTimeMillis) (:opened-at conn-data))]
       (swap! connections dissoc channel)
-      (log/log! {:level :debug :id :sente-lite.server/conn-removed
-                 :data {:conn-id (:id conn-data)
-                        :duration-ms duration
-                        :message-count (:message-count conn-data)
-                        :total-connections (count @connections)}})
+      (trove/log! {:level :debug :id :sente-lite.server/conn-removed
+                   :data {:conn-id (:id conn-data)
+                          :duration-ms duration
+                          :message-count (:message-count conn-data)
+                          :total-connections (count @connections)}})
       conn-data)))
 
 ;; WebSocket handlers
@@ -49,13 +49,13 @@
     (http/send! channel (json/generate-string {:type :welcome
                                                :conn-id conn-id
                                                :server-time (System/currentTimeMillis)}))
-    (log/log! {:level :debug :id :sente-lite.server/ws-open :data {:conn-id conn-id}})))
+    (trove/log! {:level :debug :id :sente-lite.server/ws-open :data {:conn-id conn-id}})))
 
 (defn- on-websocket-message [channel raw-message _config]
   (when-let [conn-data (get @connections channel)]
     (let [conn-id (:id conn-data)]
-      (log/log! {:level :trace :id :sente-lite.server/ws-msg-recv
-                 :data {:conn-id conn-id :size (count raw-message)}})
+      (trove/log! {:level :trace :id :sente-lite.server/ws-msg-recv
+                   :data {:conn-id conn-id :size (count raw-message)}})
       (try
         (let [parsed (json/parse-string raw-message true)]
           ;; Echo back
@@ -64,24 +64,24 @@
                                                      :conn-id conn-id
                                                      :timestamp (System/currentTimeMillis)})))
         (catch Exception e
-          (log/log! {:level :error :id :sente-lite.server/parse-failed
-                     :data {:error e :conn-id conn-id}}))))))
+          (trove/log! {:level :error :id :sente-lite.server/parse-failed
+                       :data {:error e :conn-id conn-id}}))))))
 
 (defn- on-websocket-close [channel status _config]
   (when-let [conn-data (remove-connection! channel)]
-    (log/log! {:level :debug :id :sente-lite.server/ws-close
-               :data {:conn-id (:id conn-data) :status status}})))
+    (trove/log! {:level :debug :id :sente-lite.server/ws-close
+                 :data {:conn-id (:id conn-data) :status status}})))
 
 (defn- on-websocket-error [channel throwable _config]
   (when-let [conn-data (get @connections channel)]
-    (log/log! {:level :error :id :sente-lite.server/ws-error
-               :data {:error throwable :conn-id (:id conn-data)}})
+    (trove/log! {:level :error :id :sente-lite.server/ws-error
+                 :data {:error throwable :conn-id (:id conn-data)}})
     (remove-connection! channel)))
 
 ;; WebSocket request handler
 (defn- websocket-handler [request config]
-  (log/log! {:level :trace :id :sente-lite.server/ws-req
-             :data {:uri (:uri request) :websocket? (:websocket? request)}})
+  (trove/log! {:level :trace :id :sente-lite.server/ws-req
+               :data {:uri (:uri request) :websocket? (:websocket? request)}})
   (if-not (:websocket? request)
     {:status 426 :headers {"Upgrade" "websocket"} :body "WebSocket upgrade required"}
     (http/as-channel request
@@ -93,8 +93,8 @@
 ;; HTTP request handler
 (defn- http-handler [config]
   (fn [request]
-    (log/log! {:level :trace :id :sente-lite.server/http-req
-               :data {:method (:request-method request) :uri (:uri request)}})
+    (trove/log! {:level :trace :id :sente-lite.server/http-req
+                 :data {:method (:request-method request) :uri (:uri request)}})
     (cond
       (:websocket? request)
       (websocket-handler request config)
@@ -119,7 +119,7 @@
   "Start WebSocket server with configuration"
   ([config]
    (let [merged-config (merge default-config config)]
-     (log/log! {:level :info :id :sente-lite.server/starting :data merged-config})
+     (trove/log! {:level :info :id :sente-lite.server/starting :data merged-config})
 
      (let [server (http/run-server (http-handler merged-config)
                                    {:port (:port merged-config)
@@ -127,8 +127,8 @@
        (reset! server-state {:server server
                              :config merged-config
                              :start-time (System/currentTimeMillis)})
-       (log/log! {:level :info :id :sente-lite.server/started
-                  :data {:port (:port merged-config) :host (:host merged-config)}})
+       (trove/log! {:level :info :id :sente-lite.server/started
+                    :data {:port (:port merged-config) :host (:host merged-config)}})
        server)))
   ([]
    (start-server! {})))
@@ -137,14 +137,14 @@
   "Stop the WebSocket server"
   []
   (when-let [state @server-state]
-    (log/log! {:level :info :id :sente-lite.server/stopping
-               :data {:active-connections (count @connections)}})
+    (trove/log! {:level :info :id :sente-lite.server/stopping
+                 :data {:active-connections (count @connections)}})
     (doseq [[channel _conn-data] @connections]
       (http/close channel))
     ((:server state))
     (reset! server-state nil)
     (reset! connections {})
-    (log/log! {:level :info :id :sente-lite.server/stopped :data {}})))
+    (trove/log! {:level :info :id :sente-lite.server/stopped :data {}})))
 
 (defn get-server-stats
   "Get current server statistics"

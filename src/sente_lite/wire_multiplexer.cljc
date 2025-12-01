@@ -2,7 +2,7 @@
   "Wire format multiplexing support for sente-lite
    Allows different wire formats to be used over a single WebSocket connection"
   (:require [sente-lite.wire-format :as wire]
-            [sente-lite.logging :as log]
+            [taoensso.trove :as trove]
             #?(:bb [cheshire.core :as json]
                :clj [clojure.data.json :as json]))
   (:import [java.lang System Exception]))
@@ -70,10 +70,10 @@
          :message parsed-message}))
 
     (catch Exception e
-      (log/log! {:level :error :id :sente-lite.mux/unwrap-failed
-                 :data {:error e
-                        :raw-data (subs raw-envelope-data 0
-                                        (min 100 (count raw-envelope-data)))}})
+      (trove/log! {:level :error :id :sente-lite.mux/unwrap-failed
+                   :data {:error e
+                          :raw-data (subs raw-envelope-data 0
+                                          (min 100 (count raw-envelope-data)))}})
       nil)))
 
 ;; ============================================================================
@@ -116,8 +116,8 @@
   [raw-message conn-id]
   (let [detected-format (detect-message-format raw-message)]
 
-    (log/log! {:level :trace :id :sente-lite.mux/format-detect
-               :data {:conn-id conn-id :detected-format detected-format}})
+    (trove/log! {:level :trace :id :sente-lite.mux/format-detect
+                 :data {:conn-id conn-id :detected-format detected-format}})
 
     (case detected-format
       :multiplexed
@@ -133,9 +133,9 @@
 
       :unknown
       (do
-        (log/log! {:level :error :id :sente-lite.mux/parse-failed
-                   :data {:conn-id conn-id
-                          :message-preview (subs raw-message 0 (min 100 (count raw-message)))}})
+        (trove/log! {:level :error :id :sente-lite.mux/parse-failed
+                     :data {:conn-id conn-id
+                            :message-preview (subs raw-message 0 (min 100 (count raw-message)))}})
         nil))))
 
 ;; ============================================================================
@@ -149,8 +149,8 @@
   [channel-id format-spec]
   (let [wire-format (wire/get-format format-spec)]
     (swap! channel-formats assoc channel-id format-spec)
-    (log/log! {:level :debug :id :sente-lite.mux/chan-fmt-set
-               :data {:channel-id channel-id :format (wire/format-name wire-format)}})
+    (trove/log! {:level :debug :id :sente-lite.mux/chan-fmt-set
+                 :data {:channel-id channel-id :format (wire/format-name wire-format)}})
     format-spec))
 
 (defn get-channel-format
@@ -184,10 +184,10 @@
                             :else
                             default-format)]
 
-    (log/log! {:level :trace :id :sente-lite.mux/fmt-negotiated
-               :data {:channel-id channel-id
-                      :requested-format requested-format
-                      :negotiated-format negotiated-format}})
+    (trove/log! {:level :trace :id :sente-lite.mux/fmt-negotiated
+                 :data {:channel-id channel-id
+                        :requested-format requested-format
+                        :negotiated-format negotiated-format}})
 
     negotiated-format))
 
@@ -260,10 +260,10 @@
   (fn [message]
     ;; Could implement gradual migration logic here
     ;; For now, just log the intent
-    (log/log! {:level :debug :id :sente-lite.mux/migration-candidate
-               :data {:from-format from-format
-                      :to-format to-format
-                      :message-type (:type message)}})
+    (trove/log! {:level :debug :id :sente-lite.mux/migration-candidate
+                 :data {:from-format from-format
+                        :to-format to-format
+                        :message-type (:type message)}})
     to-format))
 
 ;; ============================================================================
@@ -280,18 +280,18 @@
       (let [wrapped (wrap-message test-message format-spec)
             unwrapped (unwrap-message wrapped)]
 
-        (log/log! {:level :info :id :sente-lite.mux/test-result
-                   :data {:format format-spec
-                          :wrapped-size (count wrapped)
-                          :success (some? (:message unwrapped))}})
+        (trove/log! {:level :info :id :sente-lite.mux/test-result
+                     :data {:format format-spec
+                            :wrapped-size (count wrapped)
+                            :success (some? (:message unwrapped))}})
 
         ;; Verify round-trip
         (when-not (= test-message (:message unwrapped))
-          (log/log! {:level :warn :id :sente-lite.mux/test-failed
-                     :data {:format format-spec}}))))
+          (trove/log! {:level :warn :id :sente-lite.mux/test-failed
+                       :data {:format format-spec}}))))
 
     ;; Test auto-detection
     (let [json-msg (to-json test-message)
           detected (detect-message-format json-msg)]
-      (log/log! {:level :info :id :sente-lite.mux/test-detect
-                 :data {:sample (subs json-msg 0 20) :detected-format detected}}))))
+      (trove/log! {:level :info :id :sente-lite.mux/test-detect
+                   :data {:sample (subs json-msg 0 20) :detected-format detected}}))))
