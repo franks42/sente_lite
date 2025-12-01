@@ -11,7 +11,7 @@
     (require '[sente-lite.logging :as log])
     (log/info :app/started {:version \"1.0.0\"})
     (log/error :app/error {:message \"Something failed\"})"
-  #?(:clj (:require [taoensso.trove :as trove])
+  #?(:clj-jvm (:require [taoensso.trove :as trove])
      :cljs (:require [taoensso.trove :as trove])))
 
 ;;; ============================================================================
@@ -37,7 +37,7 @@
   #?(:bb
      ;; Babashka: Simple println logging
      (println (str "[" (name level) "] " id " " (pr-str data)))
-     :clj
+     :clj-jvm
      ;; JVM: Use Trove logging facade
      (trove/log!
       (merge {:level level :id id}
