@@ -4,7 +4,11 @@
   {:author "Peter Taoussanis (@ptaoussanis)"}
   (:require
    [taoensso.trove.utils   :as utils]
-   [taoensso.trove.console :as console])
+   [taoensso.trove.console :as console]
+   #?(:bb [taoensso.trove.timbre :as trove-timbre]
+      :clj [taoensso.trove.timbre :as trove-timbre])
+   #?(:bb [taoensso.timbre :as timbre]
+      :clj [taoensso.timbre :as timbre]))
 
   #?(:cljs (:require-macros [taoensso.trove])))
 
@@ -43,9 +47,25 @@
     Change root    value with `set-log-fn!`.
 
     Basic fns are provided for some common backends, see `taoensso.trove.x/get-log-fn`
-    with x ∈ #{console telemere timbre mulog tools-logging slf4j} (default console)."
+    with x ∈ #{console telemere timbre mulog tools-logging slf4j}.
+    
+    Default: Timbre with file logging for Babashka/JVM, console for ClojureScript."
 
-  (console/get-log-fn))
+  #?(:bb   (do
+             ;; Configure Timbre to log to file only for Babashka (disable console)
+             (timbre/merge-config!
+              {:min-level :info
+               :appenders {:println {:enabled? false}  ; Disable console output
+                           :spit (timbre/spit-appender {:fname "logs/trove.log"})}})
+             (trove-timbre/get-log-fn))
+     :clj  (do
+             ;; Configure Timbre to log to file only for JVM (disable console)
+             (timbre/merge-config!
+              {:min-level :info
+               :appenders {:println {:enabled? false}  ; Disable console output
+                           :spit (timbre/spit-appender {:fname "logs/trove.log"})}})
+             (trove-timbre/get-log-fn))
+     :cljs (console/get-log-fn)))
 
 #?(:clj
    (defmacro set-log-fn!
