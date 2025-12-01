@@ -1,8 +1,12 @@
 (ns ws-client-managed
   "Managed WebSocket client with state tracking, auto-reconnection, and subscription restoration"
-  (:require [telemere-lite.core :as tel]
-            [babashka.http-client.websocket :as ws]
+  (:require [babashka.http-client.websocket :as ws]
             [cheshire.core :as json]))
+
+;; Stub for removed telemere-lite
+(def tel-event! (fn [& _] nil))
+(def tel-error! (fn [& _] nil))
+(def tel-log! (fn [& _] nil))
 
 ;;
 ;; State Machine:
@@ -19,12 +23,12 @@
 (defn- notify-state-change!
   "Notify state change callback if provided"
   [state old-status new-status]
-  (tel/event! ::state-change {:old old-status :new new-status})
+  (tel-event! ::state-change {:old old-status :new new-status})
   (when-let [callback (get-in @state [:config :on-state-change])]
     (try
       (callback old-status new-status)
       (catch Exception e
-        (tel/error! "State change callback error" {:error e})))))
+        (tel-error! "State change callback error" {:error e})))))
 
 (defn- update-state!
   "Update state atom and notify callbacks"
@@ -41,14 +45,14 @@
   (let [msg (json/parse-string (str data) true)
         auto-pong? (get-in @state [:config :heartbeat :auto-pong] true)]
 
-    (tel/event! ::message-received {:type (:type msg)
+    (tel-event! ::message-received {:type (:type msg)
                                     :auto-pong auto-pong?})
 
     (cond
       ;; Auto-respond to pings
       (and (= "ping" (:type msg)) auto-pong?)
       (do
-        (tel/event! ::auto-pong-response {:timestamp (:timestamp msg)})
+        (tel-event! ::auto-pong-response {:timestamp (:timestamp msg)})
         (when-let [ws (:ws @state)]
           (ws/send! ws (json/generate-string
                         {:type "pong"
@@ -61,7 +65,7 @@
         (try
           (on-message msg)
           (catch Exception e
-            (tel/error! "Message handler error" {:error e :msg msg})))))))
+            (tel-error! "Message handler error" {:error e :msg msg})))))))
 
 ;; Forward declarations
 (declare reconnect-with-backoff!)
@@ -72,10 +76,10 @@
   [state ws]
   (let [subscriptions (:subscriptions @state)]
     (when (seq subscriptions)
-      (tel/event! ::restoring-subscriptions {:count (count subscriptions)
+      (tel-event! ::restoring-subscriptions {:count (count subscriptions)
                                              :channels subscriptions})
       (doseq [channel-id subscriptions]
-        (tel/event! ::restoring-subscription {:channel channel-id})
+        (tel-event! ::restoring-subscription {:channel channel-id})
         (ws/send! ws (json/generate-string
                       {:type "subscribe"
                        :channel-id channel-id}))
@@ -86,14 +90,14 @@
   "Internal connection function"
   [state]
   (let [uri (get-in @state [:config :uri])]
-    (tel/event! ::connecting {:uri uri})
+    (tel-event! ::connecting {:uri uri})
     (update-state! state {:status :connecting})
 
     (try
       (let [ws-client (ws/websocket
                        {:uri uri
                         :on-open (fn [ws]
-                                   (tel/event! ::connected {:uri uri})
+                                   (tel-event! ::connected {:uri uri})
                                    (update-state! state {:status :open
                                                          :ws ws
                                                          :reconnect-attempt 0})
@@ -105,7 +109,7 @@
                         :on-message (fn [ws data last]
                                       (handle-message state data))
                         :on-close (fn [ws status reason]
-                                    (tel/event! ::connection-closed
+                                    (tel-event! ::connection-closed
                                                 {:status status :reason reason})
                                     (let [was-closing? (= :closing (:status @state))
                                           reconnect-enabled? (get-in @state [:config :reconnect :enabled] false)]
@@ -116,10 +120,10 @@
                                         (on-close ws status reason))
                                       ;; Trigger reconnection if not intentional close
                                       (when (and (not was-closing?) reconnect-enabled?)
-                                        (tel/event! ::connection-lost {:will-reconnect true})
+                                        (tel-event! ::connection-lost {:will-reconnect true})
                                         (reconnect-with-backoff! state))))
                         :on-error (fn [ws error]
-                                    (tel/error! "WebSocket error" {:error error :uri uri})
+                                    (tel-error! "WebSocket error" {:error error :uri uri})
                                     ;; Call user on-error callback
                                     (when-let [on-error (get-in @state [:config :on-error])]
                                       (on-error ws error)))})]
@@ -127,7 +131,7 @@
         (Thread/sleep 100)
         ws-client)
       (catch Exception e
-        (tel/error! "Failed to connect WebSocket" {:error e :uri uri})
+        (tel-error! "Failed to connect WebSocket" {:error e :uri uri})
         (let [reconnect-enabled? (get-in @state [:config :reconnect :enabled] false)]
           (if reconnect-enabled?
             (reconnect-with-backoff! state)
@@ -147,7 +151,7 @@
                 old-port-int (Integer/parseInt old-port)]
             (when (not= new-port old-port-int)
               (let [new-uri (str "ws://" host ":" new-port path)]
-                (tel/event! ::port-changed {:old-port old-port-int
+                (tel-event! ::port-changed {:old-port old-port-int
                                             :new-port new-port
                                             :old-uri current-uri
                                             :new-uri new-uri})
@@ -155,7 +159,7 @@
                 (swap! state assoc-in [:config :uri] new-uri)
                 true)))))
       (catch Exception e
-        (tel/error! "Failed to read port file for reconnection" {:error e})
+        (tel-error! "Failed to read port file for reconnection" {:error e})
         false))))
 
 (defn- reconnect-with-backoff!
@@ -171,7 +175,7 @@
     (if (>= current-attempt max-attempts)
       ;; Exceeded max attempts - give up
       (do
-        (tel/error! "Max reconnect attempts exceeded" {:attempts current-attempt})
+        (tel-error! "Max reconnect attempts exceeded" {:attempts current-attempt})
         (update-state! state {:status :failed}))
 
       ;; Calculate delay with exponential backoff and jitter
@@ -180,7 +184,7 @@
             jitter (* capped-delay 0.25 (- (rand) 0.5))  ; ±25% randomness
             actual-delay (long (+ capped-delay jitter))]
 
-        (tel/event! ::reconnect-scheduled {:attempt (inc current-attempt)
+        (tel-event! ::reconnect-scheduled {:attempt (inc current-attempt)
                                            :delay-ms actual-delay})
         (update-state! state {:status :reconnecting
                               :reconnect-attempt (inc current-attempt)})
@@ -189,12 +193,12 @@
         (future
           (try
             (Thread/sleep actual-delay)
-            (tel/event! ::reconnect-attempt {:attempt (inc current-attempt)})
+            (tel-event! ::reconnect-attempt {:attempt (inc current-attempt)})
             ;; Check if port has changed (for ephemeral port servers)
             (update-uri-port! state)
             (connect-internal! state)
             (catch Exception e
-              (tel/error! "Reconnection attempt failed" {:error e :attempt (inc current-attempt)}))))))))
+              (tel-error! "Reconnection attempt failed" {:error e :attempt (inc current-attempt)}))))))))
 
 (defn create-managed-client
   "Create a managed WebSocket client with state tracking
@@ -237,10 +241,10 @@
     ;; Return client handle with methods
     {:state state
      :connect! (fn []
-                 (tel/event! ::client-connect-requested {})
+                 (tel-event! ::client-connect-requested {})
                  (connect-internal! state))
      :disconnect! (fn []
-                    (tel/event! ::client-disconnect-requested {})
+                    (tel-event! ::client-disconnect-requested {})
                     (when-let [ws (:ws @state)]
                       (update-state! state {:status :closing})
                       (ws/close! ws 1000 "Normal closure")
@@ -249,19 +253,19 @@
               (if-let [ws (:ws @state)]
                 (if (= :open (:status @state))
                   (do
-                    (tel/event! ::client-send {:message-length (count message)})
+                    (tel-event! ::client-send {:message-length (count message)})
                     (ws/send! ws message))
                   (do
-                    (tel/error! "Cannot send - connection not open"
+                    (tel-error! "Cannot send - connection not open"
                                 {:status (:status @state)})
                     false))
                 (do
-                  (tel/error! "Cannot send - no active connection" {})
+                  (tel-error! "Cannot send - no active connection" {})
                   false)))
      :get-state (fn [] (:status @state))
      :get-full-state (fn [] @state)
      :subscribe! (fn [channel-id]
-                   (tel/event! ::client-subscribe-requested {:channel channel-id})
+                   (tel-event! ::client-subscribe-requested {:channel channel-id})
                    (if-let [ws (:ws @state)]
                      (if (= :open (:status @state))
                        (do
@@ -273,15 +277,15 @@
                                         :channel-id channel-id}))
                          true)
                        (do
-                         (tel/error! "Cannot subscribe - connection not open"
+                         (tel-error! "Cannot subscribe - connection not open"
                                      {:status (:status @state) :channel channel-id})
                          false))
                      (do
-                       (tel/error! "Cannot subscribe - no active connection"
+                       (tel-error! "Cannot subscribe - no active connection"
                                    {:channel channel-id})
                        false)))
      :unsubscribe! (fn [channel-id]
-                     (tel/event! ::client-unsubscribe-requested {:channel channel-id})
+                     (tel-event! ::client-unsubscribe-requested {:channel channel-id})
                      (if-let [ws (:ws @state)]
                        (if (= :open (:status @state))
                          (do
@@ -293,11 +297,11 @@
                                           :channel-id channel-id}))
                            true)
                          (do
-                           (tel/error! "Cannot unsubscribe - connection not open"
+                           (tel-error! "Cannot unsubscribe - connection not open"
                                        {:status (:status @state) :channel channel-id})
                            false))
                        (do
-                         (tel/error! "Cannot unsubscribe - no active connection"
+                         (tel-error! "Cannot unsubscribe - no active connection"
                                      {:channel channel-id})
                          false)))
      :get-subscriptions (fn [] (:subscriptions @state))}))
