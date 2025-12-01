@@ -73,7 +73,14 @@
      [f]
      (if (:ns &env)
        `(set!                *log-fn*           ~f)
-       `(alter-var-root (var *log-fn*) (fn [_#] ~f)))))
+       `(alter-var-root (var *log-fn*) (fn [_#] ~f))))
+
+   :cljs
+   (defn ^{:sci/macro true
+           :doc "SCI-compatible set-log-fn! for Scittle."}
+     set-log-fn!
+     [_&form _&env f]
+     `(set! taoensso.trove/*log-fn* ~f)))
 
 #?(:clj
    (defmacro log!
@@ -124,6 +131,32 @@
        `(let   [~lfn ~log-fn]
           (when ~lfn
             (~lfn ~ns ~coords ~level ~id ~lazy-form))
+          nil)))
+
+   ;; SCI/Scittle-compatible macro for ClojureScript runtime interpretation.
+   ;; This is a function with :sci/macro metadata that SCI treats as a macro.
+   ;; It receives &form and &env as first two args (per SCI convention).
+   ;; Note: &form metadata (line/column) is not available in SCI, so coords is nil.
+   :cljs
+   (defn ^{:sci/macro true
+           :arglists '([{:keys [level id msg data error]}])
+           :doc "SCI-compatible log! macro for Scittle.
+                 Same signature as the JVM macro but runs in browser via SCI."}
+     log!
+     [_&form _&env opts]
+     (when-not (map? opts)
+       (throw (ex-info "Trove opts must be a compile-time map"
+                       {:opts {:value opts, :type (type opts)}})))
+     (let [{:keys [level id msg data error log-fn]
+            :or {level :info
+                 log-fn 'taoensso.trove/*log-fn*}} opts
+           ;; SCI doesn't have &form metadata, so no coords
+           ;; Build the lazy form - always use delay for SCI simplicity
+           lazy-form (when (or msg data error)
+                       `(delay {:msg ~msg :data ~data :error ~error}))]
+       `(let [lfn# ~log-fn]
+          (when lfn#
+            (lfn# (str ~'*ns*) nil ~level ~id ~lazy-form))
           nil))))
 
 (comment

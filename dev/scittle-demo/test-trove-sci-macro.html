@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove SCI Macro Test</title>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load Trove source files from src/ -->
+  <script src="../../src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="../../src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="../../src/taoensso/trove.cljc" type="application/x-scittle"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; background: #1a1a2e; color: #eee; }
+    h1 { color: #00d4ff; }
+    .test { background: #16213e; border: 1px solid #0f3460; padding: 15px; margin: 10px 0; border-radius: 5px; }
+    .pass { border-left: 4px solid #00ff88; }
+    .fail { border-left: 4px solid #ff4444; }
+    .info { color: #888; font-size: 0.9em; }
+    pre { background: #0f0f23; padding: 10px; overflow-x: auto; }
+  </style>
+</head>
+<body>
+  <h1>Trove SCI Macro Test</h1>
+  
+  <p class="info">Testing the :sci/macro implementation of trove/log! in Scittle</p>
+
+  <div id="results"></div>
+
+  <script type="application/x-scittle">
+    (def results (atom []))
+    
+    (defn add-result! [name passed? details]
+      (swap! results conj {:name name :passed? passed? :details details}))
+    
+    (defn render-results! []
+      (let [html (apply str
+                   (for [{:keys [name passed? details]} @results]
+                     (str "<div class='test " (if passed? "pass" "fail") "'>"
+                          "<strong>" (if passed? "✅" "❌") " " name "</strong>"
+                          "<pre>" details "</pre>"
+                          "</div>")))]
+        (set! (.-innerHTML (js/document.getElementById "results")) html)))
+
+    ;; Test 1: Require taoensso.trove
+    (println "🧪 Test 1: Requiring taoensso.trove...")
+    (try
+      (require '[taoensso.trove :as trove])
+      (add-result! "Require taoensso.trove" true "Namespace loaded successfully")
+      (println "✅ Test 1 passed!")
+      (catch :default e
+        (add-result! "Require taoensso.trove" false (str e))
+        (println "❌ Test 1 failed:" e)))
+
+    ;; Test 2: Check *log-fn* exists (use @#'var syntax for dynamic var)
+    (println "🧪 Test 2: Checking *log-fn*...")
+    (try
+      (let [log-fn @(resolve 'taoensso.trove/*log-fn*)]
+        (if (fn? log-fn)
+          (do
+            (add-result! "Check *log-fn*" true (str "log-fn is a function: " (type log-fn)))
+            (println "✅ Test 2 passed!"))
+          (do
+            (add-result! "Check *log-fn*" false (str "*log-fn* is not a function: " (type log-fn)))
+            (println "❌ Test 2 failed: *log-fn* is not a function"))))
+      (catch :default e
+        (add-result! "Check *log-fn*" false (str e))
+        (println "❌ Test 2 failed:" e)))
+
+    ;; Test 3: Use log! macro with :refer
+    (println "🧪 Test 3: Using log! macro with :refer...")
+    (try
+      (require '[taoensso.trove :refer [log!]])
+      (log! {:level :info :id :test/basic :msg "Hello from SCI macro!"})
+      (add-result! "log! with :refer" true "log! macro executed successfully")
+      (println "✅ Test 3 passed!")
+      (catch :default e
+        (add-result! "log! with :refer" false (str e))
+        (println "❌ Test 3 failed:" e)))
+
+    ;; Test 4: Use log! with data (qualified calls don't work in SCI - use :refer)
+    (println "🧪 Test 4: Using log! with :data...")
+    (try
+      (log! {:level :debug :id :test/with-data :data {:foo "bar" :count 42}})
+      (add-result! "log! with :data" true "Data logging worked")
+      (println "✅ Test 4 passed!")
+      (catch :default e
+        (add-result! "log! with :data" false (str e))
+        (println "❌ Test 4 failed:" e)))
+
+    ;; Test 5: Test all log levels
+    (println "🧪 Test 5: Testing all log levels...")
+    (try
+      (log! {:level :trace :id :test/trace :msg "Trace message"})
+      (log! {:level :debug :id :test/debug :msg "Debug message"})
+      (log! {:level :info  :id :test/info  :msg "Info message"})
+      (log! {:level :warn  :id :test/warn  :msg "Warn message"})
+      (log! {:level :error :id :test/error :msg "Error message"})
+      (log! {:level :fatal :id :test/fatal :msg "Fatal message"})
+      (add-result! "All log levels" true "All 6 log levels executed")
+      (println "✅ Test 5 passed!")
+      (catch :default e
+        (add-result! "All log levels" false (str e))
+        (println "❌ Test 5 failed:" e)))
+
+    ;; Test 6: Log with complex data
+    (println "🧪 Test 6: Logging complex data...")
+    (try
+      (log! {:level :info
+             :id :test/complex
+             :data {:user {:id 123 :name "Test User"}
+                    :action "login"
+                    :timestamp (js/Date.now)
+                    :nested {:deep {:value [1 2 3]}}}})
+      (add-result! "Complex data" true "Complex nested data logged")
+      (println "✅ Test 6 passed!")
+      (catch :default e
+        (add-result! "Complex data" false (str e))
+        (println "❌ Test 6 failed:" e)))
+
+    ;; Test 7: Log with error
+    (println "🧪 Test 7: Logging with error...")
+    (try
+      (let [err (js/Error. "Test error for logging")]
+        (log! {:level :error
+               :id :test/with-error
+               :msg "Something went wrong"
+               :error err
+               :data {:context "test"}}))
+      (add-result! "Log with error" true "Error object logged successfully")
+      (println "✅ Test 7 passed!")
+      (catch :default e
+        (add-result! "Log with error" false (str e))
+        (println "❌ Test 7 failed:" e)))
+
+    ;; Render results
+    (render-results!)
+    
+    ;; Summary
+    (let [passed (count (filter :passed? @results))
+          total (count @results)]
+      (println (str "\n📊 Results: " passed "/" total " tests passed"))
+      (if (= passed total)
+        (println "🎉 All tests passed! The SCI macro works!")
+        (println "⚠️ Some tests failed")))
+  </script>
+</body>
+</html>
