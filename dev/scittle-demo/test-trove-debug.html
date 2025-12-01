@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove Debug</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <script src="src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove.cljc" type="application/x-scittle"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Trove Debug</h1>
+
+  <script type="application/x-scittle">
+    (println "\n=== DEBUG: What's in taoensso.trove namespace? ===")
+    
+    (require '[taoensso.trove :as trove])
+    
+    (println "\nTrying to list namespace contents...")
+    (try
+      (let [ns-map (ns-publics 'taoensso.trove)]
+        (println (str "Public symbols: " (keys ns-map))))
+      (catch :default e
+        (println (str "Error: " (ex-message e)))))
+    
+    (println "\nTrying to access log! directly...")
+    (try
+      (let [log-var (resolve 'taoensso.trove/log!)]
+        (println (str "log! resolved: " log-var))
+        (let [meta (meta log-var)]
+          (println (str "Metadata: " meta))))
+      (catch :default e
+        (println (str "Error: " (ex-message e)))))
+    
+    (println "\nTrying with :refer...")
+    (try
+      (require '[taoensso.trove :refer [log!]])
+      (println "✅ :refer worked!")
+      (let [meta (meta #'log!)]
+        (println (str "Metadata: " meta)))
+      (catch :default e
+        (println (str "Error: " (ex-message e)))))
+  </script>
+</body>
+</html>
