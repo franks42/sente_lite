@@ -172,6 +172,44 @@ They are:
 - Published together under the `scittle` npm package
 - Available at `cdn.jsdelivr.net/npm/scittle@VERSION/dist/scittle.PLUGIN.js`
 
+## Plugin Architecture
+
+Each plugin consists of three layers:
+
+```
+Library (promesa, reagent, trove, etc.)
+    ↓
+SCI Config (sci.configs.*/*)     ← wraps library for SCI compatibility
+    ↓
+Scittle Plugin (scittle/*)       ← thin registration wrapper
+    ↓
+CDN JS file                      ← built & published by babashka/scittle
+```
+
+**Example: scittle.promesa**
+
+The plugin file is just ~6 lines:
+```clojure
+(ns scittle.promesa
+  (:require [sci.configs.funcool.promesa :as p]
+            [scittle.core :as scittle]))
+
+(scittle/register-plugin! ::promesa p/config)
+```
+
+The actual work is in the **SCI config** (maintained in [babashka/sci.configs](https://github.com/babashka/sci.configs)), which defines how the library's namespaces and vars are exposed to SCI.
+
+## What's Needed for Trove
+
+1. **Trove with `:cljs` SCI macro** ← done (our changes to `taoensso/trove.cljc`)
+2. **SCI config for Trove** ← defines namespace mappings for SCI
+3. **Scittle plugin** ← thin wrapper calling `register-plugin!`
+
+The SCI config could live in:
+- `babashka/sci.configs` (if accepted upstream)
+- `taoensso/trove` itself
+- Inline in the scittle plugin
+
 ## Options for Trove Plugin
 
 | Option | Effort | Maintenance |
