@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <title>Sente-lite Logging Test</title>
 
-  <!-- Load Scittle core -->
-  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+  <!-- Load Trove FIRST (before Scittle) -->
+  <script src="https://cdn.jsdelivr.net/npm/com.taoensso/trove@1.1.0/dist/trove.umd.js"
           type="application/javascript"></script>
 
-  <!-- Load Trove (logging facade for browser) -->
-  <script src="https://cdn.jsdelivr.net/npm/com.taoensso/trove@1.1.0/dist/trove.umd.js"
+  <!-- Load Scittle core AFTER Trove -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
           type="application/javascript"></script>
 
   <style>
@@ -60,37 +60,50 @@
   </div>
 
   <script type="application/x-scittle">
-    ;; Test Trove logging directly
+    ;; Test Trove logging
     (println "🧪 Testing Trove Logging...")
     
-    ;; Test all log levels
-    (taoensso.trove/log! {:level :trace :id :test/trace-level :data {:message "Trace level test"}})
-    (taoensso.trove/log! {:level :debug :id :test/debug-level :data {:message "Debug level test"}})
-    (taoensso.trove/log! {:level :info :id :test/info-level :data {:message "Info level test"}})
-    (taoensso.trove/log! {:level :warn :id :test/warn-level :data {:message "Warn level test"}})
-    (taoensso.trove/log! {:level :error :id :test/error-level :data {:message "Error level test"}})
-    (taoensso.trove/log! {:level :fatal :id :test/fatal-level :data {:message "Fatal level test"}})
+    ;; Check if Trove is available
+    (let [trove-available? (not (nil? (aget js/window "taoensso")))]
+      (if trove-available?
+        (do
+          (println "✅ Trove is available!")
+          ;; Get Trove from window
+          (let [trove (aget js/window "taoensso" "trove")
+                log-fn (aget trove "log")]
+            
+            ;; Test all log levels
+            (log-fn #js {:level "trace" :id "test/trace-level" :data #js {:message "Trace level test"}})
+            (log-fn #js {:level "debug" :id "test/debug-level" :data #js {:message "Debug level test"}})
+            (log-fn #js {:level "info" :id "test/info-level" :data #js {:message "Info level test"}})
+            (log-fn #js {:level "warn" :id "test/warn-level" :data #js {:message "Warn level test"}})
+            (log-fn #js {:level "error" :id "test/error-level" :data #js {:message "Error level test"}})
+            (log-fn #js {:level "fatal" :id "test/fatal-level" :data #js {:message "Fatal level test"}})
 
-    ;; Test complex data
-    (taoensso.trove/log! {:level :debug
-                          :id :test/complex-data
-                          :data {:user {:id 123 :name "Test User"}
-                                 :nested {:level1 {:level2 "deep"}}
-                                 :timestamp (js/Date.now)}})
+            ;; Test complex data
+            (log-fn #js {:level "debug"
+                         :id "test/complex-data"
+                         :data #js {:user #js {:id 123 :name "Test User"}
+                                    :nested #js {:level1 #js {:level2 "deep"}}
+                                    :timestamp (js/Date.now)}})
 
-    ;; Test error logging
-    (try
-      (throw (js/Error. "Test error"))
-      (catch js/Error e
-        (taoensso.trove/log! {:level :error
-                              :id :test/error-with-exception
-                              :data {:error e :message (.-message e)}})))
+            ;; Test error logging
+            (try
+              (throw (js/Error. "Test error"))
+              (catch js/Error e
+                (log-fn #js {:level "error"
+                             :id "test/error-with-exception"
+                             :data #js {:error e :message (.-message e)}})))
 
-    ;; Update status
-    (set! (.-innerHTML (js/document.getElementById "status"))
-      "✅ Trove logging tests completed! Check console logs below.")
+            ;; Update status
+            (set! (.-innerHTML (js/document.getElementById "status"))
+              "✅ Trove logging tests completed! Check console logs below.")))
+        (do
+          (println "❌ Trove not available!")
+          (set! (.-innerHTML (js/document.getElementById "status"))
+            "❌ Trove not available in window object"))))
 
-    (println "✅ All Trove tests completed!")
+    (println "✅ Test script completed!")
   </script>
 </body>
 </html>
