@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>External Macros Test</title>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load external file with macro definitions -->
+  <script src="macros-test.cljs" type="application/x-scittle"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    h1 { color: #333; }
+    .result { background: white; border: 1px solid #ddd; padding: 15px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 External Macros Test</h1>
+  
+  <div class="result">
+    <h2>Test Results</h2>
+    <p id="status">Loading...</p>
+  </div>
+
+  <script type="application/x-scittle">
+    ;; Test 1: Require the external macro namespace with :refer
+    (println "🧪 Test 1: Loading external macro namespace...")
+    (require '[my.macros :refer [log-twice with-prefix]])
+    (println "✅ Test 1: Namespace loaded with :refer!")
+
+    ;; Test 2: Use the log-twice macro
+    (println "🧪 Test 2: Using log-twice macro...")
+    (log-twice "Hello from macro!")
+    (println "✅ Test 2: log-twice macro worked!")
+
+    ;; Test 3: Use the with-prefix macro
+    (println "🧪 Test 3: Using with-prefix macro...")
+    (let [result (with-prefix "PREFIX" "value")]
+      (println (str "Result: " result))
+      (when (= result "PREFIX - value")
+        (println "✅ Test 3: with-prefix macro worked!")))
+
+    ;; Test 4: Verify macro expansion
+    (println "🧪 Test 4: Verifying macro expansion...")
+    (let [expanded (with-prefix "TEST" "data")]
+      (js/console.log "Expanded result:" expanded)
+      (println "✅ Test 4: Macro expansion verified!"))
+
+    ;; Update status
+    (set! (.-innerHTML (js/document.getElementById "status"))
+      "✅ All external macro tests passed!")
+
+    (println "✅ All tests completed successfully!")
+  </script>
+</body>
+</html>

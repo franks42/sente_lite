@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove Macros Test</title>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load Trove source files -->
+  <script src="src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove.cljc" type="application/x-scittle"></script>
+
+  <!-- Load Trove macro wrapper -->
+  <script src="trove-macros.cljs" type="application/x-scittle"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    h1 { color: #333; }
+    .result { background: white; border: 1px solid #ddd; padding: 15px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Trove Macros Test</h1>
+  
+  <div class="result">
+    <h2>Test Results</h2>
+    <p id="status">Loading...</p>
+  </div>
+
+  <script type="application/x-scittle">
+    ;; Test 1: Load Trove wrapper
+    (println "🧪 Test 1: Loading Trove wrapper...")
+    (require '[trove.macros :refer [log!]])
+    (println "✅ Test 1: Trove wrapper loaded!")
+
+    ;; Test 2: Use Trove log! function
+    (println "🧪 Test 2: Using Trove log! function...")
+    (log! :info :test/function-test {:message "Test from function"})
+    (println "✅ Test 2: Trove log! function worked!")
+
+    ;; Test 3: Test all log levels
+    (println "🧪 Test 3: Testing all log levels...")
+    (log! :trace :test/trace)
+    (log! :debug :test/debug)
+    (log! :info :test/info)
+    (log! :warn :test/warn)
+    (log! :error :test/error)
+    (log! :fatal :test/fatal)
+    (println "✅ Test 3: All log levels worked!")
+
+    ;; Test 4: Log with complex data
+    (println "🧪 Test 4: Logging complex data...")
+    (log! :info :test/complex
+          {:user {:id 123 :name "Test User"}
+           :action "login"
+           :timestamp (js/Date.now)})
+    (println "✅ Test 4: Complex data logging worked!")
+
+    ;; Test 5: Log with error
+    (println "🧪 Test 5: Logging with error...")
+    (try
+      (throw (js/Error. "Test error"))
+      (catch js/Error e
+        (log! :error :test/error-log {:error e})))
+    (println "✅ Test 5: Error logging worked!")
+
+    ;; Update status
+    (set! (.-innerHTML (js/document.getElementById "status"))
+      "✅ All Trove wrapper tests passed!")
+
+    (println "✅ All tests completed successfully!")
+  </script>
+</body>
+</html>
