@@ -1,13 +1,13 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-11-08 (Session 8 - Trove Migration + Location Metadata Fix COMPLETE ✅)
+**Last Updated**: 2025-11-30 (Session 9 - Logging Refactoring Planning)
 
 ## CURRENT STATUS
 
-**Last Commit**: `176488b` - "fix: Properly structure msg field and capture location metadata in telemetry"
-**Last Tag**: `v0.6.1-location-metadata-fix`
-**Branch**: `main` - clean working tree (only .claude/settings.local.json modified)
+**Last Commit**: `846020a` - "docs: Add refactoring plan and update context"
+**Branch**: `main` - clean working tree
+**Current Task**: Logging refactoring (planning phase complete, ready for implementation)
 
 ### What Was Accomplished (Session 8 - 2025-11-08)
 
@@ -136,8 +136,9 @@
 - ✅ Pub/sub (all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser)
 - ✅ All tests passing (exit code 0)
 - ✅ Zero linting errors
-- ✅ telemere-lite with Trove event IDs
-- ✅ Location metadata capture (file, line, ns)
+- ✅ Trove logging facade (migrated from telemere-lite)
+- ✅ Trove function implementation for Scittle (`trove-scittle.cljs`)
+- ⏳ Logging refactoring in progress (97 calls across 7 files)
 
 ### What's Documented (For Future)
 - 📋 Compression feature (gzip + none, 1KB threshold)
@@ -185,10 +186,18 @@ cd dev/scittle-demo && npm run interactive
 - `src/telemere_lite/core.cljc` - Telemetry (842 lines, unified BB + browser)
 
 **Design Documents** (CRITICAL - Read These!):
+- `REFACTORING_PLAN.md` - Current logging refactoring plan (97 calls, 7 files)
+- `TROVE_SCITTLE_USAGE.md` - How to use Trove in Scittle
+- `TROVE_SCITTLE_FINAL_VERDICT.md` - Why Trove doesn't work in Scittle
 - `doc/trove-event-id-mapping.md` - Phase 2 + 2b completion status, event mapping
 - `doc/plan.md` - Implementation plan (includes SCI limitation section)
 - `CLAUDE.md` - AI instructions (includes all coding rules)
 - `CONTEXT.md` - This file
+
+**Logging Implementation**:
+- `src/sente_lite/logging.cljc` - Trove facade (core `log!` function + convenience macros)
+- `dev/scittle-demo/trove-scittle.cljs` - Trove function implementation for Scittle
+- `dev/scittle-demo/taoensso/trove.cljs` - Duplicate (same as trove-scittle.cljs)
 
 **Other Important**:
 - `dev/scittle-demo/DEPLOYMENT-PROTOCOL.md` - 5-step deployment protocol
