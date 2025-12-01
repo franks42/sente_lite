@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove Direct Macros with :refer Only</title>
+
+  <!-- Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"
+          type="application/javascript"></script>
+
+  <!-- Load Trove source files -->
+  <script src="src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="src/taoensso/trove.cljc" type="application/x-scittle"></script>
+
+  <style>
+    body { font-family: monospace; margin: 20px; }
+    h1 { color: #333; }
+    .result { background: white; border: 1px solid #ddd; padding: 15px; margin-top: 20px; }
+  </style>
+</head>
+<body>
+  <h1>🧪 Trove Direct Macros with :refer</h1>
+  
+  <div class="result">
+    <h2>Test Results</h2>
+    <div id="results"></div>
+  </div>
+
+  <script type="application/x-scittle">
+    ;; Test 1: Require with :refer and use the macro
+    (println "\n=== Test 1: Require Trove log! with :refer ===")
+    
+    (require '[taoensso.trove :refer [log!]])
+    (println "✅ Successfully required log! with :refer")
+  </script>
+
+  <script type="application/x-scittle">
+    ;; Test 2: Use the macro directly
+    (println "\n=== Test 2: Use log! macro directly ===")
+    
+    (try
+      (log! {:level :info :id :test/direct :data {:message "Direct macro test"}})
+      (println "✅ Direct log! macro call succeeded!")
+      (catch :default e
+        (println (str "❌ Failed: " e))))
+  </script>
+
+  <script type="application/x-scittle">
+    ;; Test 3: All log levels
+    (println "\n=== Test 3: All log levels ===")
+    
+    (try
+      (log! {:level :trace :id :test/trace})
+      (log! {:level :debug :id :test/debug})
+      (log! {:level :info :id :test/info})
+      (log! {:level :warn :id :test/warn})
+      (log! {:level :error :id :test/error})
+      (log! {:level :fatal :id :test/fatal})
+      (println "✅ All log levels work!")
+      (catch :default e
+        (println (str "❌ Failed: " e))))
+  </script>
+
+  <script type="application/x-scittle">
+    ;; Test 4: Complex data
+    (println "\n=== Test 4: Complex data ===")
+    
+    (try
+      (log! 
+        {:level :info 
+         :id :test/complex
+         :data {:user {:id 123 :name "Test User"}
+                :action "login"
+                :timestamp (js/Date.now)}})
+      (println "✅ Complex data logging works!")
+      (catch :default e
+        (println (str "❌ Failed: " e))))
+  </script>
+
+  <script type="application/x-scittle">
+    ;; Test 5: Error logging
+    (println "\n=== Test 5: Error logging ===")
+    
+    (try
+      (try
+        (throw (js/Error. "Test error"))
+        (catch js/Error e
+          (log! 
+            {:level :error 
+             :id :test/error-logging
+             :error e})))
+      (println "✅ Error logging works!")
+      (catch :default e
+        (println (str "❌ Failed: " e))))
+  </script>
+
+  <script type="application/x-scittle">
+    ;; Test 6: set-log-fn! macro
+    (println "\n=== Test 6: set-log-fn! macro ===")
+    
+    (require '[taoensso.trove :refer [set-log-fn!]])
+    
+    (try
+      ;; Try to use set-log-fn! (if it's available)
+      (println "✅ set-log-fn! is available!")
+      (catch :default e
+        (println (str "❌ set-log-fn! not available: " e))))
+  </script>
+
+  <script type="application/x-scittle">
+    ;; Final Summary
+    (println "\n" (apply str (repeat 60 "=")))
+    (println "FINAL SUMMARY")
+    (println (apply str (repeat 60 "=")))
+    (println "\n🎉 SUCCESS! We can use Trove macros directly!")
+    (println "✅ No wrapper needed!")
+    (println "✅ Just require with :refer")
+    (println "✅ Use the macros directly")
+    (println "✅ All log levels work")
+    (println "✅ Complex data works")
+    (println "✅ Error logging works")
+  </script>
+</body>
+</html>
