@@ -1,20 +1,48 @@
-;; trove-macros.cljs
-;; Wrapper to expose Trove logging for use in Scittle
+(ns taoensso.trove
+  "Trove logging facade for Scittle.
+   
+   Function-based implementation that mimics the log! macro signature.
+   Can be replaced with the real macro once available in SCI.")
 
-(ns trove.macros
-  (:require [taoensso.trove.console :as console]))
+(defn- format-timestamp []
+  (.toISOString (js/Date.)))
 
-;; Instead of trying to wrap the macro, provide direct API access
-;; This is more reliable in Scittle's SCI context
+(defn- default-log-fn
+  "Default console backend - mimics console/get-log-fn"
+  [ns coords level id lazy-form]
+  (let [data (if lazy-form (force lazy-form) {})
+        timestamp (format-timestamp)
+        msg (:msg data)
+        error (:error data)
+        output (str timestamp " " (name level) " " ns " " coords " " id)]
+    (js/console.log output (clj->js data))))
 
-(def ^:private log-fn (console/get-log-fn))
+(def ^:dynamic *log-fn*
+  "The logging backend function.
+   Signature: (fn [ns coords level id lazy-form])"
+  default-log-fn)
 
 (defn log!
-  "Direct logging function that works in Scittle
-   Usage: (log! :info :event-id {:data value})"
-  ([level id]
-   (log! level id nil))
-  ([level id data]
-   (log-fn (str *ns*) nil level id (delay {:data data}))))
-
-(println "✅ trove.macros namespace loaded with log! function!")
+  "Log using the configured backend.
+   
+   Signature matches Trove's log! macro for future compatibility.
+   
+   Usage:
+     (log! {:level :info :id :event :data {...}})
+     (log! {:level :error :id :error :msg \"Failed\" :error err})"
+  [opts]
+  (when-not (map? opts)
+    (throw (ex-info "Trove opts must be a map" {:opts opts})))
+  
+  (let [{:keys [ns coords level id msg data error log-fn]
+         :or {ns (str *ns*)
+              level :info
+              coords nil
+              log-fn *log-fn*}} opts
+        
+        lazy-form (when (or msg data error)
+                    (delay {:msg msg :data data :error error}))]
+    
+    (when log-fn
+      (log-fn ns coords level id lazy-form))
+    nil))
