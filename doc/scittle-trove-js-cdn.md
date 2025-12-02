@@ -1,14 +1,53 @@
-# Building a Scittle Trove Plugin for CDN
+# Trove in Scittle - Distribution Options
 
-## Overview
+## Current Status
 
-This document describes how to create a compiled `scittle.trove.js` file that can be served via CDN, similar to other Scittle plugins like `scittle.reagent.js`.
+Trove works in Scittle once Peter removes `#?(:clj ...)` wrappers from `const?` and `callsite-coords` in `utils.cljc`. No other changes needed.
+
+## Option 1: Load from CDN (Recommended)
+
+Once the upstream fix is merged, load directly from jsdelivr:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/utils.cljc" 
+        type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/console.cljc" 
+        type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove.cljc" 
+        type="application/x-scittle"></script>
+
+<script type="application/x-scittle">
+  (require '[taoensso.trove :refer [log!]])
+  (log! {:level :info :id :my/event :msg "Hello!"})
+</script>
+```
+
+**Pros:** No local copies, automatic updates with version pinning, CORS works  
+**Cons:** Three script tags (ugly but functional)
+
+## Option 2: Compiled JS Plugin (Future)
+
+A compiled `scittle.trove.js` would be cleaner - single script tag:
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.trove.js"></script>
+```
+
+This requires either:
+- PR to `babashka/scittle` adding Trove as official plugin
+- Peter publishing a separate `scittle-trove` npm package
+
+---
+
+# Building a Scittle Trove Plugin (Reference)
 
 ## What the Build Does
 
 1. **Bundles all dependencies** - `trove.cljc`, `utils.cljc`, `console.cljc` → single JS file
 2. **Dead-code eliminates** - removes `:clj`-only code paths
-3. **Preserves SCI macros** - the `^:sci/macro` functions work at runtime
+3. **Preserves macros** - `defmacro` works at runtime in SCI
 4. **Minifies** - smaller download size
 
 ## Project Structure
@@ -201,7 +240,7 @@ The actual work is in the **SCI config** (maintained in [babashka/sci.configs](h
 
 ## What's Needed for Trove
 
-1. **Trove with `:cljs` SCI macro** ← done (our changes to `taoensso/trove.cljc`)
+1. **Trove with utils fix** ← pending (Peter needs to remove `#?(:clj ...)` from `const?` and `callsite-coords`)
 2. **SCI config for Trove** ← defines namespace mappings for SCI
 3. **Scittle plugin** ← thin wrapper calling `register-plugin!`
 

@@ -28,7 +28,7 @@
   [(is (= (with-backend (trove/log! {}))         ["taoensso.trove-tests" [28 25] :info nil                      nil]))
    (is (= (with-backend (trove/log! {:id ::id})) ["taoensso.trove-tests" [29 25] :info :taoensso.trove-tests/id nil]))
    (is (= (with-backend (trove/log! {:ns "ns", :coords [12 34], :data {:k1 :v1}, :k2 :v2}))
-         ["ns" [12 34] :info nil {:data {:k1 :v1}, :kvs {:k2 :v2}}]))
+          ["ns" [12 34] :info nil {:data {:k1 :v1}, :kvs {:k2 :v2}}]))
 
    (testing "Auto delay wrapping"
      [(let [lazy_ (get (with-backend (trove/log! {:msg "abc"})) 4)]
@@ -42,21 +42,21 @@
    (testing ":let option"
      (let [lazy_
            (get
-             (with-backend
-               (trove/log!
-                 {:let  [user-id 1234],
-                  :data {:user-id     user-id}
-                  :msg  (str "User: " user-id)
-                  :kv1              #{user-id}}))
-             4)]
+            (with-backend
+              (trove/log!
+               {:let  [user-id 1234],
+                :data {:user-id     user-id}
+                :msg  (str "User: " user-id)
+                :kv1              #{user-id}}))
+            4)]
 
        [(is    (delay? lazy_))
         (is (= (force  lazy_) {:msg "User: 1234", :data {:user-id 1234}, :kvs {:kv1 #{1234}}}))]))
 
    (testing ":log-fn option"
      (=
-       (get (let [[args_ lfn] (capturing-log-fn)] (trove/log! {:msg "Hello!" :log-fn lfn}) @args_) 4)
-       {:msg "Hello!"}))])
+      (get (let [[args_ lfn] (capturing-log-fn)] (trove/log! {:msg "Hello!" :log-fn lfn}) @args_) 4)
+      {:msg "Hello!"}))])
 
 ;;;; Backends
 

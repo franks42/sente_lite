@@ -1,41 +1,21 @@
 # Trove in Scittle/SCI
 
-## Problem
+## Summary
 
-The Trove `log!` macro is defined with `#?(:clj ...)` only:
+Trove works in Scittle with standard `defmacro` - no special `^:sci/macro` workaround needed. The only required change is removing `#?(:clj ...)` wrappers from two helper functions in `utils.cljc`.
 
-```clojure
-#?(:clj
-   (defmacro log! [opts] ...))
-```
+## The Fix (for upstream Trove)
 
-This works for normal ClojureScript compilation (the CLJS compiler runs on JVM and uses the `:clj` branch), but **not for Scittle/SCI** which interprets ClojureScript directly in the browser—there's no JVM at runtime.
+In `src/taoensso/trove/utils.cljc`, remove the `#?(:clj ...)` wrappers from:
 
-## Solution
+- `const?` - no JVM-specific code
+- `callsite-coords` - no JVM-specific code
 
-Added a `:cljs` branch using SCI's macro convention: a function with `^:sci/macro` metadata that receives `&form` and `&env` as first two arguments.
+That's it. Peter's commit (68a29fa) already made `defmacro` unconditional in `trove.cljc`. With the utils fix, Trove works in Scittle out of the box.
 
-```clojure
-#?(:clj
-   (defmacro log! [opts] ...)
-   
-   :cljs
-   (defn ^:sci/macro log!
-     [_&form _&env opts]
-     ;; Return quoted code for SCI to evaluate
-     ...))
-```
+## Why It Works
 
-SCI treats functions with `:sci/macro` metadata as macros and expands them at interpretation time.
-
-## Changes to `src/taoensso/trove.cljc`
-
-1. **Added `:cljs` branch for `log!`** - SCI-compatible macro that:
-   - Validates opts is a map at expansion time
-   - Wraps `:msg`, `:data`, `:error` in `delay` for lazy evaluation
-   - Returns quoted code that calls `*log-fn*`
-
-2. **Added `:cljs` branch for `set-log-fn!`** - Same pattern
+SCI/Scittle supports `defmacro` natively. The issue was never the macro itself - it was that the helper functions the macro calls were wrapped in `#?(:clj ...)` and thus unavailable in the `:cljs` branch.
 
 ## Limitation: No Namespace Qualification
 
@@ -53,20 +33,26 @@ SCI does not support qualified macro calls. You **must** use `:refer`:
 
 This is a known SCI limitation, not specific to Trove.
 
-## Usage in Scittle
+## Usage in Scittle (after upstream fix)
 
-Load Trove source files via script tags:
+Load directly from jsdelivr CDN (no local copies needed):
 
 ```html
-<script src="path/to/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
-<script src="path/to/taoensso/trove/console.cljc" type="application/x-scittle"></script>
-<script src="path/to/taoensso/trove.cljc" type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/utils.cljc" 
+        type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/console.cljc" 
+        type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove.cljc" 
+        type="application/x-scittle"></script>
 
 <script type="application/x-scittle">
   (require '[taoensso.trove :refer [log!]])
   (log! {:level :info :id :my/event :data {:user-id 123}})
 </script>
 ```
+
+Pin to a version tag for stability. jsdelivr has proper CORS headers.
 
 ## What Works
 
@@ -75,20 +61,13 @@ Load Trove source files via script tags:
 - ✅ Compile-time validation (opts must be a literal map)
 - ✅ Custom `:log-fn` option
 - ✅ Console backend with level-appropriate methods
+- ✅ `:let` option
+- ✅ Line/column coords (when `&form` has metadata)
 
 ## What Doesn't Work
 
-- ❌ Namespace-qualified calls (`trove/log!`)
-- ❌ `&form` metadata (no line/column coords in SCI)
-- ❌ `:let` option (simplified implementation)
+- ❌ Namespace-qualified calls (`trove/log!`) - SCI limitation
 
-## Test Results
+## Future: Compiled JS Plugin
 
-**JVM** (`clj -M:test`): 1 test, 9 assertions, 0 failures  
-**Browser** (Playwright): 7/7 tests passed
-
-## Files
-
-- `src/taoensso/trove.cljc` - Modified with `:cljs` SCI macro branches
-- `dev/scittle-demo/test-trove-sci-macro.html` - Browser test suite
-- `test/taoensso/trove_tests.cljc` - Official Trove tests (from upstream)
+For a cleaner single-script solution, Trove could be added as an official Scittle plugin (see `scittle-trove-js-cdn.md`).

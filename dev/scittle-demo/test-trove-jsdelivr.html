@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Trove from jsdelivr CDN</title>
+  <!-- 
+    This test loads Trove directly from GitHub via jsdelivr CDN.
+    
+    REQUIRES: Peter's upstream fix to remove #?(:clj ...) from const? and callsite-coords in utils.cljc
+    STATUS: Will fail until upstream fix is merged
+    
+    Once fixed, change @master to a version tag like @v1.2.0
+  -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+  <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@master/src/taoensso/trove/utils.cljc" 
+          type="application/x-scittle"></script>
+  <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@master/src/taoensso/trove/console.cljc" 
+          type="application/x-scittle"></script>
+  <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@master/src/taoensso/trove.cljc" 
+          type="application/x-scittle"></script>
+</head>
+<body>
+  <h1>Trove from jsdelivr CDN</h1>
+  <p>Loading Trove source directly from GitHub (no local copies)</p>
+  <script type="application/x-scittle">
+    (println "Testing Trove from jsdelivr CDN...")
+    (try
+      (require '[taoensso.trove :refer [log!]])
+      (println "✅ Require succeeded")
+      (log! {:level :info :id :test/jsdelivr :msg "Hello from CDN!"})
+      (log! {:level :debug :id :test/data :data {:user "test" :action "login"}})
+      (println "✅ All tests passed!")
+      (catch :default e
+        (println "❌ Error:" (str e))
+        (println "   (Expected until upstream fix is merged)")))
+  </script>
+</body>
+</html>
