@@ -237,20 +237,18 @@ With all debug readers using Trove, filtering is easy:
 
 ## Platform Support
 
-| Reader | JVM | Babashka | Scittle |
+| Syntax | JVM | Babashka | Scittle |
 |--------|-----|----------|---------|
-| `#p` | ✅ | ✅ | ✅ |
-| `#t` | ✅ | ✅ | ✅ (use js/performance.now) |
-| `#spy` | ✅ | ✅ | ✅ |
-| `#assert` | ✅ | ✅ | ✅ |
-| `#sample` | ✅ | ✅ | ✅ |
-| `#trace` | ✅ | ✅ | ✅ |
+| `#p` data reader | ✅ | ✅ | ❌ |
+| `(p ...)` macro | ✅ | ✅ | ✅ |
+
+**Scittle limitation:** SCI's data readers are configured at context creation time and cannot be modified at runtime. The `#p` syntax is not available, but the `(p ...)` macro works perfectly.
 
 ## Installation
 
-### Data Reader Registration
+### JVM/Babashka: Data Reader Registration
 
-For JVM/Babashka, create `data_readers.cljc`:
+Create `data_readers.cljc` in your classpath root:
 ```clojure
 {p      my.debug/p
  t      my.debug/t
@@ -259,7 +257,20 @@ For JVM/Babashka, create `data_readers.cljc`:
  trace  my.debug/trace}
 ```
 
-For Scittle, register programmatically or use macros directly with `(require '[my.debug :refer [p t spy]])`.
+Then use `#p`, `#t`, etc. anywhere in your code.
+
+### Scittle: Macro-only
+
+Use macros directly (no `#` prefix):
+```clojure
+(require '[my.debug :refer [p t spy]])
+
+;; Use as macro call
+(p (* 2 3))        ;; prints: #p (* 2 3) => 6
+(t (slow-fn))      ;; prints: (slow-fn) took 234ms
+```
+
+One extra pair of parens, but still much simpler than `(println "x=" x)`.
 
 ## Use Cases
 
