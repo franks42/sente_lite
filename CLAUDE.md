@@ -236,18 +236,50 @@ Do not use optimistic language ("production-ready", "fully functional", "complet
 - Use this file to recover lost context from previous sessions
 - Contains detailed discussions about migration plans and architecture decisions
 
-### Current Project Status (2025-10-31)
-- **BRANCH**: `main` - clean working tree, all changes committed and pushed
-- **LAST TAG**: `v0.15.0-lazy-eval-design` - telemere-lite lazy evaluation design complete
-- **COMPLETED (Session 6 - 2025-10-31)**:
-  - ✅ Researched official Telemere source code (~200 lines of impl/signal! macro)
-  - ✅ Documented three-stage lazy eval pattern: filter → delay → :let → data/msg
-  - ✅ Designed unified CLJC approach (ONE file for BB + browser)
-  - ✅ Documented three-sink browser architecture (console, atom, websocket)
-  - ✅ Created comprehensive living document: `doc/telemere-lite-lazy-eval-improvement.md` (700+ lines)
-  - ✅ Performance analysis: 3-14x speedup when disabled (60-120ns vs 300-850ns)
-  - ✅ Build-from-scratch implementation strategy (safer than in-place edits)
-- **NEXT**: **Implement telemere-lite lazy evaluation** (HIGH PRIORITY - do BEFORE sente-lite refactoring!)
+### Current Project Status (2025-12-06)
+- **BRANCH**: `main` - clean working tree
+- **CURRENT WORK**: Trove/Scittle integration for logging
+
+#### Trove-Scittle Fork (Separate Repo)
+- **REPO**: `franks42/trove-scittle` (fork of `taoensso/trove`)
+- **BRANCH**: `scittle`
+- **TAG**: `v1.1.0-scittle`
+- **STATUS**: Working with Playwright tests (12/12 passing)
+
+**The Problem**: Upstream Trove uses `cljs.core/Cons` in `const-form?` function, which isn't exposed in SCI/Scittle.
+
+**Current Fix**: Added `:scittle` reader conditional in `utils.cljc`:
+```clojure
+(instance? #?(:clj clojure.lang.Cons 
+              :scittle (type (cons 1 []))  ; SCI workaround
+              :cljs cljs.core/Cons) x)
+```
+
+**CDN Usage** (3 files):
+```html
+<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc" type="application/x-scittle"></script>
+```
+
+#### Proposed Single-File Solution for Peter (Not Yet Implemented)
+Analysis shows a cleaner upstream fix is possible:
+1. **`const-form?`** - Only used by `trove.cljc`, could be moved there with `:scittle` fix
+2. **`callsite-coords`** - Only used by `trove.cljc`, could be moved there
+3. **`set-log-fn!`** - Currently a macro (for CLJ/CLJS difference), could be a function with reader conditional
+4. **Console code** - Could be inlined into `trove.cljc` for single-file Scittle
+
+This would allow a **single self-contained `trove.cljc`** for Scittle without affecting other backends.
+
+**Next Steps**:
+- Prototype the single-file solution
+- Test with Playwright
+- Present working code to Peter as upstream PR
+
+#### Previous Work (2025-10-31)
+- ✅ telemere-lite lazy evaluation design complete
+- ✅ Living document: `doc/telemere-lite-lazy-eval-improvement.md`
+- **PAUSED**: telemere-lite implementation (pivoted to Trove integration)
 
 ### What's Working Now
 - ✅ sente-lite core (BB-to-BB and Browser) - fully functional
@@ -255,22 +287,13 @@ Do not use optimistic language ("production-ready", "fully functional", "complet
 - ✅ Pub/sub (all 4 scenarios: BB↔BB, Browser↔Browser, BB↔Browser)
 - ✅ All 16 tests passing
 - ✅ Zero linting errors
-- ✅ telemere-lite (basic, eager evaluation) - **needs lazy eval improvement**
+- ✅ Trove-scittle fork with Playwright tests (12/12 passing)
 
-### Recent Tags History (Last 5)
-1. `v0.11.0-browser-reconnect-tested` - Auto-reconnect working (Session 3)
-2. `v0.11.1-sci-limitation-documented` - SCI destructuring limitation discovery (Session 5)
-3. `v0.13.0-capability-negotiation-design` - Capability negotiation design
-4. `v0.14.0-compression-analysis` - Compression feature analysis
-5. `v0.15.0-lazy-eval-design` - Lazy evaluation design complete (CURRENT, Session 6)
-
-### Current Focus: telemere-lite Lazy Evaluation Implementation
-- **Living Document**: `doc/telemere-lite-lazy-eval-improvement.md` - Follow checkboxes for implementation
-- **New File**: Create `src/telemere_lite/core_new.cljc` from scratch (DO NOT edit existing files)
-- **Single File Constraint**: Browser loads ONE file via symlink - no requires, no splits
-- **Pattern**: Three-stage lazy eval from Telemere (filter → delay → :let)
-- **Performance**: 3-14x speedup when disabled (60-120ns overhead vs current 300-850ns)
-- **Three Sinks (Browser)**: Console (default ON), Atom (default OFF), WebSocket (default OFF)
+### Related Repositories
+- **trove-scittle**: `/Users/franksiebenlist/Development/trove-scittle`
+  - Fork of taoensso/trove with Scittle compatibility
+  - Playwright tests in `test/scittle/`
+  - Run tests: `cd test/scittle && npm test`
 
 ### Key Files and Context
 **Core Implementation**:
