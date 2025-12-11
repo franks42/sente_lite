@@ -1,0 +1,82 @@
+{:paths ["src" "test" "dev"]
+ :deps {com.taoensso/timbre {:mvn/version "6.6.1"}}
+ 
+ :tasks
+ {:requires [[babashka.fs :as fs]
+             [babashka.process :as p]]
+  
+  ;; ============================================================================
+  ;; Sente Test Server (JVM Clojure - for wire format testing)
+  ;; ============================================================================
+  
+  sente-server
+  {:doc "Start a real Sente server (JVM Clojure) for wire format testing"
+   :task (p/shell {:dir "test/sente-compat"} 
+                  "clojure" "-M" "-m" "sente-test.server")}
+  
+  sente-client
+  {:doc "Start a Sente client (JVM Clojure) for testing"
+   :task (p/shell {:dir "test/sente-compat"}
+                  "clojure" "-M" "-m" "sente-test.client")}
+  
+  ;; ============================================================================
+  ;; Sente-lite Servers
+  ;; ============================================================================
+  
+  server
+  {:doc "Start sente-lite server (Babashka)"
+   :task (p/shell "bb" "dev/server.bb")}
+  
+  demo
+  {:doc "Start sente-lite demo server"
+   :task (p/shell "bb" "demo_startup.bb")}
+  
+  ;; ============================================================================
+  ;; Testing
+  ;; ============================================================================
+  
+  test
+  {:doc "Run all tests"
+   :task (p/shell "bb" "run_tests.bb")}
+  
+  test-wire
+  {:doc "Test wire format compatibility"
+   :task (p/shell "bb" "test/sente-compat/test_wire_format.bb")}
+  
+  ;; ============================================================================
+  ;; Code Quality
+  ;; ============================================================================
+  
+  lint
+  {:doc "Run clj-kondo linter"
+   :task (p/shell "clj-kondo" "--lint" "src" "test")}
+  
+  fmt-check
+  {:doc "Check code formatting"
+   :task (p/shell "cljfmt" "check" "src" "test")}
+  
+  fmt-fix
+  {:doc "Fix code formatting"
+   :task (p/shell "cljfmt" "fix" "src" "test")}
+  
+  check
+  {:doc "Run lint and format check"
+   :depends [lint fmt-check]}
+  
+  ;; ============================================================================
+  ;; Utilities
+  ;; ============================================================================
+  
+  clean
+  {:doc "Clean build artifacts"
+   :task (do
+           (fs/delete-tree ".cpcache")
+           (fs/delete-tree "logs")
+           (println "Cleaned build artifacts"))}
+  
+  setup-sente
+  {:doc "Set up Sente test environment"
+   :task (do
+           (fs/create-dirs "test/sente-compat/src/sente_test")
+           (println "Created test/sente-compat directory structure")
+           (println "Run 'bb sente-server' to start the Sente test server"))}}}
