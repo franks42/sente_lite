@@ -266,49 +266,6 @@
   [event-channel-msg {:channel-id channel-id :data data :from from}])
 
 ;; ============================================================================
-;; v1 to v2 Conversion
-;; ============================================================================
-
-(defn v1->v2
-  "Convert sente-lite v1 message (map) to v2 event (vector)"
-  [{:keys [type data channel-id timestamp] :as v1-msg}]
-  (trove/log! {:level :debug :id :sente-lite.v2/v1-to-v2-convert
-               :data {:type type :channel-id channel-id}})
-  (case type
-    "ping" (make-ws-ping)
-    "pong" (make-ws-pong)
-    "subscribe" (make-subscribe channel-id :data data)
-    "unsubscribe" (make-unsubscribe channel-id)
-    "publish" (make-publish channel-id data)
-    "message" [event-message data]
-    "rpc" (let [{:keys [method params id]} v1-msg]
-            (encode-event-with-callback event-rpc {:method method :params params} id))
-    ;; Unknown type - wrap as generic message
-    [event-message v1-msg]))
-
-(defn v2->v1
-  "Convert sente-lite v2 event (vector) to v1 message (map)"
-  [[event-id data :as event]]
-  (trove/log! {:level :debug :id :sente-lite.v2/v2-to-v1-convert
-               :data {:event-id event-id}})
-  (let [base {:timestamp #?(:clj (System/currentTimeMillis)
-                            :cljs (.now js/Date))}]
-    (case event-id
-      :chsk/ws-ping (assoc base :type "ping")
-      :chsk/ws-pong (assoc base :type "pong" :timestamp (:timestamp data))
-      :sente-lite/subscribe (assoc base :type "subscribe"
-                                   :channel-id (:channel-id data)
-                                   :data (:data data))
-      :sente-lite/unsubscribe (assoc base :type "unsubscribe"
-                                     :channel-id (:channel-id data))
-      :sente-lite/publish (assoc base :type "publish"
-                                 :channel-id (:channel-id data)
-                                 :data (:data data))
-      :sente-lite/message (assoc base :type "message" :data data)
-      ;; Default - wrap as message
-      (assoc base :type "message" :data {:event-id event-id :payload data}))))
-
-;; ============================================================================
 ;; Wire Format Detection
 ;; ============================================================================
 
@@ -415,11 +372,12 @@
           {:error :deserialize-failed :raw raw-message}))
 
       :v1
-      (let [parsed (deserialize raw-message format-spec)]
-        (if (map? parsed)
-          (let [v2-event (v1->v2 parsed)]
-            (assoc (decode-event v2-event) :_converted-from :v1))
-          {:error :deserialize-failed :raw raw-message}))
+      (do
+        (trove/log! {:level :error :id :sente-lite.v2/v1-format-rejected
+                     :data {:message "v1 wire format is not supported - use v2 format"}})
+        {:error :v1-format-not-supported
+         :message "v1 wire format (map-based) is deprecated. Use v2 format (vector-based)."
+         :raw raw-message})
 
       {:error :unknown-version :raw raw-message})))
 

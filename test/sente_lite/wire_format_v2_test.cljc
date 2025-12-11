@@ -146,30 +146,18 @@
              (second event))))))
 
 ;; ============================================================================
-;; v1 to v2 Conversion Tests
+;; v1 Format Rejection Tests
 ;; ============================================================================
 
-(deftest v1-to-v2-conversion-test
-  (testing "Ping conversion"
-    (is (= [:chsk/ws-ping] (v2/v1->v2 {:type "ping"}))))
+(deftest v1-format-rejection-test
+  (testing "v1 format is rejected with error"
+    (let [result (v2/parse-message "{:type \"ping\"}" :edn)]
+      (is (= :v1-format-not-supported (:error result)))
+      (is (some? (:message result)))))
 
-  (testing "Pong conversion"
-    (is (= [:chsk/ws-pong] (v2/v1->v2 {:type "pong"}))))
-
-  (testing "Subscribe conversion"
-    (let [event (v2/v1->v2 {:type "subscribe" :channel-id "ch1" :data {:user "alice"}})]
-      (is (= :sente-lite/subscribe (first event)))
-      (is (= "ch1" (get-in event [1 :channel-id])))))
-
-  (testing "Publish conversion"
-    (let [event (v2/v1->v2 {:type "publish" :channel-id "ch1" :data {:msg "hi"}})]
-      (is (= :sente-lite/publish (first event)))
-      (is (= {:channel-id "ch1" :data {:msg "hi"}} (second event)))))
-
-  (testing "Message conversion"
-    (let [event (v2/v1->v2 {:type "message" :data {:foo "bar"}})]
-      (is (= :sente-lite/message (first event)))
-      (is (= {:foo "bar"} (second event))))))
+  (testing "v1 JSON format is also rejected"
+    (let [result (v2/parse-message "{\"type\":\"ping\"}" :edn)]
+      (is (= :v1-format-not-supported (:error result))))))
 
 ;; ============================================================================
 ;; Wire Format Detection Tests
