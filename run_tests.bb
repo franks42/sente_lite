@@ -4,66 +4,23 @@
 (cp/add-classpath "src")
 (cp/add-classpath "test")
 
-(require '[telemere-lite.core-test :as test]
-         '[clojure.test :as t]
-         '[babashka.process :as p])
+(require '[clojure.test :as t]
+         '[babashka.process :as p]
+         '[taoensso.trove-tests])
 
 (println "=== sente-lite Test Suite ===\n")
-
-;; Configure test environment
-(require '[telemere-lite.core :as tel])
-(tel/configure-timbre!)
 
 ;;
 ;; Part 1: Unit Tests (telemere-lite)
 ;;
 
-(println "=== Part 1: Unit Tests (telemere-lite) ===")
+(println "=== Part 1: Unit Tests (Trove) ===")
 
-(def unit-results (atom {:test 0 :pass 0 :fail 0 :error 0}))
-
-;; Custom test reporter to capture results
-(defmethod t/report :begin-test-ns [m]
-  (println "\nTesting" (ns-name (:ns m))))
-
-(defmethod t/report :end-test-ns [m]
-  (when-let [summary (:clojure.test/summary m)]
-    (swap! unit-results
-           (fn [r]
-             (-> r
-                 (update :test + (:test summary))
-                 (update :pass + (:pass summary))
-                 (update :fail + (:fail summary))
-                 (update :error + (:error summary)))))))
-
-(defmethod t/report :pass [m]
-  (print "."))
-
-(defmethod t/report :fail [m]
-  (print "F")
-  (println "\nFAIL in" (t/testing-vars-str m))
-  (when (seq t/*testing-contexts*)
-    (println (t/testing-contexts-str)))
-  (when-let [message (:message m)]
-    (println message))
-  (println "expected:" (pr-str (:expected m)))
-  (println "  actual:" (pr-str (:actual m))))
-
-(defmethod t/report :error [m]
-  (print "E")
-  (println "\nERROR in" (t/testing-vars-str m))
-  (when (seq t/*testing-contexts*)
-    (println (t/testing-contexts-str)))
-  (when-let [message (:message m)]
-    (println message))
-  (println "expected:" (pr-str (:expected m)))
-  (println "  actual:" (pr-str (:actual m))))
-
-;; Run unit tests
-(test/run-tests)
+;; Run unit tests and capture results
+(def unit-results (t/run-tests 'taoensso.trove-tests))
 
 (println "\n\n=== Unit Tests Summary ===")
-(let [r @unit-results]
+(let [r unit-results]
   (println (format "Ran %d tests containing %d assertions."
                    (:test r) (+ (:pass r) (:fail r) (:error r))))
   (println (format "%d failures, %d errors." (:fail r) (:error r)))
@@ -94,7 +51,7 @@
 ;;
 
 (println "\n\n=== Final Test Summary ===")
-(let [ur @unit-results
+(let [ur unit-results
       unit-passed? (and (zero? (:fail ur)) (zero? (:error ur)))
       all-passed? (and unit-passed? @mp-passed?)]
 

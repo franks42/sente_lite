@@ -12,6 +12,7 @@
 
 (ns mp-utils
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [cheshire.core :as json]
             [babashka.fs :as fs]
             [babashka.process]))
@@ -181,7 +182,7 @@
   (let [path (pid-file-path test-id)]
     (when (.exists (io/file path))
       (->> (slurp path)
-           (clojure.string/split-lines)
+           (str/split-lines)
            (filter seq)
            (mapv #(Long/parseLong %))))))
 
