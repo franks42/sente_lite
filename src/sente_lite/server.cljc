@@ -13,6 +13,9 @@
 (defonce ^:private connections (atom {}))           ; channel -> conn-data
 (defonce ^:private connection-index (atom {}))      ; conn-id -> channel
 (defonce ^:private server-state (atom nil))
+(defonce ^:private metrics (atom {:rejected-connections 0
+                                  :oversized-messages 0
+                                  :parse-errors 0}))
 
 ;; Configuration defaults
 (def default-config
@@ -22,12 +25,14 @@
    :telemetry {:enabled true
                :handler-id :sente-lite-server}
    :websocket {:max-connections 1000
+               :max-message-bytes 1048576
                :message-timeout-ms 5000}
    :heartbeat {:enabled true
                :interval-ms 30000    ; Send ping every 30s
                :timeout-ms 60000}    ; Close if no pong for 60s
    :channels {:auto-create true
               :default-config {:max-subscribers 1000
+                               :max-subscriptions-per-conn 100
                                :message-retention 0
                                :rpc-timeout-ms 30000}}})
 
@@ -101,6 +106,7 @@
     (let [event (wf/parse-message raw-message format-spec)]
       (if (:error event)
         (do
+          (swap! metrics update :parse-errors inc)
           (trove/log! {:level :warn :id :sente-lite.server/parse-error
                        :data {:conn-id conn-id
                               :error (:error event)
@@ -108,6 +114,7 @@
           nil)
         event))
     (catch Exception e
+      (swap! metrics update :parse-errors inc)
       (trove/log! {:level :error :id :sente-lite.server/parse-failed
                    :error e
                    :data {:conn-id conn-id
@@ -280,36 +287,59 @@
 
 ;; WebSocket handlers
 (defn- on-websocket-open [channel config]
-  (let [conn-id (generate-connection-id)
-        _conn-data (add-connection! channel conn-id)
-        format-spec (get-format-spec config)
-        ;; Use conn-id as uid for Sente compatibility
-        uid conn-id
-        csrf-token nil
-        handshake-data {:sente-lite-version wf/version}
-        first? true
-        handshake-event (wf/make-handshake uid csrf-token handshake-data first?)]
+  (let [max-connections (get-in config [:websocket :max-connections] 1000)
+        total (count @connections)]
+    (if (>= total max-connections)
+      (do
+        (swap! metrics update :rejected-connections inc)
+        (trove/log! {:level :warn
+                     :id :sente-lite.server/conn-rejected
+                     :data {:reason :max-connections
+                            :max-connections max-connections
+                            :current-connections total}})
+        #?(:bb (http/close channel)))
+      (let [conn-id (generate-connection-id)
+            _conn-data (add-connection! channel conn-id)
+            format-spec (get-format-spec config)
+            ;; Use conn-id as uid for Sente compatibility
+            uid conn-id
+            csrf-token nil
+            handshake-data {:sente-lite-version wf/version}
+            first? true
+            handshake-event (wf/make-handshake uid csrf-token handshake-data first?)]
 
-    ;; Send handshake (Sente-compatible)
-    (send-event! channel handshake-event format-spec)
+        ;; Send handshake (Sente-compatible)
+        (send-event! channel handshake-event format-spec)
 
-    (trove/log! {:level :debug
-                 :id :sente-lite.server/ws-open
-                 :data {:conn-id conn-id
-                        :uid uid
-                        :config (select-keys config [:port :host])
-                        :format-spec format-spec}})))
+        (trove/log! {:level :debug
+                     :id :sente-lite.server/ws-open
+                     :data {:conn-id conn-id
+                            :uid uid
+                            :config (select-keys config [:port :host])
+                            :format-spec format-spec}})))))
 
 (defn- on-websocket-message [channel raw-message config]
   (when-let [conn-data (get @connections channel)]
     (let [conn-id (:id conn-data)
-          format-spec (get-format-spec config)]
+          format-spec (get-format-spec config)
+          max-message-bytes (get-in config [:websocket :max-message-bytes] 1048576)
+          msg-size (count raw-message)]
       (update-connection-activity! channel)
 
       (trove/log! {:level :trace
                    :id :sente-lite.server/ws-msg-recv
                    :data {:conn-id conn-id
-                          :size (count raw-message)}})
+                          :size msg-size}})
+
+      (when (> msg-size max-message-bytes)
+        (swap! metrics update :oversized-messages inc)
+        (trove/log! {:level :warn
+                     :id :sente-lite.server/msg-too-large
+                     :data {:conn-id conn-id
+                            :size msg-size
+                            :max-message-bytes max-message-bytes}})
+        (remove-connection! channel)
+        #?(:bb (http/close channel)))
 
       (when-let [event (parse-message raw-message conn-id format-spec)]
         (when-let [response-event (route-message conn-id event config)]
@@ -391,6 +421,7 @@
                        :total-messages (reduce + (map :message-count (vals @connections)))
                        :server-config (select-keys config [:port :host])
                        :channel-stats (channels/get-channel-stats)
+                       :metrics @metrics
                        :telemetry-stats {}})}
 
       ;; Channels endpoint

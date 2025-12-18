@@ -11,6 +11,7 @@
 ;; Configuration
 (def default-channel-config
   {:max-subscribers 1000
+   :max-subscriptions-per-conn 100
    :message-retention 0     ; 0 = no retention, N = keep last N messages
    :rpc-timeout-ms 30000
    :telemetry-enabled true})
@@ -71,10 +72,23 @@
                :data {:conn-id conn-id :channel-id channel-id}})
 
   (if-let [channel (get @channels channel-id)]
-    (let [current-subs (count (:subscribers channel))
+    (let [conn-subscriptions-count (count (get @subscriptions conn-id #{}))
+          max-subscriptions-per-conn (get-in channel [:config :max-subscriptions-per-conn])
+          current-subs (count (:subscribers channel))
           max-subs (get-in channel [:config :max-subscribers])]
 
-      (if (>= current-subs max-subs)
+      (cond
+        (>= conn-subscriptions-count max-subscriptions-per-conn)
+        (do
+          (trove/log! {:level :warn :id :sente-lite.pubsub/sub-rejected
+                       :data {:conn-id conn-id
+                              :channel-id channel-id
+                              :reason :max-subscriptions-per-conn
+                              :current conn-subscriptions-count
+                              :max max-subscriptions-per-conn}})
+          {:success false :reason :max-subscriptions-per-conn})
+
+        (>= current-subs max-subs)
         (do
           (trove/log! {:level :warn :id :sente-lite.pubsub/sub-rejected
                        :data {:conn-id conn-id
@@ -84,6 +98,7 @@
                               :max max-subs}})
           {:success false :reason :max-subscribers-reached})
 
+        :else
         (do
           ;; Add subscription
           (swap! channels update-in [channel-id :subscribers] conj conn-id)
