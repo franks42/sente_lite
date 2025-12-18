@@ -199,4 +199,6 @@
 (println "- ✅ Graceful cleanup and shutdown")
 (println "- ✅ Full telemetry integration")
 
-(println "\n🎯 Channel System Ready: Phase 3B Integration Complete!"))
+(println "\n🎯 Channel System Ready: Phase 3B Integration Complete!")
+
+(System/exit 0)

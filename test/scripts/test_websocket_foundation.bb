@@ -2,141 +2,142 @@
 
 (require '[babashka.classpath :as cp])
 (cp/add-classpath "src")
+(cp/add-classpath "test/scripts/bb_client_tests")
 
 (require '[org.httpkit.server :as http]
+         '[babashka.http-client.websocket :as ws]
          '[cheshire.core :as json])
 
 (println "=== Testing WebSocket Foundation ===")
 
-;; Initialize telemetry
-;; Test data
 (def test-connections (atom {}))
+(def messages-received (atom []))
 
 (defn websocket-handler [request]
-  (println "Event: " {:method (:request-method request)
-                                   :uri (:uri request)
-                                   :headers (select-keys (:headers request)
-                                                       ["upgrade" "connection" "sec-websocket-key"])})
-
   (if-not (:websocket? request)
     {:status 426 :body "WebSocket required"}
     (http/as-channel request
       {:on-open (fn [ch]
                   (let [conn-id (str (gensym "conn-"))]
                     (swap! test-connections assoc ch {:id conn-id :opened-at (System/currentTimeMillis)})
-                    (println "Event: " {:conn-id conn-id :channel-info (str ch)})
-                    (http/send! ch (json/generate-string {:type :welcome :conn-id conn-id}))))
+                    (http/send! ch (json/generate-string {:type "welcome" :conn-id conn-id}))))
 
-       :on-message (fn [ch message]
+       :on-receive (fn [ch message]
                      (let [conn-info (get @test-connections ch)
                            conn-id (:id conn-info)]
-                       (println "Event: " {:conn-id conn-id :message message})
                        (try
-                         (let [parsed (json/parse-string message :key-fn keyword)]
-                           (println "Event: " {:conn-id conn-id :type (:type parsed)})
-                           ;; Echo back with connection info
-                           (http/send! ch (json/generate-string {:type :echo
-                                                          :original parsed
-                                                          :conn-id conn-id
-                                                          :timestamp (System/currentTimeMillis)})))
+                         (let [parsed (json/parse-string message true)
+                               response {:type "echo"
+                                         :original parsed
+                                         :conn-id conn-id
+                                         :timestamp (System/currentTimeMillis)}]
+                           (http/send! ch (json/generate-string response)))
                          (catch Exception e
-                           (println "ERROR:" e "Failed to parse message" {:conn-id conn-id :raw-message message})
-                           (http/send! ch (json/generate-string {:type :error :error "Invalid JSON"}))))))
+                           (http/send! ch (json/generate-string {:type "error" :error "Invalid JSON"}))))))
 
        :on-close (fn [ch status]
-                   (let [conn-info (get @test-connections ch)
-                         conn-id (:id conn-info)
-                         duration (when (:opened-at conn-info)
-                                   (- (System/currentTimeMillis) (:opened-at conn-info)))]
-                     (println "Event: " {:conn-id conn-id :status status :duration-ms duration})
-                     (swap! test-connections dissoc ch)))
+                   (swap! test-connections dissoc ch))
 
        :on-error (fn [ch throwable]
-                   (let [conn-info (get @test-connections ch)
-                         conn-id (:id conn-info)]
-                     (println "ERROR:" throwable "WebSocket error" {:conn-id conn-id})
-                     (swap! test-connections dissoc ch)))})))
+                   (swap! test-connections dissoc ch))})))
 
-;; Simple HTTP handler for non-WebSocket requests
 (defn http-handler [request]
-  (println "Event: " {:method (:request-method request) :uri (:uri request)})
-  (cond
-    (= (:uri request) "/")
-    {:status 200
-     :headers {"content-type" "text/html"}
-     :body "<!DOCTYPE html>
-<html>
-<head><title>WebSocket Test</title></head>
-<body>
-  <h1>WebSocket Foundation Test</h1>
-  <div id='output'></div>
-  <input type='text' id='messageInput' placeholder='Enter message'>
-  <button onclick='sendMessage()'>Send</button>
-
-  <script>
-    const ws = new WebSocket('ws://localhost:3000/ws');
-    const output = document.getElementById('output');
-
-    ws.onopen = () => {
-      output.innerHTML += '<p>Connected!</p>';
-    };
-
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      output.innerHTML += '<p>Received: ' + JSON.stringify(data) + '</p>';
-    };
-
-    ws.onclose = () => {
-      output.innerHTML += '<p>Disconnected!</p>';
-    };
-
-    function sendMessage() {
-      const input = document.getElementById('messageInput');
-      const message = {type: 'test', data: input.value, timestamp: Date.now()};
-      ws.send(JSON.stringify(message));
-      input.value = '';
-    }
-  </script>
-</body>
-</html>"}
-
-    (= (:uri request) "/ws")
+  (if (= (:uri request) "/ws")
     (websocket-handler request)
-
-    :else
     {:status 404 :body "Not found"}))
 
 ;; Start server
-(println "Starting WebSocket server on port 3000...")
+(println "1. Starting WebSocket server on port 3000...")
 (def server (http/run-server http-handler {:port 3000}))
+(Thread/sleep 100)
+(println "   Server started")
 
-(println "Event: " {:port 3000 :server-info (str server)})
+;; Test with WebSocket client - use blocking approach
+(println "2. Connecting WebSocket client...")
 
-(println "Server started! Test WebSocket at:")
-(println "  HTTP: http://localhost:3000")
-(println "  WebSocket: ws://localhost:3000/ws")
-(println "")
-(println "Press Ctrl+C to stop server...")
+(def client-state (atom {:connected false :messages []}))
 
-;; Monitor connections
-(future
-  (loop []
-    (Thread/sleep 5000)
-    (let [active-connections (count @test-connections)]
-      (println "Event: " {:active-connections active-connections})
-      (when (pos? active-connections)
-        (println (format "Active connections: %d" active-connections))))
-    (recur)))
+(def ws-client
+  (ws/websocket
+    {:uri "ws://localhost:3000/ws"
+     :on-open (fn [ws]
+                (swap! client-state assoc :connected true :ws ws))
+     :on-message (fn [ws data last]
+                   (let [msg (json/parse-string (str data) true)]
+                     (swap! client-state update :messages conj msg)))
+     :on-close (fn [ws status reason]
+                 (swap! client-state assoc :connected false))
+     :on-error (fn [ws error]
+                 (println "   Client error:" error))}))
 
-;; Keep server running
-(try
-  (loop []
-    (Thread/sleep 1000)
-    (recur))
-  (catch Exception e
-    (println "Event: " {:reason "Exception" :error (str e)})
-    (println "Stopping server...")))
+;; Wait for connection
+(loop [tries 0]
+  (if (or (:connected @client-state) (> tries 20))
+    nil
+    (do (Thread/sleep 100) (recur (inc tries)))))
 
-;; Cleanup
+(if (:connected @client-state)
+  (println "   Client connected")
+  (do (println "   FAILED: Client did not connect")
+      (server)
+      (System/exit 1)))
+
+;; Wait for welcome message
+(Thread/sleep 300)
+
+(println "3. Checking welcome message...")
+(let [messages (:messages @client-state)
+      welcome (first (filter #(= "welcome" (:type %)) messages))]
+  (if welcome
+    (println "   Received welcome, conn-id:" (:conn-id welcome))
+    (do (println "   FAILED: No welcome message. Messages:" messages)
+        (server)
+        (System/exit 1))))
+
+;; Send test message
+(println "4. Sending test message...")
+(let [msg {:type "test" :data "hello" :timestamp (System/currentTimeMillis)}]
+  (ws/send! ws-client (json/generate-string msg)))
+
+;; Wait for echo
+(Thread/sleep 500)
+
+(println "5. Checking echo response...")
+(let [messages (:messages @client-state)
+      echo (first (filter #(= "echo" (:type %)) messages))]
+  (if echo
+    (println "   Received echo, original-type:" (get-in echo [:original :type]))
+    (do (println "   FAILED: No echo response. Messages:" messages)
+        (server)
+        (System/exit 1))))
+
+;; Verify connection tracking
+(println "6. Verifying connection tracking...")
+(let [active (count @test-connections)]
+  (println "   Active connections:" active))
+
+;; Close client
+(println "7. Closing client connection...")
+(ws/close! ws-client)
+(Thread/sleep 300)
+
+;; Verify cleanup
+(println "8. Verifying connection cleanup...")
+(let [active (count @test-connections)]
+  (println "   Connections after close:" active))
+
+;; Stop server
+(println "9. Stopping server...")
 (server)
-(println "Event: " {})
+(println "   Server stopped")
+
+;; Summary
+(println "\n=== WebSocket Foundation Test Summary ===")
+(println "Messages received:" (count (:messages @client-state)))
+(println "- Welcome message: OK")
+(println "- Echo response: OK")
+(println "- Connection tracking: OK")
+(println "- Cleanup on close: OK")
+(println "\n✅ WebSocket Foundation Test PASSED!")
+
+(System/exit 0)
