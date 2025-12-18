@@ -40,21 +40,21 @@
   (let [conn-id (generate-conn-id)]
     (swap! connections assoc ws {:id conn-id})
     (send-event! ws [event-handshake [conn-id nil {:sente-lite-version "2.0.0-nbb"} true]])
-    
+
     (.on ws "message"
-      (fn [raw-data]
-        (let [{:keys [event-id data]} (parse-message raw-data)]
-          (cond
-            (= event-id event-ws-ping)
-            (send-event! ws [event-ws-pong])
-            
-            (= event-id event-subscribe)
-            (send-event! ws [event-subscribed {:channel-id (:channel-id data) :success true}])
-            
-            :else
-            (send-event! ws [:sente-lite/echo {:original-event-id event-id
-                                                :original-data data
-                                                :conn-id conn-id}])))))
+         (fn [raw-data]
+           (let [{:keys [event-id data]} (parse-message raw-data)]
+             (cond
+               (= event-id event-ws-ping)
+               (send-event! ws [event-ws-pong])
+
+               (= event-id event-subscribe)
+               (send-event! ws [event-subscribed {:channel-id (:channel-id data) :success true}])
+
+               :else
+               (send-event! ws [:sente-lite/echo {:original-event-id event-id
+                                                  :original-data data
+                                                  :conn-id conn-id}])))))
     (.on ws "close" #(swap! connections dissoc ws))))
 
 (def port 9092)
@@ -83,56 +83,56 @@
 
 (def client-id
   (client/make-client!
-    {:url (str "ws://localhost:" port "/")
-     :auto-reconnect? false
-     :on-open (fn [uid]
-                (reset! handshake-uid uid))
-     :on-message (fn [event-id data]
-                   (case event-id
-                     :sente-lite/echo (reset! echo-received data)
-                     :sente-lite/subscribed (reset! subscribed-received data)
-                     nil))
-     :on-close (fn [_] nil)}))
+   {:url (str "ws://localhost:" port "/")
+    :auto-reconnect? false
+    :on-open (fn [uid]
+               (reset! handshake-uid uid))
+    :on-message (fn [event-id data]
+                  (case event-id
+                    :sente-lite/echo (reset! echo-received data)
+                    :sente-lite/subscribed (reset! subscribed-received data)
+                    nil))
+    :on-close (fn [_] nil)}))
 
 ;; Run tests after connection
 (js/setTimeout
-  (fn []
-    (println)
-    (println "3. Running tests...")
-    
+ (fn []
+   (println)
+   (println "3. Running tests...")
+
     ;; Test handshake
-    (record! "Handshake received" (some? @handshake-uid))
-    (record! "get-uid works" (= @handshake-uid (client/get-uid client-id)))
-    (record! "Status is :connected" (= :connected (client/get-status client-id)))
-    
+   (record! "Handshake received" (some? @handshake-uid))
+   (record! "get-uid works" (= @handshake-uid (client/get-uid client-id)))
+   (record! "Status is :connected" (= :connected (client/get-status client-id)))
+
     ;; Send echo
-    (client/send! client-id [:test/echo {:msg "Hello nbb!"}])
-    
-    (js/setTimeout
-      (fn []
-        (record! "Echo received" (some? @echo-received))
-        (record! "Echo has original event" (= :test/echo (:original-event-id @echo-received)))
-        
+   (client/send! client-id [:test/echo {:msg "Hello nbb!"}])
+
+   (js/setTimeout
+    (fn []
+      (record! "Echo received" (some? @echo-received))
+      (record! "Echo has original event" (= :test/echo (:original-event-id @echo-received)))
+
         ;; Subscribe
-        (client/subscribe! client-id "test-channel")
-        
-        (js/setTimeout
-          (fn []
-            (record! "Subscribe confirmation" (get @subscribed-received :success))
-            
+      (client/subscribe! client-id "test-channel")
+
+      (js/setTimeout
+       (fn []
+         (record! "Subscribe confirmation" (get @subscribed-received :success))
+
             ;; Summary
-            (println)
-            (println "=== Summary ===")
-            (println "Passed:" (:passed @test-results))
-            (println "Failed:" (:failed @test-results))
-            
+         (println)
+         (println "=== Summary ===")
+         (println "Passed:" (:passed @test-results))
+         (println "Failed:" (:failed @test-results))
+
             ;; Cleanup
-            (client/close! client-id)
-            (.close server)
-            
-            (if (zero? (:failed @test-results))
-              (println "All nbb full-stack tests passed!")
-              (println "Some tests failed!")))
-          500))
-      500))
-  1500)
+         (client/close! client-id)
+         (.close server)
+
+         (if (zero? (:failed @test-results))
+           (println "All nbb full-stack tests passed!")
+           (println "Some tests failed!")))
+       500))
+    500))
+ 1500)

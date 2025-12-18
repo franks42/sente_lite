@@ -29,12 +29,12 @@
     (println "❌ Unit tests failed!")))
 
 ;;
-;; Part 2: Multi-Process Integration Tests (v2)
+;; Part 2: Multi-Process Integration Tests
 ;;
 
-(println "\n\n=== Part 2: Multi-Process Integration Tests (v2) ===")
+(println "\n\n=== Part 2: Multi-Process Integration Tests ===")
 
-(def mp-test-script "test/scripts/multiprocess_v2/01_basic_v2.bb")
+(def mp-test-script "test/scripts/multiprocess/01_basic.bb")
 (def mp-passed? (atom false))
 
 (try
@@ -85,7 +85,7 @@
                    (:error ur)))
   (println (if unit-passed? "  ✅ PASSED" "  ❌ FAILED"))
 
-  (println "\nMulti-Process Integration Tests (v2):")
+  (println "\nMulti-Process Integration Tests:")
   (println (if @mp-passed? "  ✅ PASSED" "  ❌ FAILED"))
 
   (println "\nnbb Platform Tests:")

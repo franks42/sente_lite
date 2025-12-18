@@ -1,4 +1,9 @@
 #!/usr/bin/env bb
+;;
+;; Multi-Process Test Server
+;;
+;; Usage: bb mp_server.bb <test-id> <duration-sec>
+;;
 
 (require '[babashka.classpath :as cp])
 (cp/add-classpath "src")
@@ -6,26 +11,6 @@
 
 (require '[sente-lite.server :as server]
          '[mp-utils :as mp])
-
-;;
-;; Multi-Process Test Server
-;;
-;; Usage: bb mp_server.bb <test-id> <duration-sec>
-;;
-;; Starts a WebSocket server on ephemeral port, publishes port to discovery
-;; file, signals ready, then runs for specified duration.
-;;
-;; Environment variables:
-;;   TELEMETRY=1          - Enable telemetry (default: disabled)
-;;   TELEMETRY_LEVEL=info - Filter level: debug, info, warn, error (default: info)
-;;
-
-;; Configure telemetry for tests
-(when (= "1" (System/getenv "TELEMETRY"))
-  
-  
-  (let [level (or (System/getenv "TELEMETRY_LEVEL") "info")]
-    (println (str "📊 Telemetry ENABLED (level: " level ")"))))
 
 (defn parse-args [args]
   (when (< (count args) 2)
@@ -38,63 +23,43 @@
   (let [{:keys [test-id duration-sec]} (parse-args args)
         process-id "server"]
 
-    (println "[info] " "=== Multi-Process Test Server ==="
-              {:test-id test-id :duration duration-sec})
+    (println "[server] Starting server for test:" test-id)
 
-    ;; Start server on ephemeral port
-    (println "[info] " "Starting server on ephemeral port")
-    (def server-instance
-      (server/start-server!
-        {:port 0  ; Ephemeral port
-         :host "localhost"
-         :wire-format :json
-         :telemetry {:enabled true
-                     :handler-id (keyword (str "mp-test-" test-id))}
-         :heartbeat {:enabled true
-                     :ping-interval-ms 5000}
-         :channels {:auto-create true}}))
+    ;; Start server
+    (server/start-server!
+      {:port 0
+       :host "localhost"
+       :wire-format :edn
+       :heartbeat {:enabled true
+                   :interval-ms 10000
+                   :timeout-ms 30000}
+       :channels {:auto-create true}})
 
-    ;; Get actual port and publish
     (def actual-port (server/get-server-port))
-    (println "[info] " "Server started" {:port actual-port})
+    (println "[server] Started on port" actual-port)
+    
+    ;; Publish port and signal ready
     (mp/write-port! test-id actual-port)
-
-    ;; Signal server ready
     (mp/signal-ready! test-id process-id)
-    (println "[info] " "Server ready signal sent")
+    (println "[server] Ready signal sent")
 
-    ;; Track connection events
-    (def connections (atom 0))
-    (def messages-received (atom 0))
-    (def messages-sent (atom 0))
-
-    ;; Add connection tracking (simplified - relies on server internals)
-    ;; For now, we'll just track via telemetry
-
-    ;; Run for specified duration
-    (println "[info] " "Running test" {:duration-sec duration-sec})
+    ;; Run for duration
+    (println "[server] Running for" duration-sec "seconds...")
     (Thread/sleep (* duration-sec 1000))
 
-    ;; Get server stats
+    ;; Get stats and write result
     (def stats (server/get-server-stats))
-    (println "[info] " "Server stats" {:stats stats})
-
-    ;; Write result
     (def result {:status :passed
                  :port actual-port
-                 :connections @connections
-                 :messages-received @messages-received
-                 :messages-sent @messages-sent
-                 :stats stats
-                 :failures 0})
+                 :connections (get-in stats [:connections :active])
+                 :stats stats})
 
     (mp/write-result! test-id process-id result)
-    (println "[info] " "Server result written" {:result result})
+    (println "[server] Stats:" (select-keys stats [:connections :channels]))
 
-    ;; Stop server
+    ;; Stop
     (server/stop-server!)
-    (println "[info] " "Server stopped")
-
+    (println "[server] Stopped")
     (System/exit 0)))
 
 (apply -main *command-line-args*)

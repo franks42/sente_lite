@@ -1,9 +1,9 @@
-(ns sente-compat.sente-v2-integration-test
-  "Integration test: sente-lite v2 wire format with real Sente server.
-   Tests that our v2 wire format can correctly parse Sente messages."
+(ns sente-compat.sente-integration-test
+  "Integration test: sente-lite wire format with real Sente server.
+   Tests that our wire format can correctly parse Sente messages."
   (:require [clojure.test :refer [deftest testing is]]
             [clojure.edn :as edn]
-            [sente-lite.wire-format-v2 :as v2]
+            [sente-lite.wire-format :as wf]
             [taoensso.timbre :as log])
   (:import [java.net URI]
            [org.java_websocket.client WebSocketClient]
@@ -52,7 +52,7 @@
       (throw (ex-info "Connection timeout" {:url ws-url})))))
 
 (deftest parse-sente-handshake-test
-  (testing "Parse real Sente handshake with v2 wire format"
+  (testing "Parse real Sente handshake with wire format"
     (with-sente-connection
       (fn [client messages]
         (Thread/sleep 500) ; Ensure handshake received
@@ -63,29 +63,29 @@
           (is (some? parsed) "Should receive handshake")
 
           ;; Sente wraps in buffer: [[:chsk/handshake [uid csrf]]]
-          (when (v2/buffered-events? parsed)
-            (let [events (v2/unwrap-buffered-events parsed)
+          (when (wf/buffered-events? parsed)
+            (let [events (wf/unwrap-buffered-events parsed)
                   first-event (first events)]
 
               (is (= :chsk/handshake (first first-event))
                   "First event should be handshake")
 
               (let [hs-data (second first-event)
-                    parsed-hs (v2/parse-handshake hs-data)]
+                    parsed-hs (wf/parse-handshake hs-data)]
 
                 (is (some? (:uid parsed-hs)) "Should have uid")
                 (is (contains? parsed-hs :csrf-token) "Should have csrf-token key")
                 (is (true? (:first? parsed-hs)) "Should be first connection")))))))))
 
 (deftest send-receive-event-test
-  (testing "Send event and receive reply using v2 wire format"
+  (testing "Send event and receive reply using wire format"
     (with-sente-connection
       (fn [client messages]
         (Thread/sleep 500) ; Wait for handshake
 
         ;; Send a test event with callback
-        (let [cb-uuid (v2/generate-cb-uuid)
-              event (v2/encode-event-with-callback :test/echo {:msg "Hello Sente!"} cb-uuid)
+        (let [cb-uuid (wf/generate-cb-uuid)
+              event (wf/encode-event-with-callback :test/echo {:msg "Hello Sente!"} cb-uuid)
               wire-msg (pr-str event)]
 
           (log/info "Sending:" wire-msg)
@@ -102,7 +102,7 @@
 
             (when (seq reply-msgs)
               (let [reply (first reply-msgs)
-                    parsed-reply (v2/parse-wire-reply (:parsed reply))]
+                    parsed-reply (wf/parse-wire-reply (:parsed reply))]
 
                 (is (= cb-uuid (:cb-uuid parsed-reply))
                     "Reply should have matching cb-uuid")
@@ -110,13 +110,13 @@
                     "Reply should have data")))))))))
 
 (deftest ping-pong-test
-  (testing "Ping event using v2 wire format"
+  (testing "Ping event using wire format"
     (with-sente-connection
       (fn [client messages]
         (Thread/sleep 500)
 
         ;; Send ping
-        (let [ping-event (v2/make-ws-ping)
+        (let [ping-event (wf/make-ws-ping)
               wire-msg (pr-str ping-event)]
 
           (log/info "Sending ping:" wire-msg)
@@ -128,9 +128,9 @@
           (is true "Ping sent successfully"))))))
 
 (defn run-tests []
-  (log/info "Running Sente v2 integration tests...")
+  (log/info "Running Sente integration tests...")
   (log/info "Make sure Sente server is running: bb sente-server")
-  (clojure.test/run-tests 'sente-compat.sente-v2-integration-test))
+  (clojure.test/run-tests 'sente-compat.sente-integration-test))
 
 (defn -main [& args]
   (run-tests))

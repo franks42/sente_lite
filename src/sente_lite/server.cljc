@@ -1,12 +1,12 @@
 (ns sente-lite.server
   "Enhanced WebSocket server with channel system for sente-lite.
-   Uses Sente-compatible v2 wire format: [event-id data]"
+   Uses Sente-compatible wire format: [event-id data]"
   (:require [taoensso.trove :as trove]
             #?(:bb [cheshire.core :as json]
                :clj [clojure.data.json :as json])
             #?(:bb [org.httpkit.server :as http])
             [sente-lite.channels :as channels]
-            [sente-lite.wire-format-v2 :as wf2])
+            [sente-lite.wire-format :as wf])
   (:import [java.lang System Exception]))
 
 ;; Connection state management
@@ -98,7 +98,7 @@
   "Parse a raw wire message into an event map {:event-id ... :data ... :cb-uuid ...}"
   [raw-message conn-id format-spec]
   (try
-    (let [event (wf2/parse-message raw-message format-spec)]
+    (let [event (wf/parse-message raw-message format-spec)]
       (if (:error event)
         (do
           (trove/log! {:level :warn :id :sente-lite.server/parse-error
@@ -119,7 +119,7 @@
   "Send a v2 event vector to a channel"
   [channel event format-spec]
   (try
-    (let [wire-data (wf2/serialize event format-spec)]
+    (let [wire-data (wf/serialize event format-spec)]
       (when wire-data
         #?(:bb (http/send! channel wire-data))
         (trove/log! {:level :trace
@@ -151,38 +151,38 @@
 
   (cond
     ;; Ping -> respond with pong
-    (wf2/ping-event? event-id)
-    (wf2/make-ws-pong)
+    (wf/ping-event? event-id)
+    (wf/make-ws-pong)
 
     ;; Pong -> update last-pong timestamp, no response
-    (wf2/pong-event? event-id)
+    (wf/pong-event? event-id)
     (do
       (when-let [channel (get @connection-index conn-id)]
         (update-connection-pong! channel))
       nil)
 
     ;; Handshake from client -> ignore (server-initiated only)
-    (wf2/handshake-event? event-id)
+    (wf/handshake-event? event-id)
     nil
 
     ;; sente-lite extension events
-    (= event-id wf2/event-subscribe)
+    (= event-id wf/event-subscribe)
     (let [channel-id (:channel-id data)
           auto-create? (get-in config [:channels :auto-create])
           _ (when (and auto-create? (not (channels/get-channel-info channel-id)))
               (channels/create-channel! channel-id
                                         (get-in config [:channels :default-config])))
           result (channels/subscribe! conn-id channel-id)]
-      (wf2/make-subscribed channel-id (:success result)
-                           :error (:reason result)))
+      (wf/make-subscribed channel-id (:success result)
+                          :error (:reason result)))
 
-    (= event-id wf2/event-unsubscribe)
+    (= event-id wf/event-unsubscribe)
     (let [channel-id (:channel-id data)
           success (channels/unsubscribe! conn-id channel-id)]
-      (wf2/make-subscribed channel-id success
-                           :error (when-not success :not-subscribed)))
+      (wf/make-subscribed channel-id success
+                          :error (when-not success :not-subscribed)))
 
-    (= event-id wf2/event-publish)
+    (= event-id wf/event-publish)
     (let [channel-id (:channel-id data)
           message-data (:data data)
           exclude-sender? (:exclude-sender? data false)
@@ -229,7 +229,7 @@
                                 :timeout-ms timeout-ms}})
             (swap! dead-conns conj [channel conn-id]))
           ;; Connection alive - send ping (v2 format)
-          (send-event! channel (wf2/make-ws-ping) format-spec))))
+          (send-event! channel (wf/make-ws-ping) format-spec))))
 
     ;; Close dead connections
     (doseq [[channel conn-id] @dead-conns]
@@ -286,9 +286,9 @@
         ;; Use conn-id as uid for Sente compatibility
         uid conn-id
         csrf-token nil
-        handshake-data {:sente-lite-version wf2/version}
+        handshake-data {:sente-lite-version wf/version}
         first? true
-        handshake-event (wf2/make-handshake uid csrf-token handshake-data first?)]
+        handshake-event (wf/make-handshake uid csrf-token handshake-data first?)]
 
     ;; Send handshake (Sente-compatible)
     (send-event! channel handshake-event format-spec)
@@ -530,7 +530,7 @@
   (let [channel-info (channels/get-channel-info channel-id)]
     (if channel-info
       (let [subscribers (:subscribers channel-info)
-            event (wf2/make-channel-msg channel-id message-data from-conn-id)
+            event (wf/make-channel-msg channel-id message-data from-conn-id)
             delivered (atom 0)
             format-spec (get-format-spec (:config @server-state))]
 

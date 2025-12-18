@@ -46,61 +46,61 @@
 
 ;; Track promises for async testing
 (def handshake-promise (js/Promise.
-                         (fn [resolve reject]
-                           (js/setTimeout #(reject "timeout") 5000)
-                           (set! (.-_resolve-handshake client) resolve))))
+                        (fn [resolve reject]
+                          (js/setTimeout #(reject "timeout") 5000)
+                          (set! (.-_resolve-handshake client) resolve))))
 
 (def echo-promise (js/Promise.
-                    (fn [resolve reject]
-                      (js/setTimeout #(reject "timeout") 5000)
-                      (set! (.-_resolve-echo client) resolve))))
+                   (fn [resolve reject]
+                     (js/setTimeout #(reject "timeout") 5000)
+                     (set! (.-_resolve-echo client) resolve))))
 
 (.on client "open"
-  (fn []
-    (println "2. WebSocket connected!")
-    (record-test! "WebSocket connected" true nil)))
+     (fn []
+       (println "2. WebSocket connected!")
+       (record-test! "WebSocket connected" true nil)))
 
 (.on client "message"
-  (fn [raw-data]
-    (let [parsed (parse-message raw-data)]
-      (swap! received-messages conj parsed)
-      (println "   Received:" (:event-id parsed))
-      
-      (case (:event-id parsed)
-        :chsk/handshake
-        (do
-          (println "3. Handshake received, uid:" (first (:data parsed)))
-          (record-test! "Handshake received" true (str "uid=" (first (:data parsed))))
-          (when-let [resolve (.-_resolve-handshake client)]
-            (resolve parsed)))
-        
-        :chsk/ws-ping
-        (do
-          (println "   Auto-responding with pong")
-          (.send client (pr-str [event-ws-pong])))
-        
-        :sente-lite/echo
-        (do
-          (println "4. Echo received!")
-          (record-test! "Echo received" true nil)
-          (when-let [resolve (.-_resolve-echo client)]
-            (resolve parsed)))
-        
-        :sente-lite/subscribed
-        (do
-          (println "5. Subscribed confirmation received")
-          (record-test! "Subscribe confirmation" (get-in parsed [:data :success]) nil))
-        
-        nil))))
+     (fn [raw-data]
+       (let [parsed (parse-message raw-data)]
+         (swap! received-messages conj parsed)
+         (println "   Received:" (:event-id parsed))
+
+         (case (:event-id parsed)
+           :chsk/handshake
+           (do
+             (println "3. Handshake received, uid:" (first (:data parsed)))
+             (record-test! "Handshake received" true (str "uid=" (first (:data parsed))))
+             (when-let [resolve (.-_resolve-handshake client)]
+               (resolve parsed)))
+
+           :chsk/ws-ping
+           (do
+             (println "   Auto-responding with pong")
+             (.send client (pr-str [event-ws-pong])))
+
+           :sente-lite/echo
+           (do
+             (println "4. Echo received!")
+             (record-test! "Echo received" true nil)
+             (when-let [resolve (.-_resolve-echo client)]
+               (resolve parsed)))
+
+           :sente-lite/subscribed
+           (do
+             (println "5. Subscribed confirmation received")
+             (record-test! "Subscribe confirmation" (get-in parsed [:data :success]) nil))
+
+           nil))))
 
 (.on client "close"
-  (fn [code reason]
-    (println "   Closed:" code)))
+     (fn [code reason]
+       (println "   Closed:" code)))
 
 (.on client "error"
-  (fn [err]
-    (println "   Error:" (.-message err))
-    (record-test! "No connection errors" false (.-message err))))
+     (fn [err]
+       (println "   Error:" (.-message err))
+       (record-test! "No connection errors" false (.-message err))))
 
 ;; Run test sequence after handshake
 (-> handshake-promise

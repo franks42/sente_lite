@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Wire Format V2 - Scittle Test</title>
+  <title>Wire Format - Scittle Test</title>
   <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
   <style>
     body { font-family: monospace; padding: 20px; }
@@ -11,19 +11,19 @@
   </style>
 </head>
 <body>
-  <h1>Wire Format V2 - Scittle Test</h1>
+  <h1>Wire Format - Scittle Test</h1>
   <div id="results"></div>
 
   <!-- Load Trove (vendored) -->
   <script type="application/x-scittle" src="taoensso/trove.cljs"></script>
 
-  <!-- Load wire-format-v2 (no longer depends on wire_format.cljc for cljs) -->
-  <script type="application/x-scittle" src="../../src/sente_lite/wire_format_v2.cljc"></script>
+  <!-- Load wire-format -->
+  <script type="application/x-scittle" src="../../src/sente_lite/wire_format.cljc"></script>
 
   <!-- Test script -->
   <script type="application/x-scittle">
-    (ns test-wire-format-v2
-      (:require [sente-lite.wire-format-v2 :as v2]))
+    (ns test-wire-format
+      (:require [sente-lite.wire-format :as wf]))
 
     (defn log-result [name pass? detail]
       (let [el (.createElement js/document "div")
@@ -35,34 +35,34 @@
 
     (defn run-tests []
       ;; Test 1: Version
-      (log-result "Version" (= "2.0.0" v2/version) v2/version)
+      (log-result "Version" (= "2.0.0" wf/version) wf/version)
 
       ;; Test 2: Encode event
-      (let [event (v2/encode-event :my-app/hello {:msg "hi"})]
+      (let [event (wf/encode-event :my-app/hello {:msg "hi"})]
         (log-result "Encode event" 
                     (and (vector? event) (= :my-app/hello (first event)))
                     (pr-str event)))
 
       ;; Test 3: Decode event
-      (let [decoded (v2/decode-event [:my-app/test {:foo "bar"}])]
+      (let [decoded (wf/decode-event [:my-app/test {:foo "bar"}])]
         (log-result "Decode event"
                     (= :my-app/test (:event-id decoded))
                     (pr-str decoded)))
 
       ;; Test 4: Generate callback UUID
-      (let [uuid (v2/generate-cb-uuid)]
+      (let [uuid (wf/generate-cb-uuid)]
         (log-result "Generate UUID"
                     (string? uuid)
                     uuid))
 
       ;; Test 5: Make handshake
-      (let [hs (v2/make-handshake "user-123" "csrf-token")]
+      (let [hs (wf/make-handshake "user-123" "csrf-token")]
         (log-result "Make handshake"
                     (= :chsk/handshake (first hs))
                     (pr-str hs)))
 
       ;; Test 6: Parse handshake (2-element Sente format)
-      (let [parsed (v2/parse-handshake ["uid-123" nil])]
+      (let [parsed (wf/parse-handshake ["uid-123" nil])]
         (log-result "Parse 2-element handshake"
                     (= "uid-123" (:uid parsed))
                     (pr-str parsed)))
@@ -70,22 +70,22 @@
       ;; Test 7: Buffered events detection
       (let [buffered [[:chsk/handshake ["uid" nil]]]]
         (log-result "Buffered events?"
-                    (v2/buffered-events? buffered)
+                    (wf/buffered-events? buffered)
                     (pr-str buffered)))
 
       ;; Test 8: Wire reply format
-      (let [reply (v2/make-wire-reply "cb-123" {:echo "data"})]
+      (let [reply (wf/make-wire-reply "cb-123" {:echo "data"})]
         (log-result "Make wire reply"
                     (= [{:echo "data"} "cb-123"] reply)
                     (pr-str reply)))
 
       ;; Test 9: System event predicate
       (log-result "System event?"
-                  (v2/system-event? :chsk/handshake)
+                  (wf/system-event? :chsk/handshake)
                   ":chsk/handshake")
 
       ;; Test 10: Ping event
-      (let [ping (v2/make-ws-ping)]
+      (let [ping (wf/make-ws-ping)]
         (log-result "Make ping"
                     (= [:chsk/ws-ping] ping)
                     (pr-str ping)))

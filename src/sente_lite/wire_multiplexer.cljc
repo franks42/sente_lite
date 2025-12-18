@@ -1,7 +1,7 @@
 (ns sente-lite.wire-multiplexer
   "Wire format multiplexing support for sente-lite
    Allows different wire formats to be used over a single WebSocket connection"
-  (:require [sente-lite.wire-format :as wire]
+  (:require [sente-lite.serialization :as wire]
             [taoensso.trove :as trove]
             #?(:bb [cheshire.core :as json]
                :clj [clojure.data.json :as json]))

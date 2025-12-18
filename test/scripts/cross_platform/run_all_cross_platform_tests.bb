@@ -66,10 +66,10 @@
 (println)
 
 (run-test "BB Server <-> BB Client (unit test)"
-          "test/scripts/test_v2_client_bb.bb")
+          "test/scripts/test_client_bb.bb")
 
 (run-test "BB Server <-> BB Client (multiprocess)"
-          "test/scripts/multiprocess_v2/01_basic_v2.bb")
+          "test/scripts/multiprocess/01_basic.bb")
 
 ;; Check if nbb is set up
 (when (.exists (java.io.File. (str project-root "/test/nbb/node_modules/ws")))

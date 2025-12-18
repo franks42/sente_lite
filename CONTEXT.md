@@ -202,8 +202,8 @@ bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
 cd dev/scittle-demo && node playwright-client-test.mjs
 
 # Run specific v2 tests
-bb test/scripts/test_v2_client_bb.bb
-bb test/scripts/multiprocess_v2/01_basic_v2.bb
+bb test/scripts/test_client_bb.bb
+bb test/scripts/multiprocess/01_basic.bb
 
 # nbb tests
 cd test/nbb && nbb --classpath ../../src test_server_nbb_module.cljs

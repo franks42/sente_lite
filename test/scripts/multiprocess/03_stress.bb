@@ -1,6 +1,6 @@
 #!/usr/bin/env bb
 ;;
-;; Test 3: Stress Test v2
+;; Test 3: Stress Test
 ;;
 ;; Tests: 10 clients sending messages concurrently
 ;; Validates: Server handles concurrent load, no message loss, performance
@@ -14,10 +14,10 @@
          '[babashka.fs :as fs]
          '[mp-utils :as mp])
 
-(println "=== Test 3: Stress Test v2 ===")
+(println "=== Test 3: Stress Test ===")
 (println)
 
-(def test-id (str "stress-v2-" (System/currentTimeMillis)))
+(def test-id (str "stress-" (System/currentTimeMillis)))
 (def test-duration-sec 15)
 (def client-count 10)
 (def messages-per-client 10)
@@ -41,9 +41,9 @@
 (mp/cleanup-test-files! test-id process-ids)
 
 ;; Start server
-(println "[setup] Starting v2 server...")
+(println "[setup] Starting server...")
 (def server-process
-  (p/process ["bb" (str script-dir "/mp_server_v2.bb") test-id (str test-duration-sec)]
+  (p/process ["bb" (str script-dir "/mp_server.bb") test-id (str test-duration-sec)]
              {:out :inherit
               :err :inherit}))
 
@@ -70,8 +70,8 @@
 (def client-processes
   (doall
    (for [i (range 1 (inc client-count))]
-     (p/process ["bb" (str script-dir "/mp_client_stress_v2.bb")
-                 test-id (str i) "stress-channel-v2"
+     (p/process ["bb" (str script-dir "/mp_client_stress.bb")
+                test-id (str i) "stress-channel"
                  (str messages-per-client) (str message-interval-ms)]
                 {:out :inherit
                  :err :inherit}))))
@@ -175,7 +175,7 @@
 (println "=== Test Results ===")
 (if (empty? @validation-failures)
   (do
-    (println "✅ Test 3 PASSED: Stress test v2 working!")
+    (println "✅ Test 3 PASSED: Stress test working!")
     (println "  Clients:" client-count)
     (println "  Total messages:" total-messages-sent)
     (println "  Throughput:" (format "%.2f" messages-per-sec) "msg/sec")

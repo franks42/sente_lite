@@ -16,10 +16,9 @@
 (require '[babashka.http-client.websocket :as ws]
          '[clojure.edn :as edn]
          '[sente-lite.server :as server]
-         '[sente-lite.wire-format-v2 :as wf2]
          '[taoensso.trove :as trove])
 
-(println "=== Test: BB v2 Client <-> sente-lite BB Server ===")
+(println "=== Test: BB Client <-> sente-lite BB Server ===")
 (println)
 
 ;; v2 event IDs
@@ -94,7 +93,7 @@
 
 (defn run-tests []
   ;; Start server with ephemeral port
-  (println "1. Starting sente-lite v2 server...")
+  (println "1. Starting sente-lite server...")
   (server/start-server! {:port 0 :wire-format :edn :heartbeat {:enabled false}})
   (Thread/sleep 500)
   (def server-port (server/get-server-port))
@@ -103,7 +102,7 @@
   
   ;; Connect client
   (println)
-  (println "2. Connecting v2 client...")
+  (println "2. Connecting client...")
   (def client-id (str "bb-test-" (System/currentTimeMillis)))
   (def ws-url (str "ws://localhost:" server-port "/?client-id=" client-id))
   
@@ -132,7 +131,7 @@
   ;; Test echo
   (println)
   (println "4. Testing echo...")
-  (ws/send! ws-client (pr-str [:test/echo {:msg "Hello v2!" :timestamp (System/currentTimeMillis)}]))
+  (ws/send! ws-client (pr-str [:test/echo {:msg "Hello!" :timestamp (System/currentTimeMillis)}]))
   (let [echo (deref echo-received 2000 nil)]
     (if echo
       (do

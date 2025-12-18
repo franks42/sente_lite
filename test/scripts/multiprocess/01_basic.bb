@@ -1,9 +1,9 @@
 #!/usr/bin/env bb
 ;;
-;; Test 1: Basic Multi-Process v2
+;; Test 1: Basic Multi-Process
 ;;
-;; Tests: 1 server + 2 clients using v2 wire format and client_bb.clj module
-;; Validates: Separate processes can communicate via WebSocket using EDN/v2
+;; Tests: 1 server + 2 clients using client_bb.clj module
+;; Validates: Separate processes can communicate via WebSocket using EDN
 ;;
 
 (require '[babashka.classpath :as cp])
@@ -14,10 +14,10 @@
          '[babashka.fs :as fs]
          '[mp-utils :as mp])
 
-(println "=== Test 1: Basic Multi-Process v2 ===")
+(println "=== Test 1: Basic Multi-Process ===")
 (println)
 
-(def test-id (str "basic-v2-" (System/currentTimeMillis)))
+(def test-id (str "basic-" (System/currentTimeMillis)))
 (def test-duration-sec 10)
 (def client-message-count 5)
 (def script-dir (-> *file* fs/parent str))
@@ -32,9 +32,9 @@
 (mp/cleanup-test-files! test-id ["server" "client-1" "client-2"])
 
 ;; Start server process in background
-(println "[setup] Starting v2 server process...")
+(println "[setup] Starting server process...")
 (def server-process
-  (p/process ["bb" (str script-dir "/mp_server_v2.bb") test-id (str test-duration-sec)]
+  (p/process ["bb" (str script-dir "/mp_server.bb") test-id (str test-duration-sec)]
              {:out :inherit
               :err :inherit}))
 
@@ -57,15 +57,15 @@
 ;; Start clients
 (println "[clients] Starting client 1...")
 (def client1-process
-  (p/process ["bb" (str script-dir "/mp_client_v2.bb")
-              test-id "1" "test-channel-v2" (str client-message-count)]
+  (p/process ["bb" (str script-dir "/mp_client.bb")
+              test-id "1" "test-channel" (str client-message-count)]
              {:out :inherit
               :err :inherit}))
 
 (println "[clients] Starting client 2...")
 (def client2-process
-  (p/process ["bb" (str script-dir "/mp_client_v2.bb")
-              test-id "2" "test-channel-v2" (str client-message-count)]
+  (p/process ["bb" (str script-dir "/mp_client.bb")
+              test-id "2" "test-channel" (str client-message-count)]
              {:out :inherit
               :err :inherit}))
 
@@ -155,7 +155,7 @@
 
 (if (empty? @validation-failures)
   (do
-    (println "✅ Test 1 PASSED: Basic multi-process v2 working!")
+    (println "✅ Test 1 PASSED: Basic multi-process working!")
     (System/exit 0))
   (do
     (println "❌ Test 1 FAILED:")

@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;;
 ;; Test: sente-lite BB Client (client_bb.clj) <-> sente-lite BB Server
-;; Tests the complete v2 wire format using the official BB client module.
+;; Tests the complete wire format using the official BB client module.
 ;;
 
 (require '[babashka.classpath :as cp])
@@ -28,7 +28,7 @@
 
 (defn run-tests []
   ;; Start server
-  (println "1. Starting sente-lite v2 server...")
+  (println "1. Starting sente-lite server...")
   (server/start-server! {:port 0 :wire-format :edn :heartbeat {:enabled false}})
   (Thread/sleep 500)
   (def server-port (server/get-server-port))

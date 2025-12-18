@@ -202,7 +202,7 @@ sente-lite uses Sente-compatible v2 wire format:
 bb run_tests.bb
 
 # Just BB tests
-bb test/scripts/test_v2_client_bb.bb
+bb test/scripts/test_client_bb.bb
 
 # Cross-platform tests (includes browser/Scittle via Playwright)
 bb test/scripts/cross_platform/run_all_cross_platform_tests.bb

@@ -1,27 +1,23 @@
 #!/usr/bin/env bb
+;;
+;; Multi-Process Stress Test Client (using client_bb.clj)
+;;
+;; Usage: bb mp_client_stress.bb <test-id> <client-id> <channel-id> <message-count> <interval-ms>
+;;
 
 (require '[babashka.classpath :as cp])
 (cp/add-classpath "src")
-(cp/add-classpath "test/scripts")
-(cp/add-classpath "test/scripts/bb_client_tests")
 (cp/add-classpath "test/scripts/multiprocess")
 
-(require '[cheshire.core :as json]
-         '[ws-client-managed :as wsm]
+(require '[sente-lite.client-bb :as client]
          '[mp-utils :as mp])
-
-;;
-;; Multi-process stress test client
-;;
-;; Sends messages at a controlled rate to test server under load
-;;
 
 (defn parse-args [args]
   (when (< (count args) 5)
-    (println "ERROR:" "Usage: mp_client_stress.bb <test-id> <client-id> <channel-id> <message-count> <interval-ms>")
+    (println "Usage: bb mp_client_stress.bb <test-id> <client-id> <channel-id> <message-count> <interval-ms>")
     (System/exit 1))
-  {:test-id (nth args 0)
-   :client-id (nth args 1)
+  {:test-id (first args)
+   :client-id (second args)
    :channel-id (nth args 2)
    :message-count (Integer/parseInt (nth args 3))
    :interval-ms (Integer/parseInt (nth args 4))})
@@ -30,116 +26,69 @@
   (let [{:keys [test-id client-id channel-id message-count interval-ms]} (parse-args args)
         process-id (str "client-" client-id)]
 
-    (println "[info] " "Stress test client starting"
-              {:process-id process-id
-               :test-id test-id
-               :channel-id channel-id
-               :message-count message-count
-               :interval-ms interval-ms})
-
     ;; State tracking
-    (def connection-count (atom 0))
+    (def handshake-received (promise))
     (def messages-sent (atom 0))
-    (def messages-received (atom []))
+    (def messages-received (atom 0))
     (def failures (atom 0))
-    (def send-times (atom []))
-    (def receive-times (atom []))
 
     ;; Get server port
     (def port (mp/read-port test-id 5000))
-    (println "[info] " "Discovered server port" {:client-id client-id :port port})
 
-    ;; Create managed client
-    (def client
-      (wsm/create-managed-client
-       {:uri (str "ws://localhost:" port "/")
-        :on-state-change (fn [old-state new-state]
-                           (println "Event: " {:old old-state
-                                        :new new-state
-                                        :client-id client-id}))
-        :on-message (fn [msg]
-                      (swap! receive-times conj (System/currentTimeMillis))
-                      (swap! messages-received conj msg))
-        :on-open (fn [ws]
-                   (println "Event: " {:client-id client-id})
-                   (swap! connection-count inc))
-        :on-error (fn [ws error]
-                    (println "ERROR:" "Client error"
-                                {:client-id client-id :error (str error)})
-                    (swap! failures inc))
-        :heartbeat {:auto-pong true}
-        :reconnect {:enabled false}}))
+    ;; Create client using client_bb.clj
+    (def client-handle
+      (client/make-client!
+        {:url (str "ws://localhost:" port "/")
+         :auto-reconnect? false
+         :on-open (fn [uid]
+                    (deliver handshake-received uid))
+         :on-message (fn [event-id data]
+                       (swap! messages-received inc))
+         :on-close (fn [code reason] nil)}))
 
-    ;; Connect
-    (println "[info] " "Connecting to server" {:client-id client-id :port port})
-    ((:connect! client))
-
-    ;; Wait for connection
-    (Thread/sleep 1000)
+    ;; Wait for handshake
+    (def uid (deref handshake-received 5000 nil))
+    (when-not uid
+      (mp/write-result! test-id process-id {:status :failed :error "no-handshake"})
+      (mp/signal-ready! test-id process-id)
+      (System/exit 1))
 
     ;; Subscribe to channel
-    (println "[info] " "Subscribing to channel" {:client-id client-id :channel channel-id})
-    ((:subscribe! client) channel-id)
-    (Thread/sleep 500)
+    (client/subscribe! client-handle channel-id)
+    (Thread/sleep 200)
 
-    ;; Send messages at controlled rate
-    (println "[info] " "Sending messages"
-              {:client-id client-id :count message-count :interval-ms interval-ms})
-
-    (def start-time (System/currentTimeMillis))
-
+    ;; Send messages with interval
     (dotimes [i message-count]
-      (let [msg {:type :stress-test-message
-                 :client-id client-id
-                 :sequence i
-                 :timestamp (System/currentTimeMillis)}
-            msg-json (json/generate-string msg)
-            send-time (System/currentTimeMillis)]
-        (if ((:send! client) msg-json)
-          (do
-            (swap! messages-sent inc)
-            (swap! send-times conj send-time))
-          (do
-            (println "ERROR:" "Failed to send message"
-                        {:client-id client-id :sequence i})
-            (swap! failures inc))))
-      ;; Rate limiting
+      (if (client/send! client-handle [:stress/message {:client-id client-id
+                                                         :sequence i
+                                                         :timestamp (System/currentTimeMillis)}])
+        (swap! messages-sent inc)
+        (swap! failures inc))
       (when (< i (dec message-count))
         (Thread/sleep interval-ms)))
 
-    (def end-time (System/currentTimeMillis))
-    (def duration-ms (- end-time start-time))
-
-    ;; Wait a bit for final messages
-    (Thread/sleep 1000)
-
-    ;; Disconnect
-    (println "[info] " "Disconnecting" {:client-id client-id})
-    ((:disconnect! client))
+    ;; Wait briefly for any responses
     (Thread/sleep 500)
 
-    ;; Calculate performance metrics
-    (def actual-rate (if (> duration-ms 0)
-                       (/ (* @messages-sent 1000.0) duration-ms)
-                       0))
+    ;; Get stats
+    (def stats (client/get-stats client-handle))
 
-    ;; Collect results
-    (def result {:status "passed"
+    ;; Write result
+    (def result {:status (if (zero? @failures) :passed :failed)
                  :client-id client-id
-                 :connections @connection-count
+                 :uid uid
+                 :channel-id channel-id
+                 :connections 1
                  :messages-sent @messages-sent
-                 :messages-received (count @messages-received)
+                 :messages-received @messages-received
                  :failures @failures
-                 :duration-ms duration-ms
-                 :actual-rate-msg-sec (format "%.2f" actual-rate)})
+                 :stats stats})
 
-    (println "[info] " "Stress test client completed"
-              {:process-id process-id :result result})
-
-    ;; Write result and signal ready
     (mp/write-result! test-id process-id result)
     (mp/signal-ready! test-id process-id)
 
+    ;; Close
+    (client/close! client-handle)
     (System/exit 0)))
 
 (apply -main *command-line-args*)

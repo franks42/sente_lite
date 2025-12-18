@@ -9,4 +9,6 @@
            :single-logical-operand {:level :off}
            :redundant-ignore {:level :off}
            :namespace-name-mismatch {:level :off}}  ; Demo files loaded via nREPL
- :output {:langs [:clj :cljc]}}
+  :output {:langs [:clj :cljc]
+           :exclude-files ["src/taoensso/"
+                           "test/taoensso/"]}}

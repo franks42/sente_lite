@@ -1,16 +1,15 @@
 #!/usr/bin/env bb
-;; Simple v2 WebSocket server for browser client testing
+;; Simple WebSocket server for browser client testing
 ;; Starts on port 1345
 
 (require '[babashka.classpath :as cp])
 (cp/add-classpath "../../src")
 
-(require '[sente-lite.server :as server]
-         '[sente-lite.wire-format-v2 :as wf2])
+(require '[sente-lite.server :as server])
 
 (println "")
 (println "========================================")
-(println "  sente-lite v2 Test Server")
+(println "  sente-lite Test Server")
 (println "========================================")
 (println "")
 (println "Starting server on port 1345...")

@@ -15,24 +15,24 @@
 
 ;; Set handlers browser-style
 (set! (.-onopen client)
-  (fn [event]
-    (println "  onopen called!")
-    (println "  event type:" (type event))))
+      (fn [event]
+        (println "  onopen called!")
+        (println "  event type:" (type event))))
 
 (set! (.-onmessage client)
-  (fn [event]
-    (println "  onmessage called!")
-    (println "  event.data:" (.-data event))
-    (.close client)))
+      (fn [event]
+        (println "  onmessage called!")
+        (println "  event.data:" (.-data event))
+        (.close client)))
 
 (set! (.-onclose client)
-  (fn [event]
-    (println "  onclose called!")
-    (println "Done!")))
+      (fn [event]
+        (println "  onclose called!")
+        (println "Done!")))
 
 (set! (.-onerror client)
-  (fn [event]
-    (println "  onerror called!")))
+      (fn [event]
+        (println "  onerror called!")))
 
 ;; Keep alive
 (js/setTimeout #() 5000)

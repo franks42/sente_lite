@@ -1,8 +1,8 @@
 #!/usr/bin/env bb
 ;;
-;; Test 2: Reconnection v2
+;; Test 2: Reconnection
 ;;
-;; Tests: Server restart, clients auto-reconnect using v2 wire format
+;; Tests: Server restart, clients auto-reconnect
 ;; Validates: Clients detect disconnection and reconnect with backoff
 ;;
 
@@ -14,10 +14,10 @@
          '[babashka.fs :as fs]
          '[mp-utils :as mp])
 
-(println "=== Test 2: Reconnection v2 ===")
+(println "=== Test 2: Reconnection ===")
 (println)
 
-(def test-id (str "reconnect-v2-" (System/currentTimeMillis)))
+(def test-id (str "reconnect-" (System/currentTimeMillis)))
 (def test-port 9877)  ; Fixed port for reconnection test
 (def initial-message-count 3)
 (def post-reconnect-message-count 3)
@@ -34,9 +34,9 @@
 (mp/cleanup-test-files! test-id ["server" "client-1" "client-2" "test-complete"])
 
 ;; Start server process (fixed port)
-(println "[phase 1] Starting v2 server (first instance)...")
+(println "[phase 1] Starting server (first instance)...")
 (def server-process
-  (p/process ["bb" (str script-dir "/mp_server_reconnect_v2.bb")
+  (p/process ["bb" (str script-dir "/mp_server_reconnect.bb")
               test-id (str test-port) "30"]
              {:out :inherit
               :err :inherit}))
@@ -55,7 +55,7 @@
 ;; Start client processes (with auto-reconnect enabled)
 (println "[phase 1] Starting client 1...")
 (def client1-process
-  (p/process ["bb" (str script-dir "/mp_client_reconnect_v2.bb")
+  (p/process ["bb" (str script-dir "/mp_client_reconnect.bb")
               test-id "1" "reconnect-channel" (str test-port)
               (str initial-message-count) (str post-reconnect-message-count)]
              {:out :inherit
@@ -63,7 +63,7 @@
 
 (println "[phase 1] Starting client 2...")
 (def client2-process
-  (p/process ["bb" (str script-dir "/mp_client_reconnect_v2.bb")
+  (p/process ["bb" (str script-dir "/mp_client_reconnect.bb")
               test-id "2" "reconnect-channel" (str test-port)
               (str initial-message-count) (str post-reconnect-message-count)]
              {:out :inherit
@@ -93,7 +93,7 @@
 (println)
 (println "[phase 3] RESTARTING SERVER on same port...")
 (def server-process-2
-  (p/process ["bb" (str script-dir "/mp_server_reconnect_v2.bb")
+  (p/process ["bb" (str script-dir "/mp_server_reconnect.bb")
               test-id (str test-port) "30"]
              {:out :inherit
               :err :inherit}))
@@ -223,7 +223,7 @@
 
 (if (empty? @validation-failures)
   (do
-    (println "✅ Test 2 PASSED: Reconnection v2 working!")
+    (println "✅ Test 2 PASSED: Reconnection working!")
     (System/exit 0))
   (do
     (println "❌ Test 2 FAILED:")

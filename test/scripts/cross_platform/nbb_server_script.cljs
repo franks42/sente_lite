@@ -19,8 +19,8 @@
 ;; Keep server running for 30 seconds
 (println "[nbb-server] Running for 30 seconds...")
 (js/setTimeout
-  (fn []
-    (println "[nbb-server] Stopping...")
-    (server/stop-server!)
-    (println "[nbb-server] Stopped"))
-  30000)
+ (fn []
+   (println "[nbb-server] Stopping...")
+   (server/stop-server!)
+   (println "[nbb-server] Stopped"))
+ 30000)

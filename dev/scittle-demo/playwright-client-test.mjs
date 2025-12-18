@@ -51,9 +51,9 @@ function logError(msg) {
 // Start BB WebSocket server
 function startBBServer() {
   return new Promise((resolve, reject) => {
-    log('Starting BB v2 test server...');
+    log('Starting BB test server...');
     
-    bbServer = spawn('bb', ['v2-test-server.bb'], {
+    bbServer = spawn('bb', ['test-server.bb'], {
       cwd: __dirname,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -102,7 +102,7 @@ function startStaticServer() {
     log('Starting static file server...');
     
     staticServer = http.createServer((req, res) => {
-      let filePath = req.url === '/' ? '/test-client-scittle-v2.html' : req.url;
+      let filePath = req.url === '/' ? '/test-client-scittle.html' : req.url;
       
       // Handle paths relative to project root
       let fullPath;
@@ -173,8 +173,8 @@ async function runTests() {
   });
 
   try {
-    log(`Loading test page: http://localhost:${STATIC_SERVER_PORT}/test-client-scittle-v2.html`);
-    await page.goto(`http://localhost:${STATIC_SERVER_PORT}/test-client-scittle-v2.html`);
+    log(`Loading test page: http://localhost:${STATIC_SERVER_PORT}/test-client-scittle.html`);
+    await page.goto(`http://localhost:${STATIC_SERVER_PORT}/test-client-scittle.html`);
 
     // Wait for tests to complete
     log('Waiting for tests to complete...');

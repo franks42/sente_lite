@@ -22,27 +22,27 @@
 (println "Client readyState:" (.-readyState client))
 
 (.on client "open"
-  (fn []
-    (println "Connected!")
-    (.send client "Hello from nbb!")
-    (println "Message sent")))
+     (fn []
+       (println "Connected!")
+       (.send client "Hello from nbb!")
+       (println "Message sent")))
 
 (.on client "message"
-  (fn [data]
-    (println "Received:" (str data))))
+     (fn [data]
+       (println "Received:" (str data))))
 
 (.on client "close"
-  (fn [code reason]
-    (println "Closed:" code reason)))
+     (fn [code reason]
+       (println "Closed:" code reason)))
 
 (.on client "error"
-  (fn [err]
-    (println "Error:" (.-message err))))
+     (fn [err]
+       (println "Error:" (.-message err))))
 
 ;; Keep alive for a bit
 (js/setTimeout
-  (fn []
-    (println "Closing...")
-    (.close client)
-    (println "Done!"))
-  3000)
+ (fn []
+   (println "Closing...")
+   (.close client)
+   (println "Done!"))
+ 3000)
