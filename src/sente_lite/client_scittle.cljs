@@ -58,28 +58,16 @@
 
 (defn- handle-open [client-state event]
   (let [client-id (:id client-state)
-        config (:config client-state)
-        is-reconnect? (> (:reconnect-count client-state) 0)]
+        config (:config client-state)]
     (trove/log! {:level :debug
-                 :id (if is-reconnect? :sente-lite.client/reconnected :sente-lite.client/connected)
+                 :id :sente-lite.client/ws-connected
                  :data {:client-id client-id
                         :url (:url config)
-                        :ready-state (.. event -target -readyState)
-                        :reconnect-count (:reconnect-count client-state)}})
+                        :ready-state (.. event -target -readyState)}})
     (swap! clients assoc-in [client-id :status] :connected)
-
-    ;; Call appropriate callback
-    (if is-reconnect?
-      (when-let [on-reconnect (:on-reconnect config)]
-        (trove/log! {:level :trace
-                     :id :sente-lite.client/callback-on-reconnect
-                     :data {:client-id client-id}})
-        (on-reconnect))
-      (when-let [on-open (:on-open config)]
-        (trove/log! {:level :trace
-                     :id :sente-lite.client/callback-on-open
-                     :data {:client-id client-id}})
-        (on-open)))))
+    ;; Note: on-open/on-reconnect callbacks are called after handshake in handle-message,
+    ;; not here, so the user gets the uid from the server.
+    ))
 
 (defn- parse-message
   "Parse message - expects EDN v2 format [event-id data]"
@@ -141,9 +129,19 @@
         (cond
           ;; Handle handshake
           (= event-id event-handshake)
-          (let [uid (handle-handshake client-id data ws)]
-            (when-let [on-open (:on-open config)]
-              (on-open uid)))
+          (let [uid (handle-handshake client-id data ws)
+                is-reconnect? (> (:reconnect-count client-state) 0)]
+            (if is-reconnect?
+              (when-let [on-reconnect (:on-reconnect config)]
+                (trove/log! {:level :trace
+                             :id :sente-lite.client/callback-on-reconnect
+                             :data {:client-id client-id :uid uid}})
+                (on-reconnect))
+              (when-let [on-open (:on-open config)]
+                (trove/log! {:level :trace
+                             :id :sente-lite.client/callback-on-open
+                             :data {:client-id client-id :uid uid}})
+                (on-open uid))))
 
           ;; Handle server ping -> respond with pong
           (= event-id event-ws-ping)
@@ -169,34 +167,36 @@
 (declare attempt-reconnect!)  ; forward declaration
 
 (defn- handle-close [client-state event]
-  (let [client-id (:id client-state)
-        config (:config client-state)
-        code (.-code event)
-        reason (.-reason event)
-        was-clean (.-wasClean event)
-        reconnect-enabled? (:reconnect-enabled? client-state)]
-    (swap! clients assoc-in [client-id :status] :disconnected)
-    (trove/log! {:level :debug
-                 :id :sente-lite.client/disconnected
-                 :data {:client-id client-id
-                        :code code
-                        :reason reason
-                        :was-clean was-clean
-                        :will-reconnect? reconnect-enabled?}})
-    (when-let [on-close (:on-close config)]
-      (on-close event))
-
-    ;; Auto-reconnect if enabled
-    (when reconnect-enabled?
-      (let [current-client-state (get @clients client-id)
-            delay-ms (:reconnect-delay current-client-state)
-            reconnect-count (:reconnect-count current-client-state)]
+  (let [client-id (:id client-state)]
+    ;; Only process if client still exists (not removed by close!)
+    (when (get @clients client-id)
+      (let [config (:config client-state)
+            code (.-code event)
+            reason (.-reason event)
+            was-clean (.-wasClean event)
+            reconnect-enabled? (:reconnect-enabled? client-state)]
+        (swap! clients assoc-in [client-id :status] :disconnected)
         (trove/log! {:level :debug
-                     :id :sente-lite.client/reconnect-scheduled
+                     :id :sente-lite.client/disconnected
                      :data {:client-id client-id
-                            :delay-ms delay-ms
-                            :reconnect-count reconnect-count}})
-        (js/setTimeout #(attempt-reconnect! client-id) delay-ms)))))
+                            :code code
+                            :reason reason
+                            :was-clean was-clean
+                            :will-reconnect? reconnect-enabled?}})
+        (when-let [on-close (:on-close config)]
+          (on-close event))
+
+        ;; Auto-reconnect if enabled
+        (when reconnect-enabled?
+          (let [current-client-state (get @clients client-id)
+                delay-ms (:reconnect-delay current-client-state)
+                reconnect-count (:reconnect-count current-client-state)]
+            (trove/log! {:level :debug
+                         :id :sente-lite.client/reconnect-scheduled
+                         :data {:client-id client-id
+                                :delay-ms delay-ms
+                                :reconnect-count reconnect-count}})
+            (js/setTimeout #(attempt-reconnect! client-id) delay-ms)))))))
 
 ;;; Reconnection Logic
 
@@ -338,11 +338,13 @@
   [client-id]
   (if-let [client-state (get @clients client-id)]
     (let [ws (:ws client-state)]
-      (trove/log! {:level :debug
-                   :id :sente-lite.client/closing
-                   :data {:client-id client-id}})
-      (.close ws)
+      ;; Remove client from registry FIRST to prevent on-close from re-adding
       (swap! clients dissoc client-id)
+      (when ws
+        (trove/log! {:level :debug
+                     :id :sente-lite.client/closing
+                     :data {:client-id client-id}})
+        (.close ws))
       true)
     (do
       (trove/log! {:level :warn
