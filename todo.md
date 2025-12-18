@@ -69,6 +69,12 @@ Legend: [x] = tested & passing, [ ] = not yet implemented
 
 ### Future Enhancements
 
+#### Legacy/experimental (archived under `src_legacy/`)
+- [ ] Evaluate whether any multiplexer work should be ported into the canonical implementation
+- [ ] Review `sente-lite.legacy.wire-multiplexer` and decide whether to port a supported envelope-based negotiation format
+- [ ] Review `sente-lite.legacy.transit-multiplexer` and decide whether to port Transit tagged-value multiplexing (and if so, how it should integrate with `sente-lite.serialization`)
+- [ ] Add tests and docs for any ported multiplexer functionality
+
 #### Wire Format
 - [ ] Message compression (for large payloads)
 - [ ] Message batching (for high throughput)

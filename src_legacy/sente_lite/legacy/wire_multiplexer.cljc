@@ -1,4 +1,4 @@
-(ns sente-lite.wire-multiplexer
+(ns sente-lite.legacy.wire-multiplexer
   "Wire format multiplexing support for sente-lite
    Allows different wire formats to be used over a single WebSocket connection"
   (:require [sente-lite.serialization :as wire]

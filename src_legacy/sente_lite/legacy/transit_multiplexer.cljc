@@ -1,8 +1,8 @@
-(ns sente-lite.transit-multiplexer
+(ns sente-lite.legacy.transit-multiplexer
   "Transit-native multiplexing for different encoded message types
    Uses Transit's tagged value system for elegant message type multiplexing"
   (:require [cognitect.transit :as transit]
-            [telemere-lite.core :as tel]
+            [taoensso.trove :as trove]
             #?(:bb [cheshire.core :as json]
                :clj [clojure.data.json :as json])
             [clojure.edn :as edn])
@@ -53,9 +53,9 @@
            #?(:bb (json/parse-string json-string true)
               :clj (json/read-str json-string :key-fn keyword))
            (catch Exception e
-             (tel/error! {:id :sente-lite.tmux/json-parse-failed
-                          :error e
-                          :data {:payload json-string}})
+             (trove/log! {:level :error :id :sente-lite.tmux/json-parse-failed
+                          :data {:error e
+                                 :payload json-string}})
              {:error "Invalid JSON" :raw json-string})))
 
    "e" (fn [edn-string]
@@ -63,9 +63,9 @@
          (try
            (edn/read-string edn-string)
            (catch Exception e
-             (tel/error! {:id :sente-lite.tmux/edn-parse-failed
-                          :error e
-                          :data {:payload edn-string}})
+             (trove/log! {:level :error :id :sente-lite.tmux/edn-parse-failed
+                          :data {:error e
+                                 :payload edn-string}})
              {:error "Invalid EDN" :raw edn-string})))
 
    "b" (fn [base64-string]
@@ -73,9 +73,9 @@
          (try
            (.decode (Base64/getDecoder) base64-string)
            (catch Exception e
-             (tel/error! {:id :sente-lite.tmux/base64-decode-failed
-                          :error e
-                          :data {:payload base64-string}})
+             (trove/log! {:level :error :id :sente-lite.tmux/base64-decode-failed
+                          :data {:error e
+                                 :payload base64-string}})
              {:error "Invalid base64" :raw base64-string})))
 
    "r" (fn [raw-payload]
@@ -87,9 +87,9 @@
          (try
            (.decode (Base64/getDecoder) base64-binary)
            (catch Exception e
-             (tel/error! {:id :sente-lite.tmux/binary-decode-failed
-                          :error e
-                          :data {:payload base64-binary}})
+             (trove/log! {:level :error :id :sente-lite.tmux/binary-decode-failed
+                          :data {:error e
+                                 :payload base64-binary}})
              {:error "Invalid binary" :raw base64-binary})))})
 
 ;; ============================================================================
@@ -151,16 +151,15 @@
       (transit/write writer messages)
       (let [result (.toString out "UTF-8")]
 
-        (tel/log! {:level :trace
-                   :id :sente-lite.tmux/mux-serial
-                   :data {:message-count (count messages)
-                          :total-size (count result)}})
+        (trove/log! {:level :trace :id :sente-lite.tmux/mux-serial
+                     :data {:message-count (count messages)
+                            :total-size (count result)}})
 
         result))
     (catch Exception e
-      (tel/error! {:id :sente-lite.tmux/mux-serial-failed
-                   :error e
-                   :data {:message-count (count messages)}})
+      (trove/log! {:level :error :id :sente-lite.tmux/mux-serial-failed
+                   :data {:error e
+                          :message-count (count messages)}})
       nil)))
 
 (defn multiplex-deserialize
@@ -172,16 +171,15 @@
 
       (let [result (transit/read reader)]
 
-        (tel/log! {:level :trace
-                   :id :sente-lite.tmux/mux-deserial
-                   :data {:wire-size (count wire-data)
-                          :message-count (if (coll? result) (count result) 1)}})
+        (trove/log! {:level :trace :id :sente-lite.tmux/mux-deserial
+                     :data {:wire-size (count wire-data)
+                            :message-count (if (coll? result) (count result) 1)}})
 
         result))
     (catch Exception e
-      (tel/error! {:id :sente-lite.tmux/mux-deserial-failed
-                   :error e
-                   :data {:wire-data-preview (subs wire-data 0 (min 100 (count wire-data)))}})
+      (trove/log! {:level :error :id :sente-lite.tmux/mux-deserial-failed
+                   :data {:error e
+                          :wire-data-preview (subs wire-data 0 (min 100 (count wire-data)))}})
       nil)))
 
 ;; ============================================================================
@@ -213,10 +211,9 @@
                           :binary (encode-binary-message message)
                           :raw (encode-raw-message message))]
 
-    (tel/log! {:level :trace
-               :id :sente-lite.tmux/chan-msg-encoded
-               :data {:channel-id channel-id
-                      :encoding encoding}})
+    (trove/log! {:level :trace :id :sente-lite.tmux/chan-msg-encoded
+                 :data {:channel-id channel-id
+                        :encoding encoding}})
 
     ;; Return envelope with metadata
     {:channel channel-id
@@ -314,13 +311,12 @@
         serialized (multiplex-serialize test-messages)
         deserialized (multiplex-deserialize serialized)]
 
-    (tel/log! {:level :info
-               :id :sente-lite.tmux/test-result
-               :data {:original-messages (count test-messages)
-                      :serialized-size (count serialized)
-                      :deserialized-messages (if (coll? deserialized) (count deserialized) 1)
-                      :round-trip-success (= (count test-messages)
-                                             (if (coll? deserialized) (count deserialized) 1))}})
+    (trove/log! {:level :info :id :sente-lite.tmux/test-result
+                 :data {:original-messages (count test-messages)
+                        :serialized-size (count serialized)
+                        :deserialized-messages (if (coll? deserialized) (count deserialized) 1)
+                        :round-trip-success (= (count test-messages)
+                                               (if (coll? deserialized) (count deserialized) 1))}})
 
     {:original test-messages
      :serialized serialized
@@ -355,10 +351,9 @@
   (let [encoding (detect-payload-encoding payload)
         handler (get routing-map encoding)]
 
-    (tel/log! {:level :trace
-               :id :sente-lite.tmux/msg-routed
-               :data {:encoding encoding
-                      :handler-found (some? handler)}})
+    (trove/log! {:level :trace :id :sente-lite.tmux/msg-routed
+                 :data {:encoding encoding
+                        :handler-found (some? handler)}})
 
     (when handler
       (handler payload))))
