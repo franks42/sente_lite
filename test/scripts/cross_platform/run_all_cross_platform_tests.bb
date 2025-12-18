@@ -14,11 +14,15 @@
 ;; +------------------+----------------+----------------+----------------+
 ;;
 
-(require '[babashka.classpath :as cp])
-(cp/add-classpath "src")
-
-(require '[babashka.process :as p]
+(require '[babashka.classpath :as cp]
          '[babashka.fs :as fs])
+
+;; Get project root (3 levels up from this script)
+(def project-root (-> *file* fs/parent fs/parent fs/parent fs/parent str))
+(def script-dir (-> *file* fs/parent str))
+(cp/add-classpath (str project-root "/src"))
+
+(require '[babashka.process :as p])
 
 (println "")
 (println "======================================================================")
@@ -26,14 +30,13 @@
 (println "======================================================================")
 (println "")
 
-(def script-dir (-> *file* fs/parent str))
 (def test-results (atom []))
 
 (defn run-test [name script & {:keys [dir]}]
   (println "----------------------------------------------------------------------")
   (println "Running:" name)
   (println "----------------------------------------------------------------------")
-  (let [opts (cond-> {:continue true :out :inherit :err :inherit}
+  (let [opts (cond-> {:continue true :out :inherit :err :inherit :dir project-root}
                dir (assoc :dir dir))
         result (p/shell opts "bb" script)
         passed? (zero? (:exit result))]
@@ -48,7 +51,7 @@
   (let [result (p/shell {:continue true 
                          :out :inherit 
                          :err :inherit
-                         :dir "test/nbb"}
+                         :dir (str project-root "/test/nbb")}
                         "nbb" "--classpath" "../../src" script)
         passed? (zero? (:exit result))]
     (swap! test-results conj {:name name :passed passed?})
@@ -69,7 +72,7 @@
           "test/scripts/multiprocess_v2/01_basic_v2.bb")
 
 ;; Check if nbb is set up
-(when (.exists (java.io.File. "test/nbb/node_modules/ws"))
+(when (.exists (java.io.File. (str project-root "/test/nbb/node_modules/ws")))
   (run-nbb-test "nbb Server <-> nbb Client"
                 "test_server_nbb_module.cljs"))
 
@@ -91,7 +94,7 @@
 ;; Sente Compat Tests (if available)
 ;; ============================================================================
 
-(when (.exists (java.io.File. "test/sente-compat/deps.edn"))
+(when (.exists (java.io.File. (str project-root "/test/sente-compat/deps.edn")))
   (println)
   (println "=== Sente Interoperability Tests ===")
   (println "(These require JVM Clojure and may take longer)")
@@ -100,7 +103,7 @@
   ;; Start Sente server in background
   (println "[sente] Starting Sente JVM server...")
   (def sente-server 
-    (p/process {:dir "test/sente-compat"
+    (p/process {:dir (str project-root "/test/sente-compat")
                 :out :inherit
                 :err :inherit}
                "clj" "-M:server" "8090"))
@@ -122,7 +125,7 @@
       ;; Run sente-lite BB client to Sente server test
       (run-test "Sente Server <-> BB Client (sente-lite)"
                 "test_sente_lite_client_to_sente_server.bb"
-                :dir "test/sente-compat")
+                :dir (str project-root "/test/sente-compat"))
       
       ;; Stop Sente server
       (println "[sente] Stopping Sente server...")

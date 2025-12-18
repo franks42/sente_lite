@@ -6,11 +6,14 @@
 ;; Validates wire format interoperability between platforms.
 ;;
 
-(require '[babashka.classpath :as cp])
-(cp/add-classpath "src")
+(require '[babashka.classpath :as cp]
+         '[babashka.fs :as fs])
+
+;; Get project root (3 levels up from this script)
+(def project-root (-> *file* fs/parent fs/parent fs/parent fs/parent str))
+(cp/add-classpath (str project-root "/src"))
 
 (require '[babashka.process :as p]
-         '[babashka.fs :as fs]
          '[sente-lite.client-bb :as client]
          '[clojure.java.io :as io])
 
@@ -23,12 +26,12 @@
 
 ;; Copy nbb server script to test/nbb directory so it can find ws module
 (def nbb-script-content (slurp (str script-dir "/nbb_server_script.cljs")))
-(spit "test/nbb/temp_server.cljs" nbb-script-content)
+(spit (str project-root "/test/nbb/temp_server.cljs") nbb-script-content)
 
 ;; Start nbb server in background
 (println "[nbb-server] Starting nbb server on port" port "...")
 (def nbb-server-process
-  (p/process {:dir "test/nbb"
+  (p/process {:dir (str project-root "/test/nbb")
               :out :inherit
               :err :inherit}
              "nbb" "--classpath" "../../src" 
@@ -125,7 +128,7 @@
 (Thread/sleep 500)
 (p/destroy nbb-server-process)
 (io/delete-file port-file true)
-(io/delete-file "test/nbb/temp_server.cljs" true)
+(io/delete-file (str project-root "/test/nbb/temp_server.cljs") true)
 
 (if (= 4 passed)
   (do (println "✅ All cross-platform tests passed!")

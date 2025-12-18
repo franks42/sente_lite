@@ -34,15 +34,31 @@
 (def test-echo-received (promise))
 
 ;; Parse v2 message
+;; IMPORTANT: BB websocket passes java.nio.HeapCharBuffer, NOT String
+;; Must convert with (str raw-data) before parsing
+;; Sente wraps events in buffered format: [[event1] [event2] ...]
 (defn parse-message [raw-data]
   (try
-    (let [parsed (edn/read-string raw-data)]
-      (if (vector? parsed)
-        {:event-id (first parsed)
-         :data (second parsed)}
-        {:error :invalid-format :raw raw-data}))
+    (let [data-str (str raw-data)  ; CharBuffer → String
+          parsed (edn/read-string data-str)]
+      (cond
+        ;; Sente buffered events: [[event-id data] ...]
+        (and (vector? parsed)
+             (vector? (first parsed))
+             (keyword? (ffirst parsed)))
+        (let [first-event (first parsed)
+              event-id (first first-event)
+              data (second first-event)]
+          {:event-id event-id :data data :buffered true})
+        
+        ;; Simple event: [event-id data]
+        (and (vector? parsed) (keyword? (first parsed)))
+        {:event-id (first parsed) :data (second parsed)}
+        
+        :else
+        {:error :invalid-format :raw data-str}))
     (catch Exception e
-      {:error :parse-failed :raw raw-data :message (.getMessage e)})))
+      {:error :parse-failed :raw (str raw-data) :message (.getMessage e)})))
 
 ;; WebSocket handlers
 (defn on-open [ws]

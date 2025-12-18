@@ -6,11 +6,14 @@
 ;; Validates wire format interoperability between platforms.
 ;;
 
-(require '[babashka.classpath :as cp])
-(cp/add-classpath "src")
+(require '[babashka.classpath :as cp]
+         '[babashka.fs :as fs])
+
+;; Get project root (3 levels up from this script)
+(def script-dir (-> *file* fs/parent fs/parent fs/parent fs/parent str))
+(cp/add-classpath (str script-dir "/src"))
 
 (require '[babashka.process :as p]
-         '[babashka.fs :as fs]
          '[sente-lite.server :as server]
          '[clojure.java.io :as io])
 
@@ -106,7 +109,7 @@
 (println)
 (println "[nbb-client] Starting nbb client...")
 (def nbb-result
-  (p/shell {:dir "test/nbb"
+  (p/shell {:dir (str script-dir "/test/nbb")
             :out :string
             :err :string
             :continue true}
