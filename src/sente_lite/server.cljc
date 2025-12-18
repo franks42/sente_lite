@@ -1,11 +1,12 @@
 (ns sente-lite.server
-  "Enhanced WebSocket server with channel system for sente-lite"
+  "Enhanced WebSocket server with channel system for sente-lite.
+   Uses Sente-compatible v2 wire format: [event-id data]"
   (:require [taoensso.trove :as trove]
             #?(:bb [cheshire.core :as json]
                :clj [clojure.data.json :as json])
             #?(:bb [org.httpkit.server :as http])
             [sente-lite.channels :as channels]
-            [sente-lite.wire-format :as wire])
+            [sente-lite.wire-format-v2 :as wf2])
   (:import [java.lang System Exception]))
 
 ;; Connection state management
@@ -87,154 +88,123 @@
   #?(:bb (json/generate-string data)
      :clj (json/write-str data)))
 
-;; Message handling with pluggable wire format
-(defn- get-wire-format
-  "Get the configured wire format from config"
+;; Message handling with v2 wire format
+(defn- get-format-spec
+  "Get the wire format spec keyword from config (:edn, :json, :transit-json)"
   [config]
-  (wire/get-format (:wire-format config :json)))
+  (:wire-format config :edn))
 
 (defn- parse-message
-  "Parse a message using the configured wire format"
-  [raw-message conn-id wire-format]
+  "Parse a raw wire message into an event map {:event-id ... :data ... :cb-uuid ...}"
+  [raw-message conn-id format-spec]
   (try
-    (let [parsed (wire/deserialize wire-format raw-message)]
-      parsed)
+    (let [event (wf2/parse-message raw-message format-spec)]
+      (if (:error event)
+        (do
+          (trove/log! {:level :warn :id :sente-lite.server/parse-error
+                       :data {:conn-id conn-id
+                              :error (:error event)
+                              :message (:message event)}})
+          nil)
+        event))
     (catch Exception e
       (trove/log! {:level :error :id :sente-lite.server/parse-failed
                    :error e
                    :data {:conn-id conn-id
-                          :raw-message raw-message
-                          :format (wire/format-name wire-format)
+                          :format-spec format-spec
                           :error-type (type e)}})
       nil)))
 
-(defn- send-message! [channel message wire-format]
-  ;; Send a message using the configured wire format
+(defn- send-event!
+  "Send a v2 event vector to a channel"
+  [channel event format-spec]
   (try
-    (let [wire-data (wire/serialize wire-format message)]
+    (let [wire-data (wf2/serialize event format-spec)]
       (when wire-data
         #?(:bb (http/send! channel wire-data))
         (trove/log! {:level :trace
                      :id :sente-lite.server/msg-sent
                      :data {:channel-id (str channel)
-                            :type (:type message)
-                            :size (count wire-data)
-                            :format (wire/format-name wire-format)}})
+                            :event-id (when (vector? event) (first event))
+                            :size (count (str wire-data))
+                            :format-spec format-spec}})
         true))
     (catch Exception e
       (trove/log! {:level :error :id :sente-lite.server/send-failed
                    :error e
                    :data {:channel-id (str channel)
-                          :message-type (:type message)
-                          :format (wire/format-name wire-format)}})
+                          :event-id (when (vector? event) (first event))
+                          :format-spec format-spec}})
       false)))
 
 ;; Forward declarations
 (declare broadcast-to-channel!)
 
-;; Message routing and handling
+;; Message routing and handling (v2 event-based)
 (defn- route-message
-  "Route parsed message to appropriate handler"
-  [conn-id parsed-message config]
-  (let [msg-type (:type parsed-message)]
-    (trove/log! {:level :trace
-                 :id :sente-lite.server/msg-routing
-                 :data {:conn-id conn-id :type msg-type}})
+  "Route an event map {:event-id ... :data ... :cb-uuid ...} to handler.
+   Returns either a v2 event vector or nil (no response needed)."
+  [conn-id {:keys [event-id data cb-uuid]} config]
+  (trove/log! {:level :trace
+               :id :sente-lite.server/msg-routing
+               :data {:conn-id conn-id :event-id event-id :has-cb (some? cb-uuid)}})
 
-    (case (keyword msg-type)
-      ;; Ping/pong for connection health
-      :ping
-      {:type :pong
-       :timestamp (System/currentTimeMillis)
-       :original-timestamp (:timestamp parsed-message)}
+  (cond
+    ;; Ping -> respond with pong
+    (wf2/ping-event? event-id)
+    (wf2/make-ws-pong)
 
-      :pong
-      (do
-        ;; Update last-pong timestamp when client responds
-        (when-let [channel (get @connection-index conn-id)]
-          (update-connection-pong! channel))
-        {:type :pong-ack
-         :timestamp (System/currentTimeMillis)})
+    ;; Pong -> update last-pong timestamp, no response
+    (wf2/pong-event? event-id)
+    (do
+      (when-let [channel (get @connection-index conn-id)]
+        (update-connection-pong! channel))
+      nil)
 
-      ;; Channel operations
-      :subscribe
-      (let [channel-id (:channel-id parsed-message)
-            auto-create? (get-in config [:channels :auto-create])
-            result (do
-                     ;; Auto-create channel if enabled and doesn't exist
-                     (when (and auto-create? (not (channels/get-channel-info channel-id)))
-                       (channels/create-channel! channel-id
-                                                 (get-in config [:channels :default-config])))
+    ;; Handshake from client -> ignore (server-initiated only)
+    (wf2/handshake-event? event-id)
+    nil
 
-                     (channels/subscribe! conn-id channel-id))]
-        {:type :subscription-result
-         :channel-id channel-id
-         :success (:success result)
-         :reason (:reason result)
-         :subscriber-count (:subscriber-count result)
-         :retained-messages (:retained-messages result)})
+    ;; sente-lite extension events
+    (= event-id wf2/event-subscribe)
+    (let [channel-id (:channel-id data)
+          auto-create? (get-in config [:channels :auto-create])
+          _ (when (and auto-create? (not (channels/get-channel-info channel-id)))
+              (channels/create-channel! channel-id
+                                        (get-in config [:channels :default-config])))
+          result (channels/subscribe! conn-id channel-id)]
+      (wf2/make-subscribed channel-id (:success result)
+                           :error (:reason result)))
 
-      :unsubscribe
-      (let [channel-id (:channel-id parsed-message)
-            result (channels/unsubscribe! conn-id channel-id)]
-        {:type :unsubscription-result
-         :channel-id channel-id
-         :success result})
+    (= event-id wf2/event-unsubscribe)
+    (let [channel-id (:channel-id data)
+          success (channels/unsubscribe! conn-id channel-id)]
+      (wf2/make-subscribed channel-id success
+                           :error (when-not success :not-subscribed)))
 
-      :publish
-      (let [channel-id (:channel-id parsed-message)
-            message-data (:data parsed-message)
-            exclude-sender? (:exclude-sender? parsed-message false)
-            result (channels/publish! channel-id message-data
-                                      :sender-conn-id conn-id
-                                      :exclude-sender? exclude-sender?)]
-        ;; Actually broadcast the message to subscribers
-        (when (:success result)
-          (broadcast-to-channel! channel-id message-data))
-        {:type :publish-result
-         :channel-id channel-id
-         :success (:success result)
-         :message-id (:message-id result)
-         :delivered-to (:delivered-to result)})
+    (= event-id wf2/event-publish)
+    (let [channel-id (:channel-id data)
+          message-data (:data data)
+          exclude-sender? (:exclude-sender? data false)
+          result (channels/publish! channel-id message-data
+                                    :sender-conn-id conn-id
+                                    :exclude-sender? exclude-sender?)]
+      (when (:success result)
+        (broadcast-to-channel! channel-id message-data conn-id))
+      nil)
 
-      :rpc-request
-      (let [target-channel-id (:channel-id parsed-message)
-            request-data (:data parsed-message)
-            timeout-ms (:timeout-ms parsed-message 30000)
-            result (channels/send-rpc-request! conn-id target-channel-id request-data
-                                               :timeout-ms timeout-ms)]
-        {:type :rpc-request-result
-         :request-id (:request-id result)
-         :channel-id target-channel-id
-         :delivery (:delivery result)})
+    ;; Echo for testing - respond with same data wrapped in :sente-lite/echo
+    :else
+    [:sente-lite/echo {:original-event-id event-id
+                       :original-data data
+                       :conn-id conn-id
+                       :timestamp (System/currentTimeMillis)}]))
 
-      :rpc-response
-      (let [request-id (:request-id parsed-message)
-            response-data (:data parsed-message)
-            error? (:error? parsed-message false)
-            result (channels/send-rpc-response! request-id response-data :error? error?)]
-        {:type :rpc-response-result
-         :request-id request-id
-         :success (:success result)})
-
-      :list-channels
-      {:type :channel-list
-       :channels (channels/list-channels)}
-
-      :get-subscriptions
-      {:type :subscription-list
-       :subscriptions (vec (channels/get-subscriptions conn-id))}
-
-      ;; Default echo for testing
-      {:type :echo
-       :original parsed-message
-       :conn-id conn-id
-       :timestamp (System/currentTimeMillis)})))
-
-(defn- send-to-connection! [conn-id message wire-format]
-  ;; Send message to a specific connection by conn-id
+(defn- send-to-connection!
+  "Send a v2 event to a specific connection by conn-id"
+  [conn-id event format-spec]
   (when-let [channel (get @connection-index conn-id)]
-    (send-message! channel message wire-format)))
+    (send-event! channel event format-spec)))
 
 ;; Heartbeat management
 (defn- send-heartbeat-pings!
@@ -242,7 +212,7 @@
   [config]
   (let [timeout-ms (get-in config [:heartbeat :timeout-ms] 60000)
         now (System/currentTimeMillis)
-        wire-format (get-wire-format config)
+        format-spec (get-format-spec config)
         dead-conns (atom [])]
 
     ;; Check each connection
@@ -258,9 +228,8 @@
                                 :time-since-pong-ms time-since-pong
                                 :timeout-ms timeout-ms}})
             (swap! dead-conns conj [channel conn-id]))
-          ;; Connection alive - send ping
-          (send-message! channel {:type :ping
-                                  :timestamp now} wire-format))))
+          ;; Connection alive - send ping (v2 format)
+          (send-event! channel (wf2/make-ws-ping) format-spec))))
 
     ;; Close dead connections
     (doseq [[channel conn-id] @dead-conns]
@@ -313,24 +282,28 @@
 (defn- on-websocket-open [channel config]
   (let [conn-id (generate-connection-id)
         _conn-data (add-connection! channel conn-id)
-        wire-format (get-wire-format config)]
+        format-spec (get-format-spec config)
+        ;; Use conn-id as uid for Sente compatibility
+        uid conn-id
+        csrf-token nil
+        handshake-data {:sente-lite-version wf2/version}
+        first? true
+        handshake-event (wf2/make-handshake uid csrf-token handshake-data first?)]
 
-    ;; Send welcome message
-    (send-message! channel {:type :welcome
-                            :conn-id conn-id
-                            :server-time (System/currentTimeMillis)}
-                   wire-format)
+    ;; Send handshake (Sente-compatible)
+    (send-event! channel handshake-event format-spec)
 
     (trove/log! {:level :debug
                  :id :sente-lite.server/ws-open
                  :data {:conn-id conn-id
+                        :uid uid
                         :config (select-keys config [:port :host])
-                        :wire-format (wire/format-name wire-format)}})))
+                        :format-spec format-spec}})))
 
 (defn- on-websocket-message [channel raw-message config]
   (when-let [conn-data (get @connections channel)]
     (let [conn-id (:id conn-data)
-          wire-format (get-wire-format config)]
+          format-spec (get-format-spec config)]
       (update-connection-activity! channel)
 
       (trove/log! {:level :trace
@@ -338,15 +311,16 @@
                    :data {:conn-id conn-id
                           :size (count raw-message)}})
 
-      (when-let [parsed-message (parse-message raw-message conn-id wire-format)]
-        (let [response (route-message conn-id parsed-message config)]
+      (when-let [event (parse-message raw-message conn-id format-spec)]
+        (when-let [response-event (route-message conn-id event config)]
           (trove/log! {:level :trace
                        :id :sente-lite.server/msg-processed
                        :data {:conn-id conn-id
-                              :type (:type parsed-message)
-                              :response-type (:type response)}})
+                              :event-id (:event-id event)
+                              :response-event-id (when (vector? response-event)
+                                                   (first response-event))}})
           ;; Send response back to client
-          (send-message! channel response wire-format))))))
+          (send-event! channel response-event format-spec))))))
 
 (defn- on-websocket-close [channel status _config]
   (when-let [conn-data (remove-connection! channel)]
@@ -530,17 +504,17 @@
      :telemetry {}}))
 
 (defn broadcast-message!
-  "Send message to all connected clients"
-  [message]
+  "Send a v2 event to all connected clients"
+  [event]
   (trove/log! {:level :debug
                :id :sente-lite.server/broadcast-start
-               :data {:message-type (:type message)
+               :data {:event-id (when (vector? event) (first event))
                       :target-connections (count @connections)}})
 
   (let [sent-count (atom 0)
-        wire-format (get-wire-format (:config @server-state))]
+        format-spec (get-format-spec (:config @server-state))]
     (doseq [[channel _conn-data] @connections]
-      (when (send-message! channel (assoc message :broadcast true) wire-format)
+      (when (send-event! channel event format-spec)
         (swap! sent-count inc)))
 
     (trove/log! {:level :debug
@@ -551,17 +525,14 @@
 
 ;; Channel integration functions
 (defn broadcast-to-channel!
-  "Broadcast a message to all subscribers of a channel"
-  [channel-id message]
+  "Broadcast a message to all subscribers of a channel using v2 format"
+  [channel-id message-data from-conn-id]
   (let [channel-info (channels/get-channel-info channel-id)]
     (if channel-info
       (let [subscribers (:subscribers channel-info)
-            message-with-meta {:type :channel-message
-                               :channel-id channel-id
-                               :data message
-                               :broadcast-time (System/currentTimeMillis)}
+            event (wf2/make-channel-msg channel-id message-data from-conn-id)
             delivered (atom 0)
-            wire-format (get-wire-format (:config @server-state))]
+            format-spec (get-format-spec (:config @server-state))]
 
         (trove/log! {:level :debug
                      :id :sente-lite.server/chan-broadcast-start
@@ -569,7 +540,7 @@
                             :subscriber-count (count subscribers)}})
 
         (doseq [conn-id subscribers]
-          (when (send-to-connection! conn-id message-with-meta wire-format)
+          (when (send-to-connection! conn-id event format-spec)
             (swap! delivered inc)))
 
         (trove/log! {:level :debug
@@ -584,8 +555,8 @@
                      :data {:channel-id channel-id :reason :channel-not-found}})
         0))))
 
-(defn send-message-to-connection!
-  "Send a message directly to a connection (exposed for external use)"
-  [conn-id message]
-  (let [wire-format (get-wire-format (:config @server-state))]
-    (send-to-connection! conn-id message wire-format)))
+(defn send-event-to-connection!
+  "Send a v2 event directly to a connection (exposed for external use)"
+  [conn-id event]
+  (let [format-spec (get-format-spec (:config @server-state))]
+    (send-to-connection! conn-id event format-spec)))
