@@ -1,10 +1,13 @@
 (ns sente-lite.wire-format-v2
   "Sente-compatible wire format for sente-lite v2.
    Implements the Sente event format: [event-id data]
-   with callback support: [[event-id data] cb-uuid]"
-  (:require [sente-lite.wire-format :as wire]
-            [taoensso.trove :as trove]
-            [clojure.string :as str])
+   with callback support: [[event-id data] cb-uuid]
+   
+   Cross-platform: works on Babashka, JVM Clojure, and Scittle/ClojureScript."
+  (:require [taoensso.trove :as trove]
+            [clojure.string :as str]
+            #?(:clj [sente-lite.wire-format :as wire]
+               :cljs [cljs.reader :as reader]))
   #?(:clj (:import [java.util UUID])))
 
 ;; ============================================================================
@@ -336,23 +339,29 @@
     [events]))
 
 ;; ============================================================================
-;; Serialization
+;; Serialization (Cross-platform)
 ;; ============================================================================
 
 (defn serialize
-  "Serialize event to wire format string"
+  "Serialize event to wire format string.
+   On JVM/BB: supports :edn, :json, :transit via wire-format library.
+   On ClojureScript: EDN only (uses pr-str)."
   [event format-spec]
-  (let [wire-format (wire/get-format format-spec)
-        result (wire/serialize wire-format event)]
+  (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
+                         (wire/serialize wire-format event))
+                  :cljs (pr-str event))]
     (trove/log! {:level :trace :id :sente-lite.v2/serialize
                  :data {:format format-spec :size (count (str result))}})
     result))
 
 (defn deserialize
-  "Deserialize wire format string to event"
+  "Deserialize wire format string to event.
+   On JVM/BB: supports :edn, :json, :transit via wire-format library.
+   On ClojureScript: EDN only (uses cljs.reader)."
   [raw-message format-spec]
-  (let [wire-format (wire/get-format format-spec)
-        result (wire/deserialize wire-format raw-message)]
+  (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
+                         (wire/deserialize wire-format raw-message))
+                  :cljs (reader/read-string raw-message))]
     (trove/log! {:level :trace :id :sente-lite.v2/deserialize
                  :data {:format format-spec :input-size (count raw-message)}})
     result))
