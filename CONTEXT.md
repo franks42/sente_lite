@@ -1,53 +1,33 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-12-17 (Session - Multiprocess v2 Tests)
+**Last Updated**: 2025-12-18 (Session - Cross-Platform Tests Fixed)
 
 ## CURRENT STATUS
 
-**Last Commit**: `44478f6` - "nbb platform support: server + client modules"
-**Tag**: `v2.0.0-nbb`
-**Branch**: `main` - working tree has changes (client_bb.clj fix + new tests)
-**Current Task**: Multiprocess v2 tests - COMPLETED
+**Last Commit**: `2facaf8` - "Fix cross-platform test paths + Sente compat CharBuffer fix"
+**Branch**: `main` - 2 commits ahead of origin
+**Current Task**: Cross-platform tests - ALL PASSING
 
-### What Was Accomplished This Session (2025-12-17)
+### What Was Accomplished This Session (2025-12-18)
 
-#### v2 Wire Format Migration - COMPLETED
-✅ **Server v2 (server.cljc)**
-- Switched to wire_format_v2.cljc for encoding/decoding
-- Updated message routing to use event-ids instead of :type
-- Sends Sente-compatible handshake [:chsk/handshake [uid csrf-token data first?]]
-- Updated heartbeat and broadcast to v2 event formats
+#### Cross-Platform Test Runner Fixed
+✅ Fixed relative path issues in all cross-platform test scripts
+✅ Tests now work when run from any directory
+✅ Fixed CharBuffer→String conversion in Sente compat test
+✅ Handle Sente buffered event format `[[event1] [event2] ...]`
 
-✅ **BB Client v2 (NEW: client_bb.clj)**
-- Created complete BB client module with same API as browser client
-- CharBuffer → String conversion (documented gotcha for BB websocket)
-- Handshake with uid extraction
-- Auto ping/pong, subscribe/publish helpers
-- Auto-reconnect with exponential backoff
-- 15 tests passing
+#### Test Results - ALL 6 PASSING
+```
+  [PASS] BB Server <-> BB Client (unit test)
+  [PASS] BB Server <-> BB Client (multiprocess)
+  [PASS] nbb Server <-> nbb Client
+  [PASS] BB Server <-> nbb Client
+  [PASS] nbb Server <-> BB Client
+  [PASS] Sente Server <-> BB Client (sente-lite)
+```
 
-✅ **Browser Client v2 (client_scittle.cljs)**
-- Added subscribe!/unsubscribe!/publish!/get-uid helpers
-- Fixed on-open called twice issue (now only after handshake with uid)
-- Fixed close! race condition (removes client before ws.close())
-
-#### nbb Platform Support - COMPLETED (UNIQUE FEATURE!)
-**Official Sente does NOT support nbb - this is a sente-lite exclusive!**
-
-✅ **nbb Server (NEW: server_nbb.cljs)**
-- WebSocket server using Node's 'ws' package
-- Full v2 wire format support
-- Channel/pub-sub support
-- Heartbeat with ping/pong
-- Same API as server.cljc
-- 14 tests passing
-
-✅ **nbb Client**
-- client_scittle.cljs works UNCHANGED in nbb
-- js/WebSocket available in nbb (polyfilled by ws package)
-
-### Platform Matrix (Current)
+### Platform Matrix (Complete)
 
 ```
 Platform      | Server           | Client              | Tests
@@ -55,54 +35,52 @@ Platform      | Server           | Client              | Tests
 BB (JVM-like) | server.cljc      | client_bb.clj       | ✓ 15 passing
 nbb (Node.js) | server_nbb.cljs  | client_scittle.cljs | ✓ 14 passing
 Browser       | (N/A)            | client_scittle.cljs | pending Scittle test
+
+Cross-Platform Interoperability:
+  BB Server    <-> nbb Client    : ✓ PASSING
+  nbb Server   <-> BB Client     : ✓ PASSING
+  Sente Server <-> BB Client     : ✓ PASSING (handshake works)
 ```
 
-### Files Created This Session
+### Files Modified This Session
 
-**Source files:**
-- `src/sente_lite/client_bb.clj` - BB v2 client
-- `src/sente_lite/server_nbb.cljs` - nbb v2 server
+- `test/scripts/cross_platform/run_all_cross_platform_tests.bb` - fixed paths
+- `test/scripts/cross_platform/test_bb_server_nbb_client.bb` - fixed paths
+- `test/scripts/cross_platform/test_nbb_server_bb_client.bb` - fixed paths
+- `test/sente-compat/test_sente_lite_client_to_sente_server.bb` - CharBuffer fix + Sente format
 
-**Test files:**
-- `test/scripts/test_v2_bb_to_bb.bb` - raw websocket v2 test (14 tests)
-- `test/scripts/test_v2_client_bb.bb` - BB client module test (15 tests)
-- `test/nbb/test_server_nbb_module.cljs` - nbb server + client (14 tests)
-- `test/nbb/test_scittle_client.cljs` - client_scittle.cljs in nbb
-- `test/nbb/test_nbb_full_stack.cljs` - inline server + client
-- `test/nbb/test_v2_nbb_client.cljs` - raw nbb client test
-- `test/nbb/test_ws_basic.cljs` - ws module exploration
-- `test/nbb/test_browser_api.cljs` - browser API test
+### Source Files (Complete v2 Implementation)
 
-**Multiprocess v2 (COMPLETED):**
-- `test/scripts/multiprocess_v2/mp_server_v2.bb` - v2 server for mp tests
-- `test/scripts/multiprocess_v2/mp_client_v2.bb` - v2 client using client_bb.clj
-- `test/scripts/multiprocess_v2/mp_server_reconnect_v2.bb` - fixed port server for reconnect tests
-- `test/scripts/multiprocess_v2/mp_client_reconnect_v2.bb` - reconnect client with callbacks
-- `test/scripts/multiprocess_v2/mp_client_stress_v2.bb` - stress test client
-- `test/scripts/multiprocess_v2/01_basic_v2.bb` - basic multi-process test ✅
-- `test/scripts/multiprocess_v2/02_reconnection_v2.bb` - reconnection test ✅  
-- `test/scripts/multiprocess_v2/03_stress_v2.bb` - stress test ✅
+**Server:**
+- `src/sente_lite/server.cljc` - BB/JVM server
+- `src/sente_lite/server_nbb.cljs` - nbb server (UNIQUE - Sente doesn't support nbb!)
 
-### Multiprocess v2 Tests - COMPLETED
+**Client:**
+- `src/sente_lite/client_bb.clj` - BB client
+- `src/sente_lite/client_scittle.cljs` - Browser/nbb client
 
-**All 3 v2 multiprocess tests pass:**
-- 01_basic_v2.bb - 2 clients, basic pub/sub
-- 02_reconnection_v2.bb - server restart, client auto-reconnect
-- 03_stress_v2.bb - 10 clients, 100 messages, ~30 msg/sec throughput
-
-**Bug Fixed in client_bb.clj:**
-- `Thread/sleep` requires `long` argument, not double from exponential backoff calculation
-- Fixed: `(Thread/sleep (long retry-delay))` in all retry futures
-- Also fixed reconnect-count check to read from atom, not captured closure state
+**Wire Format:**
+- `src/sente_lite/wire_format_v2.cljc` - Sente-compatible v2 format
 
 ### TODO List (Remaining)
 
-1. ✅ Port multiprocess tests to v2 - COMPLETED (3 tests passing)
-2. ⬜ Add nbb tests to official test suite
-3. ⬜ Document nbb as supported platform
-4. ⬜ Test browser client in actual Scittle (SCI limitations!)
-5. ⬜ Test sente-lite client connecting to real Sente server
-6. ⬜ Document and release v2
+1. ✅ Cross-platform tests all passing
+2. ⬜ Test browser client in actual Scittle (SCI limitations!)
+3. ⬜ Add nbb tests to official test suite (run_tests.bb)
+4. ⬜ Document nbb as supported platform
+5. ⬜ Push commits and tag v2.0.0 release
+
+### How to Run Cross-Platform Tests
+
+```bash
+# Run from any directory:
+bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
+
+# Individual tests:
+bb test/scripts/test_v2_client_bb.bb
+bb test/scripts/multiprocess_v2/01_basic_v2.bb
+cd test/nbb && nbb --classpath ../../src test_server_nbb_module.cljs
+```
 
 ### Key Technical Discoveries
 
@@ -112,40 +90,28 @@ Browser       | (N/A)            | client_scittle.cljs | pending Scittle test
 ;; Must convert: (str raw-data) before edn/read-string
 ```
 
+**Sente Buffered Events Format:**
+```clojure
+;; Sente wraps events: [[event1] [event2] ...]
+;; Not just [event-id data]
+;; Parse needs: (ffirst parsed) for event-id when first element is vector
+```
+
 **nbb has js/WebSocket:**
 - Node's `ws` package provides browser-compatible WebSocket API
 - client_scittle.cljs works unchanged in nbb
-- `onopen`, `onmessage`, etc. all work
 
-**SCI/Scittle Limitations (for browser testing):**
-- NO vector destructuring in function params or let bindings
-- Use `(first x)`, `(second x)`, `nth` instead
-- See `doc/plan.md` section "⚠️ CRITICAL: SCI/Scittle Limitations"
+### Git History
 
-### Git Tags Created
-
-- `v2.0.0-bb-client` - BB client module + v2 tests
-- `v2.0.0-nbb` - nbb platform support
-
-### How to Run Tests
-
-```bash
-# BB-to-BB v2 tests
-bb test/scripts/test_v2_bb_to_bb.bb
-bb test/scripts/test_v2_client_bb.bb
-
-# nbb tests (requires: cd test/nbb && npm install)
-cd test/nbb && nbb --classpath ../../src test_server_nbb_module.cljs
-
-# All existing tests (still work, use v1 format)
-bb run_tests.bb
+```
+2facaf8 Fix cross-platform test paths + Sente compat CharBuffer fix
+25f8bd4 v2 multiprocess tests + cross-platform tests + client_bb.clj reconnect fix
+d1d1814 WIP: v2 multiprocess test infrastructure + context update
+44478f6 nbb platform support: server + client modules (TAG: v2.0.0-nbb)
+455be2d v2 wire format: BB client module and tests (TAG: v2.0.0-bb-client)
 ```
 
-### Previous Thread
+### Previous Threads
 
-Continue from thread: T-019b300e-da2a-716e-ad2e-b5bcffa01288
-
-Key context from that thread:
-- v2 wire format migration plan
-- Decided to drop v1 backward compatibility
-- Server v2 implementation details
+- T-019b3036-deeb-7555-8b98-778f6b057782 (multiprocess v2 tests)
+- T-019b300e-da2a-716e-ad2e-b5bcffa01288 (v2 wire format migration)
