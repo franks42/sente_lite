@@ -20,7 +20,7 @@
     (sente/subscribe! client \"my-channel\")
     (sente/close! client)"
   (:require [babashka.http-client.websocket :as ws]
-            [clojure.edn :as edn]
+            [sente-lite.packer :as packer]
             [taoensso.trove :as trove]))
 
 ;; Event IDs (Sente-compatible)
@@ -64,7 +64,7 @@
   [raw-data]
   (try
     (let [data-str (str raw-data)  ; CharBuffer → String (required for BB websocket)
-          parsed (edn/read-string data-str)]
+          parsed (packer/unpack data-str)]
       (if (vector? parsed)
         {:event-id (first parsed)
          :data (second parsed)}
@@ -154,7 +154,7 @@
               (trove/log! {:level :trace
                            :id :sente-lite.client/auto-pong
                            :data {:client-id client-id}})
-              (ws/send! ws (pr-str [event-ws-pong])))
+              (ws/send! ws (packer/pack [event-ws-pong])))
 
             ;; Pass all other events to user handler
             :else
@@ -334,7 +334,7 @@
   (if-let [client-state (get @clients client-id)]
     (let [ws (:ws client-state)]
       (if (and ws (= :connected (:status client-state)))
-        (let [serialized (pr-str message)]
+        (let [serialized (packer/pack message)]
           (ws/send! ws serialized)
           (swap! clients update-in [client-id :message-count-sent] inc)
           (trove/log! {:level :trace

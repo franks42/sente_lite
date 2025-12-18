@@ -3,8 +3,8 @@
    Supports JSON, EDN, Transit+JSON, and custom formats"
   (:require #?(:bb [cheshire.core :as json]
                :clj [clojure.data.json :as json])
-            [clojure.edn :as edn]
             [cognitect.transit :as transit]
+            [sente-lite.packer :as packer]
             [taoensso.trove :as trove])
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
            [java.util Arrays]
@@ -65,7 +65,7 @@
   IWireFormat
   (serialize [_ data]
     (try
-      (pr-str data)
+      (packer/pack data)
       (catch Exception e
         (trove/log! {:level :error :id :sente-lite.format/edn-serial-failed
                      :data {:error e :input-type (type data)}})
@@ -73,7 +73,7 @@
 
   (deserialize [_ wire-data]
     (try
-      (edn/read-string wire-data)
+      (packer/unpack wire-data)
       (catch Exception e
         (trove/log! {:level :error :id :sente-lite.format/edn-deserial-failed
                      :data {:error e

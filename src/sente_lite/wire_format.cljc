@@ -9,6 +9,7 @@
    NOTE: For Scittle, we use read-string directly (available in SCI) instead of cljs.reader."
   (:require [taoensso.trove :as trove :refer [log!]]
             [clojure.string :as str]
+            #?@(:cljs [[sente-lite.packer :as packer]])
             #?(:clj [sente-lite.serialization :as wire]))
   #?(:clj (:import [java.util UUID])))
 
@@ -352,7 +353,7 @@
   [event format-spec]
   (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
                          (wire/serialize wire-format event))
-                  :cljs (pr-str event))]
+                  :cljs (packer/pack event))]
     (log! {:level :trace :id :sente-lite.wire-format/serialize
            :data {:format format-spec :size (count (str result))}})
     result))
@@ -365,7 +366,7 @@
   #_{:clj-kondo/ignore [:unresolved-symbol]}
   (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
                          (wire/deserialize wire-format raw-message))
-                  :cljs (read-string raw-message))]
+                  :cljs (packer/unpack raw-message))]
     (log! {:level :trace :id :sente-lite.wire-format/deserialize
            :data {:format format-spec :input-size (count raw-message)}})
     result))

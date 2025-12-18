@@ -21,7 +21,8 @@
     (sente/close! client)
   
   NOTE: SCI/Scittle requires macros to be referred directly, not namespace-qualified."
-  (:require [taoensso.trove :as trove :refer [log!]]))
+  (:require [taoensso.trove :as trove :refer [log!]]
+            [sente-lite.packer :as packer]))
 
 ;; Event IDs (Sente-compatible)
 (def ^:const event-handshake :chsk/handshake)
@@ -75,8 +76,7 @@
   "Parse message - expects EDN event vector format [event-id data]"
   [raw-data]
   (try
-    #_{:clj-kondo/ignore [:unresolved-symbol]}
-    (let [parsed (read-string raw-data)]  ; read-string available in Scittle via SCI
+    (let [parsed (packer/unpack raw-data)]
       (if (vector? parsed)
         {:event-id (first parsed)
          :data (second parsed)}
@@ -91,7 +91,7 @@
 (defn- send-raw!
   "Send an event vector directly"
   [ws event]
-  (.send ws (pr-str event)))
+  (.send ws (packer/pack event)))
 
 (defn- handle-handshake
   "Handle :chsk/handshake event - extract uid and store it"
@@ -313,7 +313,7 @@
     (let [ws (:ws client-state)
           ready-state (.-readyState ws)]
       (if (= ready-state 1) ; WebSocket.OPEN = 1
-        (let [serialized (pr-str message)]
+        (let [serialized (packer/pack message)]
           (.send ws serialized)
           (swap! clients update-in [client-id :message-count-sent] inc)
           (log! {:level :trace

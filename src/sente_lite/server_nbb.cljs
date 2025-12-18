@@ -14,7 +14,7 @@
     ; ... later ...
     (server/stop-server!)"
   (:require ["ws" :as ws-mod]
-            [clojure.edn :as edn]
+            [sente-lite.packer :as packer]
             [taoensso.trove :as trove]))
 
 ;; ============================================================================
@@ -97,7 +97,7 @@
 
 (defn- send-event! [ws event]
   (try
-    (.send ws (pr-str event))
+    (.send ws (packer/pack event))
     (trove/log! {:level :trace
                  :id :sente-lite.server/msg-sent
                  :data {:event-id (first event)}})
@@ -110,7 +110,7 @@
 
 (defn- parse-message [raw-data]
   (try
-    (let [parsed (edn/read-string (str raw-data))]
+    (let [parsed (packer/unpack (str raw-data))]
       (if (vector? parsed)
         {:event-id (first parsed)
          :data (second parsed)}
