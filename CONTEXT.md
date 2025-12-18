@@ -1,117 +1,215 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-12-18 (Session - Cross-Platform Tests Fixed)
+**Last Updated**: 2025-12-18 (Handoff for Scittle Work)
 
 ## CURRENT STATUS
 
-**Last Commit**: `2facaf8` - "Fix cross-platform test paths + Sente compat CharBuffer fix"
-**Branch**: `main` - 2 commits ahead of origin
-**Current Task**: Cross-platform tests - ALL PASSING
+**Last Commit**: `cbbc8a9` - "Add nbb tests to run_tests.bb + comprehensive README"
+**Tag**: `v2.0.0` - Full v2 release, all platforms working
+**Branch**: `main` - clean, pushed to origin
+**Next Task**: **Test client_scittle.cljs in actual browser (Scittle/SCI)**
 
-### What Was Accomplished This Session (2025-12-18)
+## WHAT'S WORKING (v2.0.0)
 
-#### Cross-Platform Test Runner Fixed
-✅ Fixed relative path issues in all cross-platform test scripts
-✅ Tests now work when run from any directory
-✅ Fixed CharBuffer→String conversion in Sente compat test
-✅ Handle Sente buffered event format `[[event1] [event2] ...]`
-
-#### Test Results - ALL 6 PASSING
+All cross-platform tests pass:
 ```
-  [PASS] BB Server <-> BB Client (unit test)
-  [PASS] BB Server <-> BB Client (multiprocess)
-  [PASS] nbb Server <-> nbb Client
-  [PASS] BB Server <-> nbb Client
-  [PASS] nbb Server <-> BB Client
-  [PASS] Sente Server <-> BB Client (sente-lite)
+[PASS] BB Server <-> BB Client
+[PASS] nbb Server <-> nbb Client  
+[PASS] BB Server <-> nbb Client
+[PASS] nbb Server <-> BB Client
+[PASS] Sente Server <-> BB Client
 ```
 
-### Platform Matrix (Complete)
+### Platform Matrix
+
+| Platform | Server | Client | Status |
+|----------|--------|--------|--------|
+| BB | `server.cljc` | `client_bb.clj` | ✅ Working |
+| nbb | `server_nbb.cljs` | `client_scittle.cljs` | ✅ Working |
+| Browser | N/A | `client_scittle.cljs` | ⚠️ **NEEDS TESTING** |
+
+### Key Source Files
 
 ```
-Platform      | Server           | Client              | Tests
---------------|------------------|---------------------|--------
-BB (JVM-like) | server.cljc      | client_bb.clj       | ✓ 15 passing
-nbb (Node.js) | server_nbb.cljs  | client_scittle.cljs | ✓ 14 passing
-Browser       | (N/A)            | client_scittle.cljs | pending Scittle test
-
-Cross-Platform Interoperability:
-  BB Server    <-> nbb Client    : ✓ PASSING
-  nbb Server   <-> BB Client     : ✓ PASSING
-  Sente Server <-> BB Client     : ✓ PASSING (handshake works)
+src/sente_lite/
+├── server.cljc           # BB/JVM server (http-kit)
+├── server_nbb.cljs       # nbb server (ws package)
+├── client_bb.clj         # BB client
+├── client_scittle.cljs   # Browser/nbb client ← TEST THIS IN BROWSER
+├── wire_format_v2.cljc   # Sente-compatible v2 format
+├── channels.cljc         # Pub/sub channel management
+└── wire_format.cljc      # Serialization (EDN/JSON/Transit)
 ```
 
-### Files Modified This Session
+---
 
-- `test/scripts/cross_platform/run_all_cross_platform_tests.bb` - fixed paths
-- `test/scripts/cross_platform/test_bb_server_nbb_client.bb` - fixed paths
-- `test/scripts/cross_platform/test_nbb_server_bb_client.bb` - fixed paths
-- `test/sente-compat/test_sente_lite_client_to_sente_server.bb` - CharBuffer fix + Sente format
+## NEXT TASK: Scittle Browser Testing
 
-### Source Files (Complete v2 Implementation)
+### Goal
+Verify `client_scittle.cljs` works correctly when loaded via Scittle (SCI) in a real browser, connecting to a BB server.
 
-**Server:**
-- `src/sente_lite/server.cljc` - BB/JVM server
-- `src/sente_lite/server_nbb.cljs` - nbb server (UNIQUE - Sente doesn't support nbb!)
+### Why This Matters
+- nbb tests pass because nbb uses full ClojureScript, not SCI
+- SCI has limitations (especially destructuring) that can cause silent failures
+- Browser is a critical target platform
 
-**Client:**
-- `src/sente_lite/client_bb.clj` - BB client
-- `src/sente_lite/client_scittle.cljs` - Browser/nbb client
+### Detailed TODO
 
-**Wire Format:**
-- `src/sente_lite/wire_format_v2.cljc` - Sente-compatible v2 format
+#### 1. Verify client_scittle.cljs Has No SCI Issues
+**Check the file for forbidden patterns:**
 
-### TODO List (Remaining)
+❌ **FORBIDDEN in SCI:**
+```clojure
+;; Vector destructuring in function params
+(defn foo [[a b]] ...)
 
-1. ✅ Cross-platform tests all passing
-2. ⬜ Test browser client in actual Scittle (SCI limitations!)
-3. ⬜ Add nbb tests to official test suite (run_tests.bb)
-4. ⬜ Document nbb as supported platform
-5. ⬜ Push commits and tag v2.0.0 release
+;; Vector destructuring in let
+(let [[x y] some-vec] ...)
+```
 
-### How to Run Cross-Platform Tests
+✅ **REQUIRED pattern:**
+```clojure
+(defn foo [v]
+  (let [a (first v)
+        b (second v)]
+    ...))
+```
+
+**File to check:** `src/sente_lite/client_scittle.cljs`
+
+#### 2. Create Browser Test HTML
+
+Create `dev/scittle-demo/test-client-scittle-v2.html`:
+- Load Scittle
+- Load Trove (vendored at `dev/scittle-demo/taoensso/trove.cljs`)
+- Load `client_scittle.cljs`
+- Connect to BB server on port 1345
+- Run tests: handshake, echo, subscribe, publish, channel-msg
+- Display pass/fail results
+
+**Reference:** `dev/scittle-demo/test-wire-format-v2.html` shows how to load .cljc files in Scittle
+
+#### 3. Create Playwright Automated Test
+
+Create `dev/scittle-demo/playwright-client-test.mjs`:
+```javascript
+// 1. Start BB server (port 1345)
+// 2. Start static file server for HTML
+// 3. Launch Playwright browser
+// 4. Navigate to test page
+// 5. Capture console output
+// 6. Wait for tests to complete
+// 7. Check pass/fail, exit accordingly
+```
+
+**Existing scripts to reference:**
+- `dev/scittle-demo/playwright-interactive.mjs`
+- `dev/scittle-demo/playwright-test.mjs`
+
+#### 4. Add to Cross-Platform Test Runner
+
+Update `test/scripts/cross_platform/run_all_cross_platform_tests.bb` to include:
+- BB Server <-> Scittle Client (browser)
+
+---
+
+## INFRASTRUCTURE AVAILABLE
+
+### dev/scittle-demo/
+```
+dev/scittle-demo/
+├── taoensso/trove.cljs          # Vendored Trove for Scittle
+├── test-wire-format-v2.html     # Example: loading .cljc in Scittle
+├── playwright-interactive.mjs   # Existing Playwright script
+├── static-server.bb             # Static file server
+├── examples/
+│   ├── sente-pubsub-demo-client.cljs   # Demo (uses OLD v1 format)
+│   └── sente-heartbeat-demo-client.cljs # Demo (uses OLD v1 format)
+└── package.json                 # Node deps (playwright)
+```
+
+### How to Start Dev Environment
 
 ```bash
-# Run from any directory:
+# Terminal 1: Start BB server
+cd dev/scittle-demo
+bb examples/sente-heartbeat-demo-server.clj  # Or write new v2 server
+
+# Terminal 2: Start static file server
+cd dev/scittle-demo
+bb static-server.bb
+
+# Terminal 3: Run Playwright
+cd dev/scittle-demo
+node playwright-interactive.mjs
+```
+
+---
+
+## CRITICAL REMINDERS
+
+### SCI/Scittle Destructuring Bug
+```clojure
+;; ❌ BROKEN in SCI - causes "nth not supported on this type function"
+(let [[event-id data] msg] ...)
+
+;; ✅ WORKS in SCI
+(let [event-id (first msg)
+      data (second msg)]
+  ...)
+```
+
+### BB WebSocket CharBuffer
+```clojure
+;; BB websocket passes HeapCharBuffer, not String
+;; Always convert: (str raw-data) before parsing
+```
+
+### v2 Wire Format
+```clojure
+;; Events are vectors, not maps
+[:event-id {:data "here"}]
+
+;; NOT the old v1 format
+{:type :event-id :data "here"}  ; ❌ OLD
+```
+
+---
+
+## GIT STATE
+
+```
+cbbc8a9 Add nbb tests to run_tests.bb + comprehensive README (TAG: v2.0.0)
+392adb8 Update CONTEXT.md with cross-platform test status
+2facaf8 Fix cross-platform test paths + Sente compat CharBuffer fix
+25f8bd4 v2 multiprocess tests + cross-platform tests + client_bb.clj reconnect fix
+44478f6 nbb platform support: server + client modules (TAG: v2.0.0-nbb)
+```
+
+---
+
+## COMMANDS REFERENCE
+
+```bash
+# Run all tests
+bb run_tests.bb
+
+# Run cross-platform tests
 bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
 
-# Individual tests:
+# Run specific v2 tests
 bb test/scripts/test_v2_client_bb.bb
 bb test/scripts/multiprocess_v2/01_basic_v2.bb
+
+# nbb tests
 cd test/nbb && nbb --classpath ../../src test_server_nbb_module.cljs
 ```
 
-### Key Technical Discoveries
+---
 
-**BB WebSocket CharBuffer Issue:**
-```clojure
-;; babashka.http-client.websocket passes java.nio.HeapCharBuffer, NOT String
-;; Must convert: (str raw-data) before edn/read-string
-```
+## PREVIOUS THREADS
 
-**Sente Buffered Events Format:**
-```clojure
-;; Sente wraps events: [[event1] [event2] ...]
-;; Not just [event-id data]
-;; Parse needs: (ffirst parsed) for event-id when first element is vector
-```
-
-**nbb has js/WebSocket:**
-- Node's `ws` package provides browser-compatible WebSocket API
-- client_scittle.cljs works unchanged in nbb
-
-### Git History
-
-```
-2facaf8 Fix cross-platform test paths + Sente compat CharBuffer fix
-25f8bd4 v2 multiprocess tests + cross-platform tests + client_bb.clj reconnect fix
-d1d1814 WIP: v2 multiprocess test infrastructure + context update
-44478f6 nbb platform support: server + client modules (TAG: v2.0.0-nbb)
-455be2d v2 wire format: BB client module and tests (TAG: v2.0.0-bb-client)
-```
-
-### Previous Threads
-
+- T-019b3056-1620-724e-a420-32a7f6248ab5 (this thread - cross-platform fixes)
 - T-019b3036-deeb-7555-8b98-778f6b057782 (multiprocess v2 tests)
 - T-019b300e-da2a-716e-ad2e-b5bcffa01288 (v2 wire format migration)
