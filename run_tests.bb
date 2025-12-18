@@ -29,12 +29,12 @@
     (println "❌ Unit tests failed!")))
 
 ;;
-;; Part 2: Multi-Process Integration Tests
+;; Part 2: Multi-Process Integration Tests (v2)
 ;;
 
-(println "\n\n=== Part 2: Multi-Process Integration Tests ===")
+(println "\n\n=== Part 2: Multi-Process Integration Tests (v2) ===")
 
-(def mp-test-script "test/scripts/multiprocess/run_multiprocess_tests.bb")
+(def mp-test-script "test/scripts/multiprocess_v2/01_basic_v2.bb")
 (def mp-passed? (atom false))
 
 (try
@@ -47,13 +47,35 @@
     (reset! mp-passed? false)))
 
 ;;
+;; Part 3: nbb Platform Tests (if nbb is available)
+;;
+
+(println "\n\n=== Part 3: nbb Platform Tests ===")
+
+(def nbb-passed? (atom true))  ; Default to true if skipped
+
+(if (.exists (java.io.File. "test/nbb/node_modules/ws"))
+  (do
+    (println "nbb environment detected, running nbb tests...")
+    (try
+      (def nbb-result @(p/process ["nbb" "--classpath" "../../src" "test_server_nbb_module.cljs"]
+                                  {:dir "test/nbb"
+                                   :out :inherit
+                                   :err :inherit}))
+      (reset! nbb-passed? (zero? (:exit nbb-result)))
+      (catch Exception e
+        (println "❌ nbb tests error:" (str e))
+        (reset! nbb-passed? false))))
+  (println "Skipping nbb tests (run 'cd test/nbb && npm install' to enable)"))
+
+;;
 ;; Final Summary
 ;;
 
 (println "\n\n=== Final Test Summary ===")
 (let [ur unit-results
       unit-passed? (and (zero? (:fail ur)) (zero? (:error ur)))
-      all-passed? (and unit-passed? @mp-passed?)]
+      all-passed? (and unit-passed? @mp-passed? @nbb-passed?)]
 
   (println "\nUnit Tests:")
   (println (format "  Tests: %d | Assertions: %d | Failures: %d | Errors: %d"
@@ -63,8 +85,13 @@
                    (:error ur)))
   (println (if unit-passed? "  ✅ PASSED" "  ❌ FAILED"))
 
-  (println "\nMulti-Process Integration Tests:")
+  (println "\nMulti-Process Integration Tests (v2):")
   (println (if @mp-passed? "  ✅ PASSED" "  ❌ FAILED"))
+
+  (println "\nnbb Platform Tests:")
+  (if (.exists (java.io.File. "test/nbb/node_modules/ws"))
+    (println (if @nbb-passed? "  ✅ PASSED" "  ❌ FAILED"))
+    (println "  ⏭ SKIPPED (nbb not configured)"))
 
   (println "\n" (if all-passed?
                   "✅ ALL TESTS PASSED!"
