@@ -3,11 +3,13 @@
    Implements the Sente event format: [event-id data]
    with callback support: [[event-id data] cb-uuid]
    
-   Cross-platform: works on Babashka, JVM Clojure, and Scittle/ClojureScript."
-  (:require [taoensso.trove :as trove]
+   Cross-platform: works on Babashka, JVM Clojure, and Scittle/ClojureScript.
+   
+   NOTE: SCI/Scittle requires macros to be referred directly, not namespace-qualified.
+   NOTE: For Scittle, we use read-string directly (available in SCI) instead of cljs.reader."
+  (:require [taoensso.trove :as trove :refer [log!]]
             [clojure.string :as str]
-            #?(:clj [sente-lite.wire-format :as wire]
-               :cljs [cljs.reader :as reader]))
+            #?(:clj [sente-lite.wire-format :as wire]))
   #?(:clj (:import [java.util UUID])))
 
 ;; ============================================================================
@@ -56,8 +58,8 @@
   ([event-id]
    (encode-event event-id nil))
   ([event-id data]
-   (trove/log! {:level :trace :id :sente-lite.v2/encode-event
-                :data {:event-id event-id :has-data (some? data)}})
+   (log! {:level :trace :id :sente-lite.v2/encode-event
+          :data {:event-id event-id :has-data (some? data)}})
    [event-id data]))
 
 (defn encode-event-with-callback
@@ -66,8 +68,8 @@
   ([event-id data]
    (encode-event-with-callback event-id data (generate-cb-uuid)))
   ([event-id data cb-uuid]
-   (trove/log! {:level :debug :id :sente-lite.v2/encode-with-cb
-                :data {:event-id event-id :cb-uuid cb-uuid}})
+   (log! {:level :debug :id :sente-lite.v2/encode-with-cb
+          :data {:event-id event-id :cb-uuid cb-uuid}})
    [[event-id data] cb-uuid]))
 
 ;; ============================================================================
@@ -99,11 +101,14 @@
           {:error :empty-vector}
 
           ;; Event with callback: [[event-id data] cb-uuid]
+          ;; NOTE: Using first/second instead of destructuring for SCI/Scittle compatibility
           (and (= 2 (count wire-data))
                (vector? (first wire-data))
                (string? (second wire-data)))
-          (let [[inner-event cb-uuid] wire-data
-                [event-id data] inner-event]
+          (let [inner-event (first wire-data)
+                cb-uuid (second wire-data)
+                event-id (first inner-event)
+                data (second inner-event)]
             (if (valid-event-id? event-id)
               {:event-id event-id
                :data data
@@ -122,11 +127,11 @@
           :else
           {:error :invalid-format :raw wire-data})]
     (if (:error result)
-      (trove/log! {:level :warn :id :sente-lite.v2/decode-error
-                   :data {:error (:error result)}})
-      (trove/log! {:level :trace :id :sente-lite.v2/decode-event
-                   :data {:event-id (:event-id result)
-                          :has-cb (some? (:cb-uuid result))}}))
+      (log! {:level :warn :id :sente-lite.v2/decode-error
+             :data {:error (:error result)}})
+      (log! {:level :trace :id :sente-lite.v2/decode-event
+             :data {:event-id (:event-id result)
+                    :has-cb (some? (:cb-uuid result))}}))
     result))
 
 ;; ============================================================================
@@ -137,8 +142,8 @@
   "Create a handshake event.
    Returns: [:chsk/handshake [uid csrf-token handshake-data first?]]"
   [uid csrf-token handshake-data first?]
-  (trove/log! {:level :info :id :sente-lite.v2/handshake-created
-               :data {:uid uid :first? first?}})
+  (log! {:level :info :id :sente-lite.v2/handshake-created
+         :data {:uid uid :first? first?}})
   [event-handshake [uid csrf-token handshake-data first?]])
 
 (defn parse-handshake
@@ -152,28 +157,26 @@
     (let [cnt (count data)]
       (cond
         ;; Full format: [uid csrf-token handshake-data first?]
+        ;; NOTE: Using nth instead of destructuring for SCI/Scittle compatibility
         (>= cnt 4)
-        (let [[uid csrf-token handshake-data first?] data]
-          {:uid uid
-           :csrf-token csrf-token
-           :handshake-data handshake-data
-           :first? first?})
+        {:uid (nth data 0)
+         :csrf-token (nth data 1)
+         :handshake-data (nth data 2)
+         :first? (nth data 3)}
 
         ;; Wire format: [uid csrf-token] - Sente sends this on wire
         (= cnt 2)
-        (let [[uid csrf-token] data]
-          {:uid uid
-           :csrf-token csrf-token
-           :handshake-data nil
-           :first? true})
+        {:uid (first data)
+         :csrf-token (second data)
+         :handshake-data nil
+         :first? true}
 
         ;; 3 elements: [uid csrf-token handshake-data]
         (= cnt 3)
-        (let [[uid csrf-token handshake-data] data]
-          {:uid uid
-           :csrf-token csrf-token
-           :handshake-data handshake-data
-           :first? true})
+        {:uid (nth data 0)
+         :csrf-token (nth data 1)
+         :handshake-data (nth data 2)
+         :first? true}
 
         :else nil))))
 
@@ -193,14 +196,14 @@
 
 (defn parse-wire-reply
   "Parse a Sente wire reply [data cb-uuid].
-   Returns: {:cb-uuid X :data Y}"
+   Returns: {:cb-uuid X :data Y}
+   NOTE: Using first/second instead of destructuring for SCI/Scittle compatibility"
   [wire-data]
   (when (and (vector? wire-data)
              (= 2 (count wire-data))
              (string? (second wire-data)))
-    (let [[data cb-uuid] wire-data]
-      {:cb-uuid cb-uuid
-       :data data})))
+    {:cb-uuid (second wire-data)
+     :data (first wire-data)}))
 
 (defn parse-reply
   "Parse reply data from event.
@@ -319,8 +322,8 @@
   [wire-data]
   (if (buffered-events? wire-data)
     (do
-      (trove/log! {:level :trace :id :sente-lite.v2/unwrap-buffered
-                   :data {:count (count wire-data)}})
+      (log! {:level :trace :id :sente-lite.v2/unwrap-buffered
+             :data {:count (count wire-data)}})
       wire-data)
     [wire-data]))
 
@@ -350,20 +353,21 @@
   (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
                          (wire/serialize wire-format event))
                   :cljs (pr-str event))]
-    (trove/log! {:level :trace :id :sente-lite.v2/serialize
-                 :data {:format format-spec :size (count (str result))}})
+    (log! {:level :trace :id :sente-lite.v2/serialize
+           :data {:format format-spec :size (count (str result))}})
     result))
 
 (defn deserialize
   "Deserialize wire format string to event.
    On JVM/BB: supports :edn, :json, :transit via wire-format library.
-   On ClojureScript: EDN only (uses cljs.reader)."
+   On ClojureScript/Scittle: EDN only (uses read-string directly)."
   [raw-message format-spec]
+  #_{:clj-kondo/ignore [:unresolved-symbol]}
   (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
                          (wire/deserialize wire-format raw-message))
-                  :cljs (reader/read-string raw-message))]
-    (trove/log! {:level :trace :id :sente-lite.v2/deserialize
-                 :data {:format format-spec :input-size (count raw-message)}})
+                  :cljs (read-string raw-message))]
+    (log! {:level :trace :id :sente-lite.v2/deserialize
+           :data {:format format-spec :input-size (count raw-message)}})
     result))
 
 (defn parse-message
@@ -371,8 +375,8 @@
    Returns decoded event map."
   [raw-message format-spec]
   (let [version (detect-wire-version raw-message)]
-    (trove/log! {:level :trace :id :sente-lite.v2/parse
-                 :data {:version version :preview (subs raw-message 0 (min 50 (count raw-message)))}})
+    (log! {:level :trace :id :sente-lite.v2/parse
+           :data {:version version :preview (subs raw-message 0 (min 50 (count raw-message)))}})
     (case version
       :v2
       (let [parsed (deserialize raw-message format-spec)]
@@ -382,8 +386,8 @@
 
       :v1
       (do
-        (trove/log! {:level :error :id :sente-lite.v2/v1-format-rejected
-                     :data {:message "v1 wire format is not supported - use v2 format"}})
+        (log! {:level :error :id :sente-lite.v2/v1-format-rejected
+               :data {:message "v1 wire format is not supported - use v2 format"}})
         {:error :v1-format-not-supported
          :message "v1 wire format (map-based) is deprecated. Use v2 format (vector-based)."
          :raw raw-message})
@@ -441,8 +445,8 @@
           :registered-at #?(:clj (System/currentTimeMillis)
                             :cljs (.now js/Date))
           :timeout-ms timeout-ms})
-  (trove/log! {:level :debug :id :sente-lite.v2/cb-registered
-               :data {:cb-uuid cb-uuid :timeout-ms timeout-ms}})
+  (log! {:level :debug :id :sente-lite.v2/cb-registered
+         :data {:cb-uuid cb-uuid :timeout-ms timeout-ms}})
   cb-uuid)
 
 (defn invoke-callback!
@@ -451,28 +455,33 @@
   [cb-uuid data]
   (when-let [{:keys [callback]} (get @callback-registry cb-uuid)]
     (swap! callback-registry dissoc cb-uuid)
-    (trove/log! {:level :debug :id :sente-lite.v2/cb-invoked
-                 :data {:cb-uuid cb-uuid}})
+    (log! {:level :debug :id :sente-lite.v2/cb-invoked
+           :data {:cb-uuid cb-uuid}})
     (try
       (callback data)
       true
       (catch #?(:clj Exception :cljs :default) e
-        (trove/log! {:level :error :id :sente-lite.v2/cb-error
-                     :data {:cb-uuid cb-uuid :error e}})
+        (log! {:level :error :id :sente-lite.v2/cb-error
+               :data {:cb-uuid cb-uuid :error e}})
         false))))
 
 (defn cleanup-expired-callbacks!
-  "Remove callbacks that have exceeded their timeout"
+  "Remove callbacks that have exceeded their timeout
+   NOTE: Using first/key instead of destructuring for SCI/Scittle compatibility"
   []
   (let [now #?(:clj (System/currentTimeMillis)
                :cljs (.now js/Date))
-        expired (filter (fn [[_ {:keys [registered-at timeout-ms]}]]
-                          (> (- now registered-at) timeout-ms))
+        expired (filter (fn [entry]
+                          (let [cb-data (val entry)
+                                registered-at (:registered-at cb-data)
+                                timeout-ms (:timeout-ms cb-data)]
+                            (> (- now registered-at) timeout-ms)))
                         @callback-registry)]
-    (doseq [[cb-uuid _] expired]
-      (swap! callback-registry dissoc cb-uuid)
-      (trove/log! {:level :warn :id :sente-lite.v2/cb-expired
-                   :data {:cb-uuid cb-uuid}}))
+    (doseq [entry expired]
+      (let [cb-uuid (key entry)]
+        (swap! callback-registry dissoc cb-uuid)
+        (log! {:level :warn :id :sente-lite.v2/cb-expired
+               :data {:cb-uuid cb-uuid}})))
     (count expired)))
 
 (defn pending-callbacks

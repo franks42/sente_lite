@@ -91,6 +91,28 @@
           (str script-dir "/test_nbb_server_bb_client.bb"))
 
 ;; ============================================================================
+;; Scittle Browser Tests (if Playwright available)
+;; ============================================================================
+
+(when (.exists (java.io.File. (str project-root "/dev/scittle-demo/node_modules/playwright")))
+  (println)
+  (println "=== Scittle Browser Tests ===")
+  (println "(Requires Playwright)")
+  (println)
+  
+  (println "----------------------------------------------------------------------")
+  (println "Running: BB Server <-> Scittle Client (browser)")
+  (println "----------------------------------------------------------------------")
+  (let [result (p/shell {:continue true 
+                         :out :inherit 
+                         :err :inherit
+                         :dir (str project-root "/dev/scittle-demo")}
+                        "node" "playwright-client-test.mjs")
+        passed? (zero? (:exit result))]
+    (swap! test-results conj {:name "BB Server <-> Scittle Client (browser)" :passed passed?})
+    (println)))
+
+;; ============================================================================
 ;; Sente Compat Tests (if available)
 ;; ============================================================================
 
@@ -161,7 +183,7 @@
 (println "")
 (println "  Servers        | BB Client | nbb Client | Scittle | Sente")
 (println "  ---------------+-----------+------------+---------+------")
-(println "  BB Server      |    [x]    |    [x]     |   [ ]   |  [ ]")
+(println "  BB Server      |    [x]    |    [x]     |   [x]   |  [ ]")
 (println "  nbb Server     |    [x]    |    [x]     |   [ ]   |  [ ]")
 (println "  Sente Server   |    [x]    |    [ ]     |   [ ]   |  N/A")
 (println "")

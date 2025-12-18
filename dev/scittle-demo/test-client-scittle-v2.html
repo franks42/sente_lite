@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>sente-lite Client Scittle v2 Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; max-width: 800px; margin: 0 auto; }
+    .pass { color: green; font-weight: bold; }
+    .fail { color: red; font-weight: bold; }
+    .pending { color: orange; }
+    pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    #results { margin-top: 20px; }
+    .test-item { margin: 5px 0; padding: 5px; border-left: 3px solid #ccc; }
+    .test-item.pass { border-left-color: green; }
+    .test-item.fail { border-left-color: red; }
+    .summary { margin-top: 20px; padding: 10px; background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>sente-lite Client Scittle v2 Test</h1>
+  <p>Testing client_scittle.cljs in browser with Scittle/SCI</p>
+  <p><strong>Server:</strong> ws://localhost:1345/</p>
+  <div id="status">Initializing...</div>
+  <div id="results"></div>
+
+  <!-- Load Trove (vendored version for Scittle) -->
+  <script type="application/x-scittle" src="taoensso/trove.cljs"></script>
+
+  <!-- Load wire_format_v2 -->
+  <script type="application/x-scittle" src="../../src/sente_lite/wire_format_v2.cljc"></script>
+
+  <!-- Load client_scittle -->
+  <script type="application/x-scittle" src="../../src/sente_lite/client_scittle.cljs"></script>
+
+  <!-- Test script -->
+  <script type="application/x-scittle">
+    (ns test-client-scittle-v2
+      (:require [sente-lite.client-scittle :as client]))
+
+    ;; Forward declaration for SCI compatibility
+    (declare continue-tests!)
+    
+    ;; Test state
+    (def test-results (atom []))
+    (def client-id-atom (atom nil))
+    (def test-state (atom {:handshake-received false
+                           :echo-received false
+                           :subscribe-received false
+                           :channel-msg-received false
+                           :uid nil}))
+
+    (defn set-status! [msg]
+      (set! (.-innerHTML (.getElementById js/document "status"))
+            (str "<strong>Status:</strong> " msg)))
+
+    (defn log-result! [name pass? detail]
+      (swap! test-results conj {:name name :pass pass? :detail detail})
+      (let [el (.createElement js/document "div")
+            class (if pass? "pass" "fail")
+            icon (if pass? "✓" "✗")]
+        (set! (.-className el) (str "test-item " class))
+        (set! (.-innerHTML el) (str "<span class='" class "'>" icon "</span> " name ": " detail))
+        (.appendChild (.getElementById js/document "results") el)))
+
+    (defn show-summary! []
+      (let [results @test-results
+            passed (count (filter :pass results))
+            failed (count (filter #(not (:pass %)) results))
+            total (count results)
+            el (.createElement js/document "div")]
+        (set! (.-className el) "summary")
+        (set! (.-innerHTML el) 
+              (str "<h3>Test Summary</h3>"
+                   "<p>Total: " total " | "
+                   "<span class='pass'>Passed: " passed "</span> | "
+                   "<span class='fail'>Failed: " failed "</span></p>"
+                   (if (zero? failed)
+                     "<p class='pass'>✓ ALL TESTS PASSED</p>"
+                     "<p class='fail'>✗ SOME TESTS FAILED</p>")))
+        (.appendChild (.getElementById js/document "results") el)
+        ;; Set window property for Playwright to detect
+        (set! (.-testsPassed js/window) (zero? failed))
+        (set! (.-testsComplete js/window) true)
+        (js/console.log (str "TESTS_COMPLETE: " (if (zero? failed) "PASS" "FAIL")))))
+
+    (defn handle-message [event-id data]
+      (js/console.log "Received:" (pr-str event-id) (pr-str data))
+      (cond
+        ;; Echo response from server
+        (= event-id :sente-lite/echo)
+        (do
+          (swap! test-state assoc :echo-received true)
+          (log-result! "Echo Response"
+                       (= :test/ping (:original-event-id data))
+                       (str "Got echo: " (pr-str data))))
+
+        ;; Subscription confirmation
+        (= event-id :sente-lite/subscribed)
+        (do
+          (swap! test-state assoc :subscribe-received true)
+          (log-result! "Subscribe Confirmation"
+                       (:success data)
+                       (str "Channel: " (:channel-id data) ", success: " (:success data))))
+
+        ;; Channel message
+        (= event-id :sente-lite/channel-msg)
+        (do
+          (swap! test-state assoc :channel-msg-received true)
+          (log-result! "Channel Message Received"
+                       (= "test-channel" (:channel-id data))
+                       (str "Channel: " (:channel-id data) ", data: " (pr-str (:data data)))))
+
+        :else
+        (js/console.log "Unknown event:" (pr-str event-id))))
+
+    (defn run-tests! []
+      (set-status! "Connecting to server...")
+
+      ;; Test 1: Create client
+      (let [cid (client/make-client!
+                 {:url "ws://localhost:1345/"
+                  :on-open (fn [uid]
+                             (js/console.log "Connected with uid:" uid)
+                             (swap! test-state assoc :handshake-received true :uid uid)
+                             (log-result! "Handshake"
+                                          (string? uid)
+                                          (str "UID: " uid))
+                             (set-status! "Connected! Running tests...")
+                             ;; Continue tests after connection
+                             (js/setTimeout #(continue-tests!) 500))
+                  :on-message handle-message
+                  :on-close (fn [event]
+                              (js/console.log "Disconnected"))
+                  :auto-reconnect? false})]
+        (reset! client-id-atom cid)
+        (log-result! "Client Created"
+                     (string? cid)
+                     (str "client-id: " cid))))
+
+    (defn continue-tests! []
+      (let [cid @client-id-atom]
+        ;; Test 2: Get status
+        (let [status (client/get-status cid)]
+          (log-result! "Get Status"
+                       (= :connected status)
+                       (str "status: " status)))
+
+        ;; Test 3: Get UID
+        (let [uid (client/get-uid cid)]
+          (log-result! "Get UID"
+                       (string? uid)
+                       (str "uid: " uid)))
+
+        ;; Test 4: Send echo test
+        (let [sent (client/send! cid [:test/ping {:msg "hello from browser"}])]
+          (log-result! "Send Message"
+                       sent
+                       (str "sent: " sent)))
+
+        ;; Test 5: Subscribe to channel
+        (js/setTimeout
+         (fn []
+           (let [sent (client/subscribe! cid "test-channel")]
+             (log-result! "Subscribe"
+                          sent
+                          (str "sent: " sent))))
+         200)
+
+        ;; Test 6: Publish to channel (after subscribe)
+        (js/setTimeout
+         (fn []
+           (let [sent (client/publish! cid "test-channel" {:msg "test message"})]
+             (log-result! "Publish"
+                          sent
+                          (str "sent: " sent))))
+         600)
+
+        ;; Test 7: Get stats
+        (js/setTimeout
+         (fn []
+           (let [stats (client/get-stats cid)]
+             (log-result! "Get Stats"
+                          (map? stats)
+                          (pr-str stats))))
+         800)
+
+        ;; Test 8: Verify echo was received
+        (js/setTimeout
+         (fn []
+           (log-result! "Echo Response Verified"
+                        (:echo-received @test-state)
+                        (if (:echo-received @test-state)
+                          "Echo response received"
+                          "No echo response received")))
+         1000)
+
+        ;; Final check and cleanup
+        (js/setTimeout
+         (fn []
+           (let [state @test-state]
+             ;; Unsubscribe test
+             (let [sent (client/unsubscribe! cid "test-channel")]
+               (log-result! "Unsubscribe"
+                            sent
+                            (str "sent: " sent)))
+             
+             ;; Close connection
+             (js/setTimeout
+              (fn []
+                (let [closed (client/close! cid)]
+                  (log-result! "Close Connection"
+                               closed
+                               (str "closed: " closed)))
+                
+                ;; Verify final status
+                (js/setTimeout
+                 (fn []
+                   (let [status (client/get-status cid)]
+                     (log-result! "Final Status (should be nil after close)"
+                                  (nil? status)
+                                  (str "status: " status)))
+                   (set-status! "Tests complete!")
+                   (show-summary!))
+                 200))
+              200)))
+         1200)))
+
+    ;; Start tests when page loads
+    (js/setTimeout run-tests! 500)
+  </script>
+</body>
+</html>

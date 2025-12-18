@@ -18,8 +18,10 @@
 
     (sente/send! client :my/event {:data \"value\"})
     (sente/subscribe! client \"my-channel\")
-    (sente/close! client)"
-  (:require [taoensso.trove :as trove]))
+    (sente/close! client)
+  
+  NOTE: SCI/Scittle requires macros to be referred directly, not namespace-qualified."
+  (:require [taoensso.trove :as trove :refer [log!]]))
 
 ;; v2 event IDs (Sente-compatible)
 (def ^:const event-handshake :chsk/handshake)
@@ -59,11 +61,11 @@
 (defn- handle-open [client-state event]
   (let [client-id (:id client-state)
         config (:config client-state)]
-    (trove/log! {:level :debug
-                 :id :sente-lite.client/ws-connected
-                 :data {:client-id client-id
-                        :url (:url config)
-                        :ready-state (.. event -target -readyState)}})
+    (log! {:level :debug
+           :id :sente-lite.client/ws-connected
+           :data {:client-id client-id
+                  :url (:url config)
+                  :ready-state (.. event -target -readyState)}})
     (swap! clients assoc-in [client-id :status] :connected)
     ;; Note: on-open/on-reconnect callbacks are called after handshake in handle-message,
     ;; not here, so the user gets the uid from the server.
@@ -80,10 +82,10 @@
          :data (second parsed)}
         {:error :invalid-format :raw raw-data}))
     (catch js/Error e
-      (trove/log! {:level :warn
-                   :id :sente-lite.client/parse-failed
-                   :data {:raw-data raw-data
-                          :error (.-message e)}})
+      (log! {:level :warn
+             :id :sente-lite.client/parse-failed
+             :data {:raw-data raw-data
+                    :error (.-message e)}})
       {:error :parse-failed :raw raw-data})))
 
 (defn- send-raw!
@@ -97,11 +99,11 @@
   (let [uid (first data)
         csrf-token (second data)]
     (swap! clients assoc-in [client-id :uid] uid)
-    (trove/log! {:level :info
-                 :id :sente-lite.client/handshake-received
-                 :data {:client-id client-id
-                        :uid uid
-                        :has-csrf (some? csrf-token)}})
+    (log! {:level :info
+           :id :sente-lite.client/handshake-received
+           :data {:client-id client-id
+                  :uid uid
+                  :has-csrf (some? csrf-token)}})
     uid))
 
 (defn- handle-message [client-state event]
@@ -114,17 +116,17 @@
     (swap! clients update-in [client-id :message-count-received] inc)
 
     (if (:error parsed)
-      (trove/log! {:level :warn
-                   :id :sente-lite.client/msg-error
-                   :data {:client-id client-id
-                          :error (:error parsed)}})
+      (log! {:level :warn
+             :id :sente-lite.client/msg-error
+             :data {:client-id client-id
+                    :error (:error parsed)}})
       (let [event-id (:event-id parsed)
             data (:data parsed)]
-        (trove/log! {:level :trace
-                     :id :sente-lite.client/msg-recv
-                     :data {:client-id client-id
-                            :event-id event-id
-                            :message-size (.-length raw-data)}})
+        (log! {:level :trace
+               :id :sente-lite.client/msg-recv
+               :data {:client-id client-id
+                      :event-id event-id
+                      :message-size (.-length raw-data)}})
 
         (cond
           ;; Handle handshake
@@ -133,22 +135,22 @@
                 is-reconnect? (> (:reconnect-count client-state) 0)]
             (if is-reconnect?
               (when-let [on-reconnect (:on-reconnect config)]
-                (trove/log! {:level :trace
-                             :id :sente-lite.client/callback-on-reconnect
-                             :data {:client-id client-id :uid uid}})
+                (log! {:level :trace
+                       :id :sente-lite.client/callback-on-reconnect
+                       :data {:client-id client-id :uid uid}})
                 (on-reconnect))
               (when-let [on-open (:on-open config)]
-                (trove/log! {:level :trace
-                             :id :sente-lite.client/callback-on-open
-                             :data {:client-id client-id :uid uid}})
+                (log! {:level :trace
+                       :id :sente-lite.client/callback-on-open
+                       :data {:client-id client-id :uid uid}})
                 (on-open uid))))
 
           ;; Handle server ping -> respond with pong
           (= event-id event-ws-ping)
           (do
-            (trove/log! {:level :trace
-                         :id :sente-lite.client/auto-pong
-                         :data {:client-id client-id}})
+            (log! {:level :trace
+                   :id :sente-lite.client/auto-pong
+                   :data {:client-id client-id}})
             (send-raw! ws [event-ws-pong]))
 
           ;; Pass all other events to user handler
@@ -159,10 +161,10 @@
 (defn- handle-error [client-state event]
   (let [client-id (:id client-state)
         ws (.-target event)]
-    (trove/log! {:level :error
-                 :id :sente-lite.client/ws-error
-                 :data {:client-id client-id
-                        :ready-state (.-readyState ws)}})))
+    (log! {:level :error
+           :id :sente-lite.client/ws-error
+           :data {:client-id client-id
+                  :ready-state (.-readyState ws)}})))
 
 (declare attempt-reconnect!)  ; forward declaration
 
@@ -176,13 +178,13 @@
             was-clean (.-wasClean event)
             reconnect-enabled? (:reconnect-enabled? client-state)]
         (swap! clients assoc-in [client-id :status] :disconnected)
-        (trove/log! {:level :debug
-                     :id :sente-lite.client/disconnected
-                     :data {:client-id client-id
-                            :code code
-                            :reason reason
-                            :was-clean was-clean
-                            :will-reconnect? reconnect-enabled?}})
+        (log! {:level :debug
+               :id :sente-lite.client/disconnected
+               :data {:client-id client-id
+                      :code code
+                      :reason reason
+                      :was-clean was-clean
+                      :will-reconnect? reconnect-enabled?}})
         (when-let [on-close (:on-close config)]
           (on-close event))
 
@@ -191,11 +193,11 @@
           (let [current-client-state (get @clients client-id)
                 delay-ms (:reconnect-delay current-client-state)
                 reconnect-count (:reconnect-count current-client-state)]
-            (trove/log! {:level :debug
-                         :id :sente-lite.client/reconnect-scheduled
-                         :data {:client-id client-id
-                                :delay-ms delay-ms
-                                :reconnect-count reconnect-count}})
+            (log! {:level :debug
+                   :id :sente-lite.client/reconnect-scheduled
+                   :data {:client-id client-id
+                          :delay-ms delay-ms
+                          :reconnect-count reconnect-count}})
             (js/setTimeout #(attempt-reconnect! client-id) delay-ms)))))))
 
 ;;; Reconnection Logic
@@ -208,11 +210,11 @@
             reconnect-count (:reconnect-count client-state)
             new-reconnect-count (inc reconnect-count)]
 
-        (trove/log! {:level :debug
-                     :id :sente-lite.client/reconnect-attempt
-                     :data {:client-id client-id
-                            :reconnect-count new-reconnect-count
-                            :url url}})
+        (log! {:level :debug
+               :id :sente-lite.client/reconnect-attempt
+               :data {:client-id client-id
+                      :reconnect-count new-reconnect-count
+                      :url url}})
 
         (try
           ;; Increment reconnect count BEFORE creating WebSocket
@@ -237,23 +239,23 @@
             (set! (.-onerror ws) (partial handle-error updated-client-state))
             (set! (.-onclose ws) (partial handle-close updated-client-state))
 
-            (trove/log! {:level :trace
-                         :id :sente-lite.client/reconnect-initiated
-                         :data {:client-id client-id}}))
+            (log! {:level :trace
+                   :id :sente-lite.client/reconnect-initiated
+                   :data {:client-id client-id}}))
 
           (catch js/Error e
-            (trove/log! {:level :error
-                         :id :sente-lite.client/reconnect-failed
-                         :data {:client-id client-id
-                                :error (.-message e)
-                                :reconnect-count new-reconnect-count}})
+            (log! {:level :error
+                   :id :sente-lite.client/reconnect-failed
+                   :data {:client-id client-id
+                          :error (.-message e)
+                          :reconnect-count new-reconnect-count}})
             ;; Failed reconnect - try again after delay if still enabled
             (when (get-in @clients [client-id :reconnect-enabled?])
               (let [retry-delay (get-in @clients [client-id :reconnect-delay])]
-                (trove/log! {:level :debug
-                             :id :sente-lite.client/reconnect-retry
-                             :data {:client-id client-id
-                                    :retry-delay retry-delay}})
+                (log! {:level :debug
+                       :id :sente-lite.client/reconnect-retry
+                       :data {:client-id client-id
+                              :retry-delay retry-delay}})
                 (js/setTimeout #(attempt-reconnect! client-id) retry-delay)))))))))
 
 ;;; Public API
@@ -279,11 +281,11 @@
         url (:url config)
         ws (js/WebSocket. url)]
 
-    (trove/log! {:level :debug
-                 :id :sente-lite.client/creating
-                 :data {:client-id client-id
-                        :url url
-                        :initial-state (.-readyState ws)}})
+    (log! {:level :debug
+           :id :sente-lite.client/creating
+           :data {:client-id client-id
+                  :url url
+                  :initial-state (.-readyState ws)}})
 
     ;; Store client state
     (swap! clients assoc client-id (assoc client-state :ws ws))
@@ -294,9 +296,9 @@
     (set! (.-onerror ws) (partial handle-error (get @clients client-id)))
     (set! (.-onclose ws) (partial handle-close (get @clients client-id)))
 
-    (trove/log! {:level :trace
-                 :id :sente-lite.client/handlers-attached
-                 :data {:client-id client-id}})
+    (log! {:level :trace
+           :id :sente-lite.client/handlers-attached
+           :data {:client-id client-id}})
 
     ;; Return client-id as handle
     client-id))
@@ -314,23 +316,23 @@
         (let [serialized (pr-str message)]
           (.send ws serialized)
           (swap! clients update-in [client-id :message-count-sent] inc)
-          (trove/log! {:level :trace
-                       :id :sente-lite.client/msg-sent
-                       :data {:client-id client-id
-                              :message-type (first message)
-                              :size (count serialized)}})
+          (log! {:level :trace
+                 :id :sente-lite.client/msg-sent
+                 :data {:client-id client-id
+                        :message-type (first message)
+                        :size (count serialized)}})
           true)
         (do
-          (trove/log! {:level :warn
-                       :id :sente-lite.client/send-failed
-                       :data {:client-id client-id
-                              :ready-state ready-state
-                              :status (:status client-state)}})
+          (log! {:level :warn
+                 :id :sente-lite.client/send-failed
+                 :data {:client-id client-id
+                        :ready-state ready-state
+                        :status (:status client-state)}})
           false)))
     (do
-      (trove/log! {:level :error
-                   :id :sente-lite.client/invalid-client-id
-                   :data {:client-id client-id}})
+      (log! {:level :error
+             :id :sente-lite.client/invalid-client-id
+             :data {:client-id client-id}})
       false)))
 
 (defn close!
@@ -341,15 +343,15 @@
       ;; Remove client from registry FIRST to prevent on-close from re-adding
       (swap! clients dissoc client-id)
       (when ws
-        (trove/log! {:level :debug
-                     :id :sente-lite.client/closing
-                     :data {:client-id client-id}})
+        (log! {:level :debug
+               :id :sente-lite.client/closing
+               :data {:client-id client-id}})
         (.close ws))
       true)
     (do
-      (trove/log! {:level :warn
-                   :id :sente-lite.client/close-failed
-                   :data {:client-id client-id}})
+      (log! {:level :warn
+             :id :sente-lite.client/close-failed
+             :data {:client-id client-id}})
       false)))
 
 (defn get-status
@@ -380,15 +382,15 @@
   (if-let [client-state (get @clients client-id)]
     (do
       (swap! clients assoc-in [client-id :reconnect-enabled?] enabled?)
-      (trove/log! {:level :debug
-                   :id :sente-lite.client/reconnect-setting-updated
-                   :data {:client-id client-id
-                          :enabled? enabled?}})
+      (log! {:level :debug
+             :id :sente-lite.client/reconnect-setting-updated
+             :data {:client-id client-id
+                    :enabled? enabled?}})
       true)
     (do
-      (trove/log! {:level :warn
-                   :id :sente-lite.client/reconnect-setting-failed
-                   :data {:client-id client-id}})
+      (log! {:level :warn
+             :id :sente-lite.client/reconnect-setting-failed
+             :data {:client-id client-id}})
       false)))
 
 ;;; Channel/Pub-Sub API (v2 format)

@@ -1,23 +1,25 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-12-18 (Handoff for Scittle Work)
+**Last Updated**: 2025-12-18 (Scittle Browser Testing Complete)
 
 ## CURRENT STATUS
 
-**Last Commit**: `cbbc8a9` - "Add nbb tests to run_tests.bb + comprehensive README"
+**Last Commit**: Pending - Scittle browser integration complete
 **Tag**: `v2.0.0` - Full v2 release, all platforms working
-**Branch**: `main` - clean, pushed to origin
-**Next Task**: **Test client_scittle.cljs in actual browser (Scittle/SCI)**
+**Branch**: `main`
+**Status**: ✅ **SCITTLE BROWSER TESTING COMPLETE**
 
-## WHAT'S WORKING (v2.0.0)
+## WHAT'S WORKING (v2.0.0 + Scittle)
 
-All cross-platform tests pass:
+All cross-platform tests pass (7 total):
 ```
-[PASS] BB Server <-> BB Client
-[PASS] nbb Server <-> nbb Client  
+[PASS] BB Server <-> BB Client (unit test)
+[PASS] BB Server <-> BB Client (multiprocess)
+[PASS] nbb Server <-> nbb Client
 [PASS] BB Server <-> nbb Client
 [PASS] nbb Server <-> BB Client
+[PASS] BB Server <-> Scittle Client (browser) ← NEW
 [PASS] Sente Server <-> BB Client
 ```
 
@@ -27,7 +29,7 @@ All cross-platform tests pass:
 |----------|--------|--------|--------|
 | BB | `server.cljc` | `client_bb.clj` | ✅ Working |
 | nbb | `server_nbb.cljs` | `client_scittle.cljs` | ✅ Working |
-| Browser | N/A | `client_scittle.cljs` | ⚠️ **NEEDS TESTING** |
+| Browser | N/A | `client_scittle.cljs` | ✅ **WORKING** |
 
 ### Key Source Files
 
@@ -36,156 +38,124 @@ src/sente_lite/
 ├── server.cljc           # BB/JVM server (http-kit)
 ├── server_nbb.cljs       # nbb server (ws package)
 ├── client_bb.clj         # BB client
-├── client_scittle.cljs   # Browser/nbb client ← TEST THIS IN BROWSER
-├── wire_format_v2.cljc   # Sente-compatible v2 format
+├── client_scittle.cljs   # Browser/nbb client ✅ TESTED IN BROWSER
+├── wire_format_v2.cljc   # Sente-compatible v2 format (SCI-compatible)
 ├── channels.cljc         # Pub/sub channel management
 └── wire_format.cljc      # Serialization (EDN/JSON/Transit)
 ```
 
 ---
 
-## NEXT TASK: Scittle Browser Testing
+## CHANGES MADE FOR SCITTLE/SCI COMPATIBILITY
 
-### Goal
-Verify `client_scittle.cljs` works correctly when loaded via Scittle (SCI) in a real browser, connecting to a BB server.
+### 1. Fixed Trove Macro Usage
+SCI/Scittle requires macros to be referred directly, not namespace-qualified.
 
-### Why This Matters
-- nbb tests pass because nbb uses full ClojureScript, not SCI
-- SCI has limitations (especially destructuring) that can cause silent failures
-- Browser is a critical target platform
+**Before:** `(trove/log! {...})`
+**After:** `(log! {...})` with `(:require [taoensso.trove :refer [log!]])`
 
-### Detailed TODO
+Files changed:
+- `src/sente_lite/wire_format_v2.cljc`
+- `src/sente_lite/client_scittle.cljs`
 
-#### 1. Verify client_scittle.cljs Has No SCI Issues
-**Check the file for forbidden patterns:**
+### 2. Fixed Vector Destructuring
+SCI does NOT support vector destructuring in let bindings or function params.
 
-❌ **FORBIDDEN in SCI:**
+**Before:**
 ```clojure
-;; Vector destructuring in function params
-(defn foo [[a b]] ...)
-
-;; Vector destructuring in let
-(let [[x y] some-vec] ...)
+(let [[uid csrf-token] data] ...)
 ```
 
-✅ **REQUIRED pattern:**
+**After:**
 ```clojure
-(defn foo [v]
-  (let [a (first v)
-        b (second v)]
-    ...))
+{:uid (first data)
+ :csrf-token (second data)}
 ```
 
-**File to check:** `src/sente_lite/client_scittle.cljs`
+File changed: `src/sente_lite/wire_format_v2.cljc`
 
-#### 2. Create Browser Test HTML
+### 3. Fixed cljs.reader Import
+Scittle doesn't have `cljs.reader` - use `read-string` directly.
 
-Create `dev/scittle-demo/test-client-scittle-v2.html`:
-- Load Scittle
-- Load Trove (vendored at `dev/scittle-demo/taoensso/trove.cljs`)
-- Load `client_scittle.cljs`
-- Connect to BB server on port 1345
-- Run tests: handshake, echo, subscribe, publish, channel-msg
-- Display pass/fail results
-
-**Reference:** `dev/scittle-demo/test-wire-format-v2.html` shows how to load .cljc files in Scittle
-
-#### 3. Create Playwright Automated Test
-
-Create `dev/scittle-demo/playwright-client-test.mjs`:
-```javascript
-// 1. Start BB server (port 1345)
-// 2. Start static file server for HTML
-// 3. Launch Playwright browser
-// 4. Navigate to test page
-// 5. Capture console output
-// 6. Wait for tests to complete
-// 7. Check pass/fail, exit accordingly
+**Before:**
+```clojure
+#?(:cljs [cljs.reader :as reader])
+...
+(reader/read-string raw-message)
 ```
 
-**Existing scripts to reference:**
-- `dev/scittle-demo/playwright-interactive.mjs`
-- `dev/scittle-demo/playwright-test.mjs`
+**After:**
+```clojure
+;; No cljs.reader import needed
+#_{:clj-kondo/ignore [:unresolved-symbol]}
+(read-string raw-message)
+```
 
-#### 4. Add to Cross-Platform Test Runner
-
-Update `test/scripts/cross_platform/run_all_cross_platform_tests.bb` to include:
-- BB Server <-> Scittle Client (browser)
+### 4. Fixed Scittle Version
+Scittle 0.6.21 has ES6 module issues. Use 0.7.28.
 
 ---
 
-## TROVE-SCITTLE FORK (IMPORTANT!)
+## NEW TEST INFRASTRUCTURE
 
-For Scittle/SCI compatibility, use the **trove-scittle fork** instead of vendored files:
-
-**Repository:** https://github.com/franks42/trove-scittle (branch: `scittle`)
-**Tag:** `v1.1.0-scittle`
-
-**CDN URLs (use these in Scittle HTML):**
-```html
-<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
-<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
-<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc" type="application/x-scittle"></script>
-```
-
-**Usage in Scittle code:**
-```clojure
-(ns my-app
-  (:require [taoensso.trove :as trove :refer [log!]]))
-
-;; IMPORTANT: SCI requires macros with :refer - namespace-qualified calls don't work!
-(log! {:level :info :id :my-app/started :data {:foo "bar"}})
-```
-
-**Why the fork?** SCI doesn't expose `cljs.core/Cons`, so the upstream Trove fails. The fork adds a `:scittle` reader conditional workaround.
-
----
-
-## INFRASTRUCTURE AVAILABLE
-
-### dev/scittle-demo/
+### Browser Test Files
 ```
 dev/scittle-demo/
-├── taoensso/trove.cljs          # OLD vendored Trove - USE CDN INSTEAD
-├── test-wire-format-v2.html     # Example: loading .cljc in Scittle
-├── playwright-interactive.mjs   # Existing Playwright script
-├── static-server.bb             # Static file server
-├── examples/
-│   ├── sente-pubsub-demo-client.cljs   # Demo (uses OLD v1 format)
-│   └── sente-heartbeat-demo-client.cljs # Demo (uses OLD v1 format)
-└── package.json                 # Node deps (playwright)
+├── test-client-scittle-v2.html    # Browser test page (16 tests)
+├── playwright-client-test.mjs     # Automated Playwright test
+├── v2-test-server.bb              # Simple BB server for testing
+└── test-wire-format-v2.html       # Updated to Scittle 0.7.28
 ```
 
-### How to Start Dev Environment
+### Running Browser Tests
 
+**Manual (for debugging):**
 ```bash
-# Terminal 1: Start BB server
+# Terminal 1: Start server
 cd dev/scittle-demo
-bb examples/sente-heartbeat-demo-server.clj  # Or write new v2 server
+bb v2-test-server.bb
 
-# Terminal 2: Start static file server
-cd dev/scittle-demo
+# Terminal 2: Start static server
 bb static-server.bb
 
-# Terminal 3: Run Playwright
+# Terminal 3: Open browser
+open http://localhost:8080/test-client-scittle-v2.html
+```
+
+**Automated (via Playwright):**
+```bash
 cd dev/scittle-demo
-node playwright-interactive.mjs
+node playwright-client-test.mjs
+```
+
+**Full test suite:**
+```bash
+bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
 ```
 
 ---
 
 ## CRITICAL REMINDERS
 
-### SCI/Scittle Destructuring Bug
+### SCI/Scittle Limitations
 ```clojure
-;; ❌ BROKEN in SCI - causes "nth not supported on this type function"
+;; ❌ BROKEN in SCI - vector destructuring
 (let [[event-id data] msg] ...)
 
 ;; ✅ WORKS in SCI
 (let [event-id (first msg)
       data (second msg)]
   ...)
+
+;; ❌ BROKEN in SCI - namespace-qualified macros
+(trove/log! {...})
+
+;; ✅ WORKS in SCI - referred macros
+(log! {...})  ; with :refer [log!]
 ```
+
+### Scittle Version
+Use `scittle@0.7.28`, not `0.6.21` (has ES6 module issues)
 
 ### BB WebSocket CharBuffer
 ```clojure
@@ -207,11 +177,14 @@ node playwright-interactive.mjs
 ## GIT STATE
 
 ```
-cbbc8a9 Add nbb tests to run_tests.bb + comprehensive README (TAG: v2.0.0)
-392adb8 Update CONTEXT.md with cross-platform test status
-2facaf8 Fix cross-platform test paths + Sente compat CharBuffer fix
-25f8bd4 v2 multiprocess tests + cross-platform tests + client_bb.clj reconnect fix
-44478f6 nbb platform support: server + client modules (TAG: v2.0.0-nbb)
+Uncommitted changes:
+- src/sente_lite/wire_format_v2.cljc (SCI compatibility fixes)
+- src/sente_lite/client_scittle.cljs (log! refer pattern)
+- dev/scittle-demo/test-client-scittle-v2.html (new)
+- dev/scittle-demo/playwright-client-test.mjs (new)
+- dev/scittle-demo/v2-test-server.bb (new)
+- dev/scittle-demo/test-wire-format-v2.html (updated Scittle version)
+- test/scripts/cross_platform/run_all_cross_platform_tests.bb (added Scittle test)
 ```
 
 ---
@@ -222,8 +195,11 @@ cbbc8a9 Add nbb tests to run_tests.bb + comprehensive README (TAG: v2.0.0)
 # Run all tests
 bb run_tests.bb
 
-# Run cross-platform tests
+# Run cross-platform tests (includes Scittle browser)
 bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
+
+# Run Scittle browser test only
+cd dev/scittle-demo && node playwright-client-test.mjs
 
 # Run specific v2 tests
 bb test/scripts/test_v2_client_bb.bb
@@ -235,8 +211,9 @@ cd test/nbb && nbb --classpath ../../src test_server_nbb_module.cljs
 
 ---
 
-## PREVIOUS THREADS
+## NEXT STEPS (Optional)
 
-- T-019b3056-1620-724e-a420-32a7f6248ab5 (this thread - cross-platform fixes)
-- T-019b3036-deeb-7555-8b98-778f6b057782 (multiprocess v2 tests)
-- T-019b300e-da2a-716e-ad2e-b5bcffa01288 (v2 wire format migration)
+1. **Commit changes** - All Scittle browser work is complete and tested
+2. **Tag v2.1.0** - If you want to mark Scittle browser support
+3. **nbb Server <-> Scittle Client** - Could add this cross-platform test
+4. **Documentation** - Update README with Scittle usage examples

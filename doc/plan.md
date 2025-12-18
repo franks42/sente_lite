@@ -1,8 +1,46 @@
 # sente-lite Implementation Plan
 
-**Version:** 1.0
+**Version:** 2.1
 **Created:** 2025-10-24
-**Status:** Active Development Plan
+**Last Updated:** 2025-12-18
+**Status:** v2.1.0 - Scittle Browser Support Complete
+
+---
+
+## Updates Log
+
+### 2025-12-18: v2.1.0 - Scittle Browser Integration Complete 🎉
+
+**Major Milestone:** Browser client tested with Playwright automated tests.
+
+**Changes Made:**
+1. **Fixed SCI/Scittle compatibility in wire_format_v2.cljc:**
+   - Removed vector destructuring (replaced with `first`/`second`/`nth`)
+   - Changed `trove/log!` to `log!` with `:refer [log!]`
+   - Replaced `cljs.reader/read-string` with direct `read-string` (available in SCI)
+
+2. **Fixed client_scittle.cljs:**
+   - Changed `trove/log!` to `log!` with `:refer [log!]`
+
+3. **New test infrastructure:**
+   - `dev/scittle-demo/test-client-scittle-v2.html` - 16 browser tests
+   - `dev/scittle-demo/playwright-client-test.mjs` - Automated Playwright runner
+   - `dev/scittle-demo/v2-test-server.bb` - Simple BB server for testing
+
+4. **Cross-platform test matrix updated:**
+   - Added "BB Server ↔ Scittle Client (browser)" test
+   - All 7 cross-platform tests passing
+
+**Test Results:**
+```
+[PASS] BB Server <-> BB Client (unit test)
+[PASS] BB Server <-> BB Client (multiprocess)
+[PASS] nbb Server <-> nbb Client
+[PASS] BB Server <-> nbb Client
+[PASS] nbb Server <-> BB Client
+[PASS] BB Server <-> Scittle Client (browser) ← NEW
+[PASS] Sente Server <-> BB Client
+```
 
 ---
 
