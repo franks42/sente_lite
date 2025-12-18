@@ -133,12 +133,14 @@
             ;; Handle handshake
             (= event-id event-handshake)
             (let [uid (handle-handshake client-id data)
-                  is-reconnect? (> (:reconnect-count client-state) 0)]
+                  ;; Get current reconnect-count from atom, not captured state
+                  current-reconnect-count (get-in @clients [client-id :reconnect-count] 0)
+                  is-reconnect? (> current-reconnect-count 0)]
               (if is-reconnect?
                 (when-let [on-reconnect (:on-reconnect config)]
                   (trove/log! {:level :trace
                                :id :sente-lite.client/callback-on-reconnect
-                               :data {:client-id client-id :uid uid}})
+                               :data {:client-id client-id :uid uid :reconnect-count current-reconnect-count}})
                   (on-reconnect))
                 (when-let [on-open (:on-open config)]
                   (trove/log! {:level :trace
@@ -187,7 +189,7 @@
                                 :delay-ms delay-ms
                                 :reconnect-count reconnect-count}})
             (future
-              (Thread/sleep delay-ms)
+              (Thread/sleep (long delay-ms))
               (attempt-reconnect! client-id))))))))
 
 (defn- make-on-error [client-id]
@@ -241,8 +243,20 @@
                 next-delay (min (* base-delay (Math/pow 2 new-reconnect-count)) max-delay)]
             (swap! clients assoc-in [client-id :reconnect-delay] next-delay))
 
-          ;; Create new WebSocket
-          (connect-internal! client-id)
+          ;; Create new WebSocket - if it fails (returns nil), schedule retry
+          (let [result (connect-internal! client-id)]
+            (when (nil? result)
+              ;; Connection failed (e.g., server not available) - schedule retry
+              (when (get-in @clients [client-id :reconnect-enabled?])
+                (let [retry-delay (get-in @clients [client-id :reconnect-delay])]
+                  (trove/log! {:level :debug
+                               :id :sente-lite.client/reconnect-retry-scheduled
+                               :data {:client-id client-id
+                                      :retry-delay retry-delay
+                                      :reason :connection-failed}})
+                  (future
+                    (Thread/sleep (long retry-delay))
+                    (attempt-reconnect! client-id))))))
 
           (catch Exception e
             (trove/log! {:level :error
@@ -258,7 +272,7 @@
                              :data {:client-id client-id
                                     :retry-delay retry-delay}})
                 (future
-                  (Thread/sleep retry-delay)
+                  (Thread/sleep (long retry-delay))
                   (attempt-reconnect! client-id))))))))))
 
 ;;; Public API
@@ -291,8 +305,18 @@
     ;; Store client state
     (swap! clients assoc client-id client-state)
 
-    ;; Connect
-    (connect-internal! client-id)
+    ;; Connect - if it fails and auto-reconnect is enabled, schedule retry
+    (let [result (connect-internal! client-id)]
+      (when (and (nil? result)
+                 (:reconnect-enabled? client-state))
+        (let [delay-ms (:reconnect-delay client-state)]
+          (trove/log! {:level :debug
+                       :id :sente-lite.client/initial-connect-failed-scheduling-retry
+                       :data {:client-id client-id
+                              :retry-delay delay-ms}})
+          (future
+            (Thread/sleep delay-ms)
+            (attempt-reconnect! client-id)))))
 
     (trove/log! {:level :trace
                  :id :sente-lite.client/created

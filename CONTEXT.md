@@ -1,14 +1,14 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-12-17 (Session - v2 Wire Format Migration)
+**Last Updated**: 2025-12-17 (Session - Multiprocess v2 Tests)
 
 ## CURRENT STATUS
 
 **Last Commit**: `44478f6` - "nbb platform support: server + client modules"
 **Tag**: `v2.0.0-nbb`
-**Branch**: `main` - clean working tree
-**Current Task**: Porting multiprocess tests to v2 (IN PROGRESS)
+**Branch**: `main` - working tree has changes (client_bb.clj fix + new tests)
+**Current Task**: Multiprocess v2 tests - COMPLETED
 
 ### What Was Accomplished This Session (2025-12-17)
 
@@ -73,38 +73,31 @@ Browser       | (N/A)            | client_scittle.cljs | pending Scittle test
 - `test/nbb/test_ws_basic.cljs` - ws module exploration
 - `test/nbb/test_browser_api.cljs` - browser API test
 
-**Multiprocess v2 (IN PROGRESS):**
+**Multiprocess v2 (COMPLETED):**
 - `test/scripts/multiprocess_v2/mp_server_v2.bb` - v2 server for mp tests
 - `test/scripts/multiprocess_v2/mp_client_v2.bb` - v2 client using client_bb.clj
+- `test/scripts/multiprocess_v2/mp_server_reconnect_v2.bb` - fixed port server for reconnect tests
+- `test/scripts/multiprocess_v2/mp_client_reconnect_v2.bb` - reconnect client with callbacks
+- `test/scripts/multiprocess_v2/mp_client_stress_v2.bb` - stress test client
+- `test/scripts/multiprocess_v2/01_basic_v2.bb` - basic multi-process test ✅
+- `test/scripts/multiprocess_v2/02_reconnection_v2.bb` - reconnection test ✅  
+- `test/scripts/multiprocess_v2/03_stress_v2.bb` - stress test ✅
 
-### Current Work: Multiprocess Test Porting
+### Multiprocess v2 Tests - COMPLETED
 
-**Status:** IN PROGRESS - basic infrastructure created
+**All 3 v2 multiprocess tests pass:**
+- 01_basic_v2.bb - 2 clients, basic pub/sub
+- 02_reconnection_v2.bb - server restart, client auto-reconnect
+- 03_stress_v2.bb - 10 clients, 100 messages, ~30 msg/sec throughput
 
-**What exists (v1 - still works but uses JSON format):**
-- `test/scripts/multiprocess/01_basic_multiprocess.bb`
-- `test/scripts/multiprocess/02_ephemeral_reconnection.bb`
-- `test/scripts/multiprocess/03_reconnection.bb`
-- `test/scripts/multiprocess/04_concurrent_startup.bb`
-- `test/scripts/multiprocess/05_process_failure.bb`
-- `test/scripts/multiprocess/06_stress_test.bb`
-
-These use `ws_client_managed.clj` with JSON format and `{:type ...}` messages.
-
-**What needs to be created (v2):**
-- Port all 6 tests to use `client_bb.clj` with EDN/v2 format
-- Created `multiprocess_v2/` directory with:
-  - `mp_server_v2.bb` ✓
-  - `mp_client_v2.bb` ✓
-  - Need: `01_basic_v2.bb`, stress tests, reconnection tests
-
-**Approach:** Rewrite using client_bb.clj (not just port)
+**Bug Fixed in client_bb.clj:**
+- `Thread/sleep` requires `long` argument, not double from exponential backoff calculation
+- Fixed: `(Thread/sleep (long retry-delay))` in all retry futures
+- Also fixed reconnect-count check to read from atom, not captured closure state
 
 ### TODO List (Remaining)
 
-1. ⏳ Port multiprocess tests to v2 (IN PROGRESS)
-   - Created mp_server_v2.bb, mp_client_v2.bb
-   - Need: 01_basic_v2.bb, stress tests, reconnection tests
+1. ✅ Port multiprocess tests to v2 - COMPLETED (3 tests passing)
 2. ⬜ Add nbb tests to official test suite
 3. ⬜ Document nbb as supported platform
 4. ⬜ Test browser client in actual Scittle (SCI limitations!)
