@@ -1,9 +1,9 @@
 (ns sente-lite.server-nbb
-  "WebSocket server for nbb (Node Babashka) with Sente-compatible v2 wire format.
+  "WebSocket server for nbb (Node Babashka) with Sente-compatible wire format.
 
   Provides sente-like API for nbb/Node.js environments:
   - Uses 'ws' npm package (WebSocketServer)
-  - Sente-compatible v2 wire format: [event-id data]
+  - Sente-compatible wire format: [event-id data]
   - Channel/pub-sub support
   - Heartbeat with ping/pong
 
@@ -18,7 +18,7 @@
             [taoensso.trove :as trove]))
 
 ;; ============================================================================
-;; v2 Event IDs (Sente-compatible)
+;; Event IDs (Sente-compatible)
 ;; ============================================================================
 
 (def ^:const event-handshake :chsk/handshake)
@@ -331,7 +331,7 @@
                   (- (.now js/Date) (:start-time state)))}))
 
 (defn broadcast-message!
-  "Send a v2 event to all connected clients."
+  "Send an event to all connected clients."
   [event]
   (let [sent (atom 0)]
     (doseq [[ws _] @connections]
@@ -340,7 +340,7 @@
     @sent))
 
 (defn send-to-connection!
-  "Send a v2 event to a specific connection by conn-id."
+  "Send an event to a specific connection by conn-id."
   [conn-id event]
   (when-let [ws (get @connection-index conn-id)]
     (send-event! ws event)))

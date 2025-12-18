@@ -1,9 +1,9 @@
 (ns sente-lite.client-bb
-  "Lightweight WebSocket client for Babashka with Sente-compatible v2 wire format.
+  "Lightweight WebSocket client for Babashka with Sente-compatible wire format.
 
   Provides sente-like API for BB environments:
   - Uses babashka.http-client.websocket
-  - Sente-compatible v2 wire format: [event-id data]
+  - Sente-compatible wire format: [event-id data]
   - Simple callback-based API (no core.async)
   - Automatic reconnection with backoff
 
@@ -23,7 +23,7 @@
             [clojure.edn :as edn]
             [taoensso.trove :as trove]))
 
-;; v2 event IDs (Sente-compatible)
+;; Event IDs (Sente-compatible)
 (def ^:const event-handshake :chsk/handshake)
 (def ^:const event-ws-ping :chsk/ws-ping)
 (def ^:const event-ws-pong :chsk/ws-pong)
@@ -60,7 +60,7 @@
 ;; Must convert with (str raw-data) before parsing.
 
 (defn- parse-message
-  "Parse message - expects EDN v2 format [event-id data]"
+  "Parse message - expects EDN event vector format [event-id data]"
   [raw-data]
   (try
     (let [data-str (str raw-data)  ; CharBuffer → String (required for BB websocket)
@@ -326,7 +326,7 @@
     client-id))
 
 (defn send!
-  "Send message through client. Message should be a v2 event vector [event-id data].
+  "Send message through client. Message should be an event vector [event-id data].
 
   Example:
     (send! client [:my/event {:data \"value\"}])"
@@ -422,7 +422,7 @@
                    :data {:client-id client-id}})
       false)))
 
-;;; Channel/Pub-Sub API (v2 format)
+;;; Channel/Pub-Sub API (event vector format)
 
 (defn subscribe!
   "Subscribe to a channel. Returns true if message was sent.

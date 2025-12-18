@@ -88,7 +88,7 @@
   #?(:bb (json/generate-string data)
      :clj (json/write-str data)))
 
-;; Message handling with v2 wire format
+;; Message handling with wire format
 (defn- get-format-spec
   "Get the wire format spec keyword from config (:edn, :json, :transit-json)"
   [config]
@@ -116,7 +116,7 @@
       nil)))
 
 (defn- send-event!
-  "Send a v2 event vector to a channel"
+  "Send an event vector to a channel"
   [channel event format-spec]
   (try
     (let [wire-data (wf/serialize event format-spec)]
@@ -140,10 +140,10 @@
 ;; Forward declarations
 (declare broadcast-to-channel!)
 
-;; Message routing and handling (v2 event-based)
+;; Message routing and handling (event-based)
 (defn- route-message
   "Route an event map {:event-id ... :data ... :cb-uuid ...} to handler.
-   Returns either a v2 event vector or nil (no response needed)."
+   Returns either an event vector or nil (no response needed)."
   [conn-id {:keys [event-id data cb-uuid]} config]
   (trove/log! {:level :trace
                :id :sente-lite.server/msg-routing
@@ -201,7 +201,7 @@
                        :timestamp (System/currentTimeMillis)}]))
 
 (defn- send-to-connection!
-  "Send a v2 event to a specific connection by conn-id"
+  "Send an event to a specific connection by conn-id"
   [conn-id event format-spec]
   (when-let [channel (get @connection-index conn-id)]
     (send-event! channel event format-spec)))
@@ -228,7 +228,7 @@
                                 :time-since-pong-ms time-since-pong
                                 :timeout-ms timeout-ms}})
             (swap! dead-conns conj [channel conn-id]))
-          ;; Connection alive - send ping (v2 format)
+          ;; Connection alive - send ping (event vector format)
           (send-event! channel (wf/make-ws-ping) format-spec))))
 
     ;; Close dead connections
@@ -504,7 +504,7 @@
      :telemetry {}}))
 
 (defn broadcast-message!
-  "Send a v2 event to all connected clients"
+  "Send an event to all connected clients"
   [event]
   (trove/log! {:level :debug
                :id :sente-lite.server/broadcast-start
@@ -525,7 +525,7 @@
 
 ;; Channel integration functions
 (defn broadcast-to-channel!
-  "Broadcast a message to all subscribers of a channel using v2 format"
+  "Broadcast a message to all subscribers of a channel using event vector format"
   [channel-id message-data from-conn-id]
   (let [channel-info (channels/get-channel-info channel-id)]
     (if channel-info
@@ -556,7 +556,7 @@
         0))))
 
 (defn send-event-to-connection!
-  "Send a v2 event directly to a connection (exposed for external use)"
+  "Send an event directly to a connection (exposed for external use)"
   [conn-id event]
   (let [format-spec (get-format-spec (:config @server-state))]
     (send-to-connection! conn-id event format-spec)))

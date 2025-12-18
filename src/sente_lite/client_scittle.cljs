@@ -1,9 +1,9 @@
 (ns sente-lite.client-scittle
-  "Lightweight WebSocket client for Scittle/browser with Sente-compatible v2 wire format.
+  "Lightweight WebSocket client for Scittle/browser with Sente-compatible wire format.
 
   Provides sente-like API for browser environments:
   - Native WebSocket (no dependencies)
-  - Sente-compatible v2 wire format: [event-id data]
+  - Sente-compatible wire format: [event-id data]
   - Simple callback-based API (no core.async)
   - Automatic reconnection with backoff
 
@@ -23,7 +23,7 @@
   NOTE: SCI/Scittle requires macros to be referred directly, not namespace-qualified."
   (:require [taoensso.trove :as trove :refer [log!]]))
 
-;; v2 event IDs (Sente-compatible)
+;; Event IDs (Sente-compatible)
 (def ^:const event-handshake :chsk/handshake)
 (def ^:const event-ws-ping :chsk/ws-ping)
 (def ^:const event-ws-pong :chsk/ws-pong)
@@ -72,7 +72,7 @@
     ))
 
 (defn- parse-message
-  "Parse message - expects EDN v2 format [event-id data]"
+  "Parse message - expects EDN event vector format [event-id data]"
   [raw-data]
   (try
     #_{:clj-kondo/ignore [:unresolved-symbol]}
@@ -89,7 +89,7 @@
       {:error :parse-failed :raw raw-data})))
 
 (defn- send-raw!
-  "Send a v2 event vector directly"
+  "Send an event vector directly"
   [ws event]
   (.send ws (pr-str event)))
 
@@ -393,7 +393,7 @@
              :data {:client-id client-id}})
       false)))
 
-;;; Channel/Pub-Sub API (v2 format)
+;;; Channel/Pub-Sub API (event vector format)
 
 (defn subscribe!
   "Subscribe to a channel. Returns true if message was sent.

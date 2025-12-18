@@ -58,7 +58,7 @@
   ([event-id]
    (encode-event event-id nil))
   ([event-id data]
-   (log! {:level :trace :id :sente-lite.v2/encode-event
+   (log! {:level :trace :id :sente-lite.wire-format/encode-event
           :data {:event-id event-id :has-data (some? data)}})
    [event-id data]))
 
@@ -68,7 +68,7 @@
   ([event-id data]
    (encode-event-with-callback event-id data (generate-cb-uuid)))
   ([event-id data cb-uuid]
-   (log! {:level :debug :id :sente-lite.v2/encode-with-cb
+   (log! {:level :debug :id :sente-lite.wire-format/encode-with-cb
           :data {:event-id event-id :cb-uuid cb-uuid}})
    [[event-id data] cb-uuid]))
 
@@ -127,9 +127,9 @@
           :else
           {:error :invalid-format :raw wire-data})]
     (if (:error result)
-      (log! {:level :warn :id :sente-lite.v2/decode-error
+      (log! {:level :warn :id :sente-lite.wire-format/decode-error
              :data {:error (:error result)}})
-      (log! {:level :trace :id :sente-lite.v2/decode-event
+      (log! {:level :trace :id :sente-lite.wire-format/decode-event
              :data {:event-id (:event-id result)
                     :has-cb (some? (:cb-uuid result))}}))
     result))
@@ -142,7 +142,7 @@
   "Create a handshake event.
    Returns: [:chsk/handshake [uid csrf-token handshake-data first?]]"
   [uid csrf-token handshake-data first?]
-  (log! {:level :info :id :sente-lite.v2/handshake-created
+  (log! {:level :info :id :sente-lite.wire-format/handshake-created
          :data {:uid uid :first? first?}})
   [event-handshake [uid csrf-token handshake-data first?]])
 
@@ -322,7 +322,7 @@
   [wire-data]
   (if (buffered-events? wire-data)
     (do
-      (log! {:level :trace :id :sente-lite.v2/unwrap-buffered
+      (log! {:level :trace :id :sente-lite.wire-format/unwrap-buffered
              :data {:count (count wire-data)}})
       wire-data)
     [wire-data]))
@@ -353,7 +353,7 @@
   (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
                          (wire/serialize wire-format event))
                   :cljs (pr-str event))]
-    (log! {:level :trace :id :sente-lite.v2/serialize
+    (log! {:level :trace :id :sente-lite.wire-format/serialize
            :data {:format format-spec :size (count (str result))}})
     result))
 
@@ -366,7 +366,7 @@
   (let [result #?(:clj (let [wire-format (wire/get-format format-spec)]
                          (wire/deserialize wire-format raw-message))
                   :cljs (read-string raw-message))]
-    (log! {:level :trace :id :sente-lite.v2/deserialize
+    (log! {:level :trace :id :sente-lite.wire-format/deserialize
            :data {:format format-spec :input-size (count raw-message)}})
     result))
 
@@ -375,7 +375,7 @@
    Returns decoded event map."
   [raw-message format-spec]
   (let [version (detect-wire-version raw-message)]
-    (log! {:level :trace :id :sente-lite.v2/parse
+    (log! {:level :trace :id :sente-lite.wire-format/parse
            :data {:version version :preview (subs raw-message 0 (min 50 (count raw-message)))}})
     (case version
       :v2
@@ -386,7 +386,7 @@
 
       :v1
       (do
-        (log! {:level :error :id :sente-lite.v2/v1-format-rejected
+        (log! {:level :error :id :sente-lite.wire-format/v1-format-rejected
                :data {:message "v1 wire format is not supported - use v2 format"}})
         {:error :v1-format-not-supported
          :message "v1 wire format (map-based) is deprecated. Use v2 format (vector-based)."
@@ -445,7 +445,7 @@
           :registered-at #?(:clj (System/currentTimeMillis)
                             :cljs (.now js/Date))
           :timeout-ms timeout-ms})
-  (log! {:level :debug :id :sente-lite.v2/cb-registered
+  (log! {:level :debug :id :sente-lite.wire-format/cb-registered
          :data {:cb-uuid cb-uuid :timeout-ms timeout-ms}})
   cb-uuid)
 
@@ -455,13 +455,13 @@
   [cb-uuid data]
   (when-let [{:keys [callback]} (get @callback-registry cb-uuid)]
     (swap! callback-registry dissoc cb-uuid)
-    (log! {:level :debug :id :sente-lite.v2/cb-invoked
+    (log! {:level :debug :id :sente-lite.wire-format/cb-invoked
            :data {:cb-uuid cb-uuid}})
     (try
       (callback data)
       true
       (catch #?(:clj Exception :cljs :default) e
-        (log! {:level :error :id :sente-lite.v2/cb-error
+        (log! {:level :error :id :sente-lite.wire-format/cb-error
                :data {:cb-uuid cb-uuid :error e}})
         false))))
 
@@ -480,7 +480,7 @@
     (doseq [entry expired]
       (let [cb-uuid (key entry)]
         (swap! callback-registry dissoc cb-uuid)
-        (log! {:level :warn :id :sente-lite.v2/cb-expired
+        (log! {:level :warn :id :sente-lite.wire-format/cb-expired
                :data {:cb-uuid cb-uuid}})))
     (count expired)))
 
