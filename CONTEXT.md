@@ -114,12 +114,39 @@ Update `test/scripts/cross_platform/run_all_cross_platform_tests.bb` to include:
 
 ---
 
+## TROVE-SCITTLE FORK (IMPORTANT!)
+
+For Scittle/SCI compatibility, use the **trove-scittle fork** instead of vendored files:
+
+**Repository:** https://github.com/franks42/trove-scittle (branch: `scittle`)
+**Tag:** `v1.1.0-scittle`
+
+**CDN URLs (use these in Scittle HTML):**
+```html
+<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+<script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc" type="application/x-scittle"></script>
+```
+
+**Usage in Scittle code:**
+```clojure
+(ns my-app
+  (:require [taoensso.trove :as trove :refer [log!]]))
+
+;; IMPORTANT: SCI requires macros with :refer - namespace-qualified calls don't work!
+(log! {:level :info :id :my-app/started :data {:foo "bar"}})
+```
+
+**Why the fork?** SCI doesn't expose `cljs.core/Cons`, so the upstream Trove fails. The fork adds a `:scittle` reader conditional workaround.
+
+---
+
 ## INFRASTRUCTURE AVAILABLE
 
 ### dev/scittle-demo/
 ```
 dev/scittle-demo/
-├── taoensso/trove.cljs          # Vendored Trove for Scittle
+├── taoensso/trove.cljs          # OLD vendored Trove - USE CDN INSTEAD
 ├── test-wire-format-v2.html     # Example: loading .cljc in Scittle
 ├── playwright-interactive.mjs   # Existing Playwright script
 ├── static-server.bb             # Static file server
