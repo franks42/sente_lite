@@ -6,7 +6,7 @@
 
 (require '[sente-lite.server :as server])
 
-(println "Starting sente-lite v2 server on port 9090...")
+(println "Starting sente-lite server on port 9090...")
 (server/start-server! {:port 9090 :wire-format :edn :heartbeat {:enabled false}})
 (println "Server running. Press Ctrl+C to stop.")
 

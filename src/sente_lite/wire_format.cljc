@@ -276,7 +276,7 @@
 ;; ============================================================================
 
 (defn detect-wire-version
-  "Detect if raw message is v1 (map) or v2 (vector)"
+  "Detect if raw message is legacy map format or vector event format"
   [raw-message]
   (cond
     (nil? raw-message)
@@ -288,11 +288,11 @@
     (str/blank? raw-message)
     :unknown
 
-    ;; v2: starts with [ (vector/event)
+    ;; Vector/event format: starts with [
     (str/starts-with? raw-message "[")
     :v2
 
-    ;; v1: starts with { (map)
+    ;; Legacy map format: starts with {
     (str/starts-with? raw-message "{")
     :v1
 
@@ -387,9 +387,9 @@
       :v1
       (do
         (log! {:level :error :id :sente-lite.wire-format/v1-format-rejected
-               :data {:message "v1 wire format is not supported - use v2 format"}})
+               :data {:message "v1 wire format is not supported - use vector event format"}})
         {:error :v1-format-not-supported
-         :message "v1 wire format (map-based) is deprecated. Use v2 format (vector-based)."
+         :message "v1 wire format (map-based) is deprecated. Use vector-based event format."
          :raw raw-message})
 
       {:error :unknown-version :raw raw-message})))

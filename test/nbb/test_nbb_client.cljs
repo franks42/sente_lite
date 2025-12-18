@@ -1,16 +1,16 @@
-(ns test-v2-nbb-client
+(ns test-nbb-client
   "Test nbb client connecting to sente-lite BB server.
    Run the server first: bb -e '(require [sente-lite.server :as s]) (s/start-server! {:port 8080})'"
   (:require ["ws" :as ws-mod]
             [clojure.edn :as edn]))
 
-(println "=== Test: nbb v2 Client -> sente-lite BB Server ===")
+(println "=== Test: nbb Client -> sente-lite BB Server ===")
 (println)
 
 ;; Get WebSocket constructor from ws module
 (def WebSocket (.-WebSocket ws-mod))
 
-;; v2 event IDs
+;; Event IDs
 (def event-handshake :chsk/handshake)
 (def event-ws-ping :chsk/ws-ping)
 (def event-ws-pong :chsk/ws-pong)

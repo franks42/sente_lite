@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;;
 ;; Test: sente-lite (BB) client connecting to real Sente (JVM) server
-;; This validates that our v2 client implementation is Sente-compatible.
+;; This validates that our client implementation is Sente-compatible.
 ;;
 ;; Usage:
 ;;   1. Start the Sente server: clj -M:server 8090
@@ -23,7 +23,7 @@
 (def server-port 8090)
 (def client-id (str "bb-client-" (System/currentTimeMillis)))
 
-;; v2 event IDs (matching client_scittle.cljs)
+;; Event IDs (matching client_scittle.cljs)
 (def event-handshake :chsk/handshake)
 (def event-ws-ping :chsk/ws-ping)
 (def event-ws-pong :chsk/ws-pong)
@@ -33,7 +33,7 @@
 (def handshake-received (promise))
 (def test-echo-received (promise))
 
-;; Parse v2 message
+;; Parse message
 ;; IMPORTANT: BB websocket passes java.nio.HeapCharBuffer, NOT String
 ;; Must convert with (str raw-data) before parsing
 ;; Sente wraps events in buffered format: [[event1] [event2] ...]

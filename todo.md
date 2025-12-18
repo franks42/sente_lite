@@ -3,7 +3,7 @@
 ## Completed (v2.1.0)
 
 ### v2.1.0 - Scittle Browser Client (2025-12-18)
-- [x] Fix SCI/Scittle compatibility in wire_format_v2.cljc
+- [x] Fix SCI/Scittle compatibility in wire_format.cljc
 - [x] Fix vector destructuring (use first/second/nth)
 - [x] Fix macro usage (trove/log! → log! with :refer)
 - [x] Fix cljs.reader import (use read-string directly)
@@ -14,7 +14,7 @@
 - [x] Tag and release v2.1.0
 
 ### v2.0.0 - Wire Format & Cross-Platform (2025-12-11)
-- [x] Sente-compatible v2 wire format
+- [x] Sente-compatible wire format
 - [x] nbb server + client support
 - [x] Cross-platform test matrix (BB, nbb)
 - [x] Sente JVM server interop (BB client)

@@ -4,8 +4,8 @@
 
 - **Repository:** `sente-lite`
 - **Branch:** `main`
-- **Assumption:** Current `main` matches what docs refer to as `v2.0.0`.
-- **Goal:** Treat the current implementation as the **first and only Sente-compatible communication implementation** (remove “v2 wire format” framing), while preserving older/experimental work (scaling + binary/multiplexing) in a separate directory.
+- **Assumption:** Current `main` reflects the latest tagged release line (e.g. `v2.2.x`).
+- **Goal:** Treat the current implementation as the **first and only Sente-compatible communication implementation** (remove “wire format version” framing), while preserving older/experimental work (scaling + binary/multiplexing) in a separate directory.
 
 ## What sente-lite does
 
@@ -82,7 +82,7 @@ Primary tasks (top-level `bb.edn`):
 `bb test` currently runs:
 
 1. **Unit:** `taoensso.trove-tests`
-2. **Integration:** multi-process script (currently named with “v2”)
+2. **Integration:** multi-process script
 3. **nbb tests:** executed if `test/nbb/node_modules/ws` exists
 
 Browser/Scittle tests live in `dev/scittle-demo/` and include Playwright automation.
@@ -98,15 +98,15 @@ Browser/Scittle tests live in `dev/scittle-demo/` and include Playwright automat
 
 ## Risks / cleanup items observed
 
-- Naming still heavily uses “v2” in files/tests/docs, despite being the canonical implementation.
+- Naming still heavily uses legacy “versioned wire format” framing in files/tests/docs, despite being the canonical implementation.
 - Legacy/experimental code paths (e.g. multiplexers, alternate serialization) should be separated so they do not complicate the canonical implementation.
 - Large log artifacts may exist in the repo and should be ignored/rotated.
 
 ## Agreed roadmap (high level)
 
-### Phase 1: Canonicalization (“remove v2” framing) + archive legacy work
+### Phase 1: Canonicalization (“remove versioned framing”) + archive legacy work
 
-- Remove “v2 wire format” wording from docs and tests.
+- Remove “wire format version” wording from docs and tests.
 - Rename/relocate canonical wire module so it is the only Sente-compatible implementation.
 - Move legacy/scaling/binary/multiplexer-related code into a separate directory (not on main classpath).
 - Add TODOs to port desired scaling/binary features into canonical implementation.
@@ -125,5 +125,5 @@ Browser/Scittle tests live in `dev/scittle-demo/` and include Playwright automat
 
 ## Versioning strategy
 
-- Keep release tags as-is (e.g. `v2.0.0`, `v2.0.1`), but remove “v2 wire format” language.
+- Keep release tags as-is (e.g. `v2.0.0`, `v2.0.1`), but remove “wire format version” language.
 - Patch releases for hardening/cleanup; minor releases for feature/compat expansions.

@@ -8,7 +8,7 @@
 
 (def WebSocketServer (.-WebSocketServer ws-mod))
 
-;; v2 event IDs
+;; Event IDs
 (def event-handshake :chsk/handshake)
 (def event-ws-ping :chsk/ws-ping)
 (def event-ws-pong :chsk/ws-pong)

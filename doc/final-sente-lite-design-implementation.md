@@ -786,7 +786,7 @@ Based on this recommendation:
 ### Example 3: Protocol version mismatch
 
 ```clojure
-;; Server (protocol v2) sends handshake
+;; Server (protocol version 2) sends handshake
 [:chsk/handshake
  ["user-789" nil
   {:capabilities {:protocol-version 2}}
@@ -1003,7 +1003,7 @@ Users can add custom capabilities via `:extensions`:
    {:features #{:heartbeat :pub-sub}
     :extensions {:custom-auth :oauth2
                 :custom-feature-x true
-                :api-version "v2"
+                :api-version "2"
                 :supported-languages ["en" "es" "fr"]}}})
 
 ;; Client checks for it
@@ -1018,9 +1018,9 @@ Users can add custom capabilities via `:extensions`:
            (enable-oauth2-flow! client-id))
 
          ;; Check API version
-         (when-not (= (:api-version extensions) "v2")
+         (when-not (= (:api-version extensions) "2")
            (log/warn "Server API version mismatch"
-                     {:expected "v2" :actual (:api-version extensions)}))
+                     {:expected "2" :actual (:api-version extensions)}))
 
          ;; Pick language
          (let [langs (:supported-languages extensions)

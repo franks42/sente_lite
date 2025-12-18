@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;;
 ;; Test: Real Sente (JVM) client connecting to sente-lite (BB) server
-;; This validates that our v2 server implementation is Sente-compatible.
+;; This validates that our server implementation is Sente-compatible.
 ;;
 
 (require '[babashka.classpath :as cp])
@@ -17,7 +17,7 @@
 ;; Start sente-lite server on a known port
 (def test-port 8090)
 
-(println "1. Starting sente-lite v2 server on port" test-port)
+(println "1. Starting sente-lite server on port" test-port)
 
 ;; Need to handle the /chsk WebSocket path that Sente clients expect
 ;; For now, our server accepts WebSocket on any path

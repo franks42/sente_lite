@@ -5,12 +5,12 @@
 
 ## CURRENT STATUS
 
-**Last Commit**: Pending - Scittle browser integration complete
-**Tag**: `v2.0.0` - Full v2 release, all platforms working
+**Last Commit**: `v2.2.2` - Canonical wire format + legacy archival + naming cleanup
+**Tag**: `v2.2.2`
 **Branch**: `main`
 **Status**: ✅ **SCITTLE BROWSER TESTING COMPLETE**
 
-## WHAT'S WORKING (v2.0.0 + Scittle)
+## WHAT'S WORKING
 
 All cross-platform tests pass (7 total):
 ```
@@ -39,9 +39,9 @@ src/sente_lite/
 ├── server_nbb.cljs       # nbb server (ws package)
 ├── client_bb.clj         # BB client
 ├── client_scittle.cljs   # Browser/nbb client ✅ TESTED IN BROWSER
-├── wire_format_v2.cljc   # Sente-compatible v2 format (SCI-compatible)
 ├── channels.cljc         # Pub/sub channel management
-└── wire_format.cljc      # Serialization (EDN/JSON/Transit)
+├── wire_format.cljc      # Sente-compatible wire format (SCI-compatible)
+└── serialization.cljc    # Pluggable serialization (EDN/JSON/Transit)
 ```
 
 ---
@@ -55,7 +55,7 @@ SCI/Scittle requires macros to be referred directly, not namespace-qualified.
 **After:** `(log! {...})` with `(:require [taoensso.trove :refer [log!]])`
 
 Files changed:
-- `src/sente_lite/wire_format_v2.cljc`
+- `src/sente_lite/wire_format.cljc`
 - `src/sente_lite/client_scittle.cljs`
 
 ### 2. Fixed Vector Destructuring
@@ -72,7 +72,7 @@ SCI does NOT support vector destructuring in let bindings or function params.
  :csrf-token (second data)}
 ```
 
-File changed: `src/sente_lite/wire_format_v2.cljc`
+File changed: `src/sente_lite/wire_format.cljc`
 
 ### 3. Fixed cljs.reader Import
 Scittle doesn't have `cljs.reader` - use `read-string` directly.
@@ -101,10 +101,10 @@ Scittle 0.6.21 has ES6 module issues. Use 0.7.28.
 ### Browser Test Files
 ```
 dev/scittle-demo/
-├── test-client-scittle-v2.html    # Browser test page (16 tests)
+├── test-client-scittle.html       # Browser test page (16 tests)
 ├── playwright-client-test.mjs     # Automated Playwright test
-├── v2-test-server.bb              # Simple BB server for testing
-└── test-wire-format-v2.html       # Updated to Scittle 0.7.28
+├── test-server.bb                 # Simple BB server for testing
+└── test-wire-format.html          # Updated to Scittle 0.7.28
 ```
 
 ### Running Browser Tests
@@ -113,13 +113,13 @@ dev/scittle-demo/
 ```bash
 # Terminal 1: Start server
 cd dev/scittle-demo
-bb v2-test-server.bb
+bb test-server.bb
 
 # Terminal 2: Start static server
 bb static-server.bb
 
 # Terminal 3: Open browser
-open http://localhost:8080/test-client-scittle-v2.html
+open http://localhost:8080/test-client-scittle.html
 ```
 
 **Automated (via Playwright):**
@@ -163,28 +163,13 @@ Use `scittle@0.7.28`, not `0.6.21` (has ES6 module issues)
 ;; Always convert: (str raw-data) before parsing
 ```
 
-### v2 Wire Format
+### Wire Format
 ```clojure
 ;; Events are vectors, not maps
 [:event-id {:data "here"}]
 
 ;; NOT the old v1 format
 {:type :event-id :data "here"}  ; ❌ OLD
-```
-
----
-
-## GIT STATE
-
-```
-Uncommitted changes:
-- src/sente_lite/wire_format_v2.cljc (SCI compatibility fixes)
-- src/sente_lite/client_scittle.cljs (log! refer pattern)
-- dev/scittle-demo/test-client-scittle-v2.html (new)
-- dev/scittle-demo/playwright-client-test.mjs (new)
-- dev/scittle-demo/v2-test-server.bb (new)
-- dev/scittle-demo/test-wire-format-v2.html (updated Scittle version)
-- test/scripts/cross_platform/run_all_cross_platform_tests.bb (added Scittle test)
 ```
 
 ---
@@ -201,7 +186,7 @@ bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
 # Run Scittle browser test only
 cd dev/scittle-demo && node playwright-client-test.mjs
 
-# Run specific v2 tests
+# Run specific tests
 bb test/scripts/test_client_bb.bb
 bb test/scripts/multiprocess/01_basic.bb
 

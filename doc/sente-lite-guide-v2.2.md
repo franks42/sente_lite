@@ -1658,7 +1658,7 @@ For Babashka-to-Babashka communication, both client and server use `babashka.htt
 
 ## Conclusion
 
-**sente-lite v2.0** provides a **complete WebSocket solution** across the entire Clojure/ClojureScript ecosystem:
+**sente-lite** provides a **complete WebSocket solution** across the entire Clojure/ClojureScript ecosystem:
 
 ### ✅ **Universal Coverage**
 - **Babashka** (JVM bytecode, fast startup) - Client & Server

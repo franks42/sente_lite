@@ -164,11 +164,11 @@
 ;; ============================================================================
 
 (deftest detect-wire-version-test
-  (testing "Detect v2 (vector)"
+  (testing "Detect vector event format"
     (is (= :v2 (wf/detect-wire-version "[:my-app/hello {:msg \"hi\"}]")))
     (is (= :v2 (wf/detect-wire-version "[[:my-app/get {:id 1}] \"cb-123\"]"))))
 
-  (testing "Detect v1 (map)"
+  (testing "Detect map format"
     (is (= :v1 (wf/detect-wire-version "{:type \"ping\"}")))
     (is (= :v1 (wf/detect-wire-version "{\"type\":\"ping\"}"))))
 

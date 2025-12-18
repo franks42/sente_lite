@@ -14,7 +14,7 @@
 **Major Milestone:** Browser client tested with Playwright automated tests.
 
 **Changes Made:**
-1. **Fixed SCI/Scittle compatibility in wire_format_v2.cljc:**
+1. **Fixed SCI/Scittle compatibility in wire_format.cljc:**
    - Removed vector destructuring (replaced with `first`/`second`/`nth`)
    - Changed `trove/log!` to `log!` with `:refer [log!]`
    - Replaced `cljs.reader/read-string` with direct `read-string` (available in SCI)
@@ -23,9 +23,9 @@
    - Changed `trove/log!` to `log!` with `:refer [log!]`
 
 3. **New test infrastructure:**
-   - `dev/scittle-demo/test-client-scittle-v2.html` - 16 browser tests
+   - `dev/scittle-demo/test-client-scittle.html` - 16 browser tests
    - `dev/scittle-demo/playwright-client-test.mjs` - Automated Playwright runner
-   - `dev/scittle-demo/v2-test-server.bb` - Simple BB server for testing
+   - `dev/scittle-demo/test-server.bb` - Simple BB server for testing
 
 4. **Cross-platform test matrix updated:**
    - Added "BB Server ↔ Scittle Client (browser)" test

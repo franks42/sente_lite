@@ -3,7 +3,7 @@
  * Playwright automated test for sente-lite client_scittle.cljs
  * 
  * This script:
- * 1. Starts the BB v2 test server
+ * 1. Starts the BB test server
  * 2. Starts a static file server for HTML
  * 3. Launches Playwright browser
  * 4. Runs the client tests

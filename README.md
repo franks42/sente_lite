@@ -5,7 +5,7 @@ A lightweight WebSocket library for Clojure environments where Sente can't run: 
 ## Features
 
 - **~85% Sente API compatibility** - Easy migration path
-- **Sente-compatible v2 wire format** - `[event-id data]` vectors
+- **Sente-compatible wire format** - `[event-id data]` vectors
 - **Multi-platform support** - BB, nbb, Scittle/Browser, JVM Clojure
 - **No core.async required** - Callback-based API
 - **Built-in pub/sub** - Channel subscription and publishing
@@ -177,7 +177,7 @@ nbb --classpath path/to/sente-lite/src your-script.cljs
 
 ## Wire Format
 
-sente-lite uses Sente-compatible v2 wire format:
+sente-lite uses Sente-compatible wire format:
 
 ```clojure
 ;; Simple event
@@ -246,7 +246,7 @@ node playwright-client-test.mjs
 ## Version History
 
 - **v2.1.0** - Scittle browser client tested with Playwright (Dec 2025)
-- **v2.0.0** - Full v2 wire format, nbb support, cross-platform tests (Dec 2025)
+- **v2.0.0** - Full Sente-compatible wire format, nbb support, cross-platform tests (Dec 2025)
 
 ## License
 

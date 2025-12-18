@@ -27,8 +27,8 @@
 (deftest basics
   [(is (= (with-backend (trove/log! {}))         ["taoensso.trove-tests" [28 25] :info nil                      nil]))
    (is (= (with-backend (trove/log! {:id ::id})) ["taoensso.trove-tests" [29 25] :info :taoensso.trove-tests/id nil]))
-   (is (= (with-backend (trove/log! {:ns "ns", :coords [12 34], :data {:k1 :v1}, :k2 :v2}))
-          ["ns" [12 34] :info nil {:data {:k1 :v1}, :kvs {:k2 :v2}}]))
+   (is (= (with-backend (trove/log! {:ns "ns", :coords [12 34], :data {:k1 :v1}, :k2 :v-two}))
+          ["ns" [12 34] :info nil {:data {:k1 :v1}, :kvs {:k2 :v-two}}]))
 
    (testing "Auto delay wrapping"
      [(let [lazy_ (get (with-backend (trove/log! {:msg "abc"})) 4)]
@@ -62,7 +62,7 @@
 
 (comment
   (do
-    (defn- log1! [] (trove/log! {:id ::my-d, :msg "msg", :data {:k1 :v1}, :k2 :v2}))
+    (defn- log1! [] (trove/log! {:id ::my-d, :msg "msg", :data {:k1 :v1}, :k2 :v-two}))
 
     (with-out-str (binding [trove/*log-fn* (taoensso.trove.console/get-log-fn)]       (log1!)))
     (with-out-str (binding [trove/*log-fn* (taoensso.trove.timbre/get-log-fn)]        (log1!)))))

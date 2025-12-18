@@ -1,8 +1,8 @@
-# Sente-lite v2 Wire Format Design
+# Sente-lite Wire Format Design
 
 ## Overview
 
-This document specifies the wire format for sente-lite v2, designed for **full compatibility with taoensso/sente**.
+This document specifies the wire format for sente-lite, designed for **full compatibility with taoensso/sente**.
 
 ## Goals
 
@@ -60,19 +60,19 @@ Sente uses "packers" for serialization:
 
 ---
 
-## Sente-lite v2 Wire Format
+## Sente-lite Wire Format
 
 ### Design Decisions
 
 1. **Adopt Sente event format**: `[event-id data]` vectors
 2. **Keep sente-lite extensions**: Channel pub/sub as custom events
-3. **Support both formats**: Auto-detect v1 (maps) vs v2 (vectors)
+3. **Reject legacy map format**: Map-based messages are deprecated and not supported
 4. **Dual packer support**: EDN and Transit+JSON
 
 ### Event Mapping
 
-| sente-lite v1 (current) | sente-lite v2 (Sente-compatible) |
-|-------------------------|----------------------------------|
+| Legacy map format (deprecated) | Sente-compatible (canonical) |
+|-------------------------------|------------------------------|
 | `{:type "ping"}` | `[:chsk/ws-ping]` |
 | `{:type "pong" :timestamp T}` | `[:chsk/ws-pong {:timestamp T}]` |
 | `{:type "subscribe" :channel-id C}` | `[:sente-lite/subscribe {:channel-id C}]` |
@@ -85,7 +85,7 @@ Sente uses "packers" for serialization:
 
 ```clojure
 ;; Server sends on WebSocket connect:
-[:chsk/handshake [uid csrf-token {:sente-lite-version "2.0"} true]]
+[:chsk/handshake [uid csrf-token {:sente-lite-version "2.x"} true]]
 
 ;; Client receives and stores uid
 ```
@@ -122,11 +122,11 @@ Sente uses "packers" for serialization:
 
 ### Phase 1: Core Wire Format
 
-Create `sente-lite.wire-format-v2` namespace:
+Use `sente-lite.wire-format` namespace:
 
 ```clojure
-(ns sente-lite.wire-format-v2
-  "Sente-compatible wire format for sente-lite v2")
+(ns sente-lite.wire-format
+  "Sente-compatible wire format for sente-lite")
 
 ;; Event encoding
 (defn encode-event
@@ -182,7 +182,7 @@ Create `sente-lite.wire-format-v2` namespace:
 
 ```clojure
 (defn detect-wire-version
-  "Detect if message is v1 (map) or v2 (vector)"
+  "Detect if message is legacy map format or vector event format"
   [raw-message]
   (cond
     (and (string? raw-message)
@@ -204,17 +204,16 @@ Create `sente-lite.wire-format-v2` namespace:
         parsed (wire/deserialize wire-format raw-message)]
     (case version
       :v2 (decode-event parsed)
-      :v1 (v1->v2 parsed)  ;; Convert v1 map to v2 event
+      :v1 {:error :v1-format-not-supported}
       {:error :unknown-version})))
 ```
 
 ### Phase 4: Integration
 
-Update server and client to use v2 format:
+Update server and client to use vector-based event format:
 
-1. **Server**: Send v2 events, accept both v1 and v2
-2. **Client**: Send v2 events, handle v2 responses
-3. **Config**: `{:wire-format :v2}` to force v2 only
+1. **Server**: Send vector events
+2. **Client**: Send vector events, handle vector responses
 
 ---
 
@@ -222,17 +221,16 @@ Update server and client to use v2 format:
 
 ### For Existing sente-lite Users
 
-1. **Phase 1**: Add v2 support alongside v1 (auto-detect)
-2. **Phase 2**: Default to v2, deprecate v1
-3. **Phase 3**: Remove v1 support in future major version
+1. **Phase 1**: Adopt vector-based events as the canonical wire format
+2. **Phase 2**: Remove legacy map-format references from docs/tests
 
 ### Configuration
 
 ```clojure
 ;; Server config
-{:wire-format :auto}  ;; Accept v1 and v2, respond in same format
-{:wire-format :v2}    ;; v2 only (Sente-compatible)
-{:wire-format :v1}    ;; v1 only (legacy)
+{:wire-format :edn}          ;; EDN serialization
+{:wire-format :json}         ;; JSON serialization
+{:wire-format :transit-json} ;; Transit+JSON serialization
 ```
 
 ---
@@ -241,8 +239,8 @@ Update server and client to use v2 format:
 
 1. **Unit Tests**: Encode/decode round-trip
 2. **Integration**: sente-lite client ↔ Sente server
-3. **Compatibility**: sente-lite v1 client ↔ sente-lite v2 server
-4. **Performance**: Compare v1 vs v2 serialization speed
+3. **Compatibility**: Legacy map-format inputs are rejected with clear errors
+4. **Performance**: Compare EDN vs JSON vs Transit+JSON serialization
 
 ---
 
@@ -296,7 +294,7 @@ Testing with a real Sente server revealed the actual wire format:
 
 ### Implications for sente-lite
 
-- Our v2 format works for sente-lite ↔ sente-lite
+- Our vector-based format works for sente-lite ↔ sente-lite
 - For Sente interop, need to handle buffered event unwrapping
 - Reply format difference is internal (client-side processing)
 

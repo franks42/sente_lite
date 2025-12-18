@@ -56,8 +56,8 @@
 (println "   websocat " ws-url)
 (println)
 
-;; Step 5: Document the wire format for sente-lite v2
-(println "5. Sente Wire Format Summary for sente-lite v2:")
+;; Step 5: Document the wire format for sente-lite
+(println "5. Sente Wire Format Summary for sente-lite:")
 (println)
 (println "   ┌─────────────────────────────────────────────────────────┐")
 (println "   │ Sente Event Format                                      │")
@@ -86,4 +86,4 @@
 (println "  1. Start Sente server: cd test/sente-compat && clojure -M:server")
 (println "  2. Start Sente client: cd test/sente-compat && clojure -M:client")
 (println "  3. Observe wire format in logs")
-(println "  4. Create sente-lite v2 wire format based on observations")
+(println "  4. Create sente-lite wire format based on observations")

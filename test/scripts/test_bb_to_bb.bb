@@ -1,7 +1,7 @@
 #!/usr/bin/env bb
 ;;
-;; Test: BB v2 Client <-> sente-lite BB Server
-;; Tests the complete v2 wire format flow in a single process.
+;; Test: BB Client <-> sente-lite BB Server
+;; Tests the complete wire format flow in a single process.
 ;;
 ;; This validates:
 ;; - Handshake (:chsk/handshake)
@@ -21,7 +21,7 @@
 (println "=== Test: BB Client <-> sente-lite BB Server ===")
 (println)
 
-;; v2 event IDs
+;; Event IDs
 (def event-handshake :chsk/handshake)
 (def event-ws-ping :chsk/ws-ping)
 (def event-ws-pong :chsk/ws-pong)
@@ -43,7 +43,7 @@
   (swap! test-results update :tests conj {:name name :passed passed? :details details})
   (println (if passed? "  ✅" "  ❌") name (when details (str "- " details))))
 
-;; Parse v2 message
+;; Parse message
 ;; IMPORTANT: Babashka's babashka.http-client.websocket passes a java.nio.HeapCharBuffer
 ;; to on-message, NOT a String like JVM's org.java-websocket/Java-WebSocket does.
 ;; Must convert with (str raw-data) before parsing.
@@ -125,7 +125,7 @@
       (let [uid (first (:data handshake))]
         (record-test! "Received :chsk/handshake" true (str "uid=" uid))
         (record-test! "Handshake has uid" (some? uid) nil)
-        (record-test! "Handshake format is v2 vector" (vector? (:data handshake)) nil))
+        (record-test! "Handshake format is event vector" (vector? (:data handshake)) nil))
       (record-test! "Received :chsk/handshake" false "timeout")))
   
   ;; Test echo

@@ -273,7 +273,7 @@ Default to Sente-compatible format.
 
 The formats are "similar in spirit" - both accomplish the same goal of sending Clojure data over WebSocket. The divergence was pragmatic (simplicity for BB/Scittle) but not fundamental.
 
-**Recommendation**: Adopt Sente's wire format natively in sente-lite v2.0 to enable true interoperability. This would allow:
+**Recommendation**: Adopt Sente's wire format natively in sente-lite 2.x to enable true interoperability. This would allow:
 
 - Sente-lite (BB) clients connecting to existing Sente servers
 - Gradual migration from Sente to sente-lite
@@ -285,7 +285,7 @@ The formats are "similar in spirit" - both accomplish the same goal of sending C
 
 - [Sente v1.21.0 Source](https://github.com/taoensso/sente/blob/master/src/taoensso/sente.cljc)
 - [Sente Wiki](https://github.com/taoensso/sente/wiki)
-- [Sente-lite wire-multiplexer.cljc](../src/sente_lite/wire_multiplexer.cljc)
+- [Sente-lite legacy wire-multiplexer](../src_legacy/sente_lite/legacy/wire_multiplexer.cljc)
 - [Sente-lite server.cljc](../src/sente_lite/server.cljc)
 
 ---
