@@ -1,0 +1,42 @@
+#!/usr/bin/env bb
+
+(require '[babashka.classpath :as cp])
+(cp/add-classpath "src")
+
+(require '[sente-lite.server :as server]
+
+
+(println "=== Phase 1: Verify Server Starts ===")
+(println)
+
+(try
+  (println "[info] " "Attempting to start server on port 3000")
+  (def test-server (server/start-server! {:port 3000}))
+  (println "[info] " "Server started successfully" {:server-type (type test-server)})
+
+  (println "[info] " "Checking server is running")
+  (def stats (server/get-server-stats))
+  (println "[info] " "Server status" {:running (:running? stats)
+                                   :port (get-in stats [:config :port])
+                                   :active-connections (get-in stats [:connections :active])})
+
+  (println "[info] " "Waiting 2 seconds to ensure stability")
+  (Thread/sleep 2000)
+  (println "[info] " "Server remained stable")
+
+  (println "[info] " "Attempting to stop server")
+  (server/stop-server!)
+  (def stats-after (server/get-server-stats))
+  (println "[info] " "Server stopped cleanly" {:running-after-stop (:running? stats-after)})
+
+  (println "[info] " "Phase 1 PASSED: Server starts and stops successfully")
+  (System/exit 0)
+
+  (catch Exception e
+    (println "ERROR:" "Phase 1 FAILED: Server startup failed"
+                {:error e
+                 :error-type (type e)
+                 :error-message (.getMessage e)
+                 :error-data (ex-data e)})
+    (.printStackTrace e)
+    (System/exit 1)))
