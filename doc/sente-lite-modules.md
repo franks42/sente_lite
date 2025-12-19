@@ -2584,6 +2584,275 @@ Optimize encoding:
 - Compression algorithms
 - Use case: Bandwidth optimization, mobile networks
 
+### 26. Message Routing & Relay
+**Use Cases**: Route messages between clients, multi-server architecture, service discovery
+
+Route messages to targets that may not be directly connected:
+- Client-to-client via server relay
+- Server-to-server routing
+- Service discovery and routing
+- Message forwarding
+- Use case: Real-time chat, distributed systems
+
+### 27. Client-to-Client Communication
+**Use Cases**: Real-time chat, collaborative communication, peer messaging
+
+Enable direct communication between clients through server relay:
+- Real-time chat messages
+- Peer-to-peer notifications
+- Presence awareness
+- Typing indicators
+- Use case: Chat applications, collaborative tools
+
+### 28. Shared Whiteboard
+**Use Cases**: Collaborative drawing, real-time sketching, visual collaboration
+
+Synchronize drawing state across multiple clients:
+- Drawing operations (strokes, shapes)
+- Real-time canvas updates
+- Undo/redo support
+- Cursor positions
+- Use case: Collaborative design, teaching, brainstorming
+
+### 29. Multi-Client State Synchronization
+**Use Cases**: Keep many/all browsers in sync, master-client architecture, state replication
+
+Synchronize state across multiple connected clients:
+- Server as source of truth
+- Master-client architecture
+- Broadcast updates to all clients
+- Selective client updates
+- Use case: Real-time dashboards, collaborative apps, multiplayer games
+
+### 30. Service Routing & Discovery
+**Use Cases**: Multi-server architecture, service mesh, request routing
+
+Route requests to appropriate service based on availability:
+- Service registry
+- Health-based routing
+- Load balancing
+- Failover
+- Use case: Microservices, distributed systems
+
+---
+
+## Pattern: Advanced Routing & Synchronization
+
+### Client-to-Client via Server Relay
+
+**Architecture**:
+```
+Client A                Server              Client B
+   ↓                      ↓                    ↓
+[Message] ──→ [:msg/send-to-client]
+                    ↓
+              [Route to B]
+                    ↓
+                         ──→ [:msg/receive] ──→ [Display]
+```
+
+**Implementation**:
+```clojure
+;; Client A sends message to Client B
+(sente/send! client [:msg/send-to-client
+  {:to-uid "client-b-uid"
+   :message "Hello from A"}])
+
+;; Server routes message
+(defmethod handle-event :msg/send-to-client
+  [{:keys [data uid]}]
+  (let [{:keys [to-uid message]} data]
+    ;; Forward to target client
+    (sente/send-to-client! to-uid [:msg/receive
+      {:from-uid uid
+       :message message}])))
+
+;; Client B receives message
+(defmethod handle-message :msg/receive
+  [{:keys [data]}]
+  (let [{:keys [from-uid message]} data]
+    (display-message from-uid message)))
+```
+
+**Use Cases**:
+- Real-time chat
+- Peer notifications
+- Collaborative messaging
+- Presence updates
+
+### Multi-Client State Synchronization
+
+**Architecture**:
+```
+Server State
+    ↓
+[Broadcast to all connected clients]
+    ↓
+Client A ← Client B ← Client C ← Client D
+    ↓        ↓        ↓        ↓
+[Update] [Update] [Update] [Update]
+```
+
+**Implementation**:
+```clojure
+;; Server maintains shared state
+(def shared-state (atom {:users [] :count 0}))
+
+;; When state changes, broadcast to all clients
+(add-watch shared-state :broadcast
+  (fn [key ref old-state new-state]
+    (when (not= old-state new-state)
+      ;; Send to all connected clients
+      (doseq [uid (get-connected-uids)]
+        (sente/send-to-client! uid [:state/update new-state])))))
+
+;; Each client receives and updates
+(defmethod handle-message :state/update
+  [{:keys [data]}]
+  (reset! local-state data)
+  (render-ui @local-state))
+```
+
+**Use Cases**:
+- Real-time dashboards
+- Collaborative applications
+- Multiplayer games
+- Live data feeds
+
+### Master-Client Architecture
+
+**Architecture**:
+```
+Master Client (Browser)
+    ↓
+[Authoritative State]
+    ↓
+Server (Relay)
+    ↓
+[Broadcast to other clients]
+    ↓
+Slave Clients (Read-Only)
+```
+
+**Implementation**:
+```clojure
+;; Master client has write access
+(defmethod handle-message :state/update
+  [{:keys [data uid]}]
+  (if (is-master? uid)
+    ;; Master can update
+    (do
+      (swap! shared-state merge data)
+      ;; Broadcast to all
+      (broadcast-state-update @shared-state))
+    ;; Slaves get read-only copy
+    (reset! local-state data)))
+
+;; Slave clients can't modify
+(defn slave-component []
+  [:div
+   [:p "State: " @local-state]
+   ;; No input fields, just display
+   ])
+```
+
+**Use Cases**:
+- Presentation mode (one presenter, many viewers)
+- Teacher-student scenarios
+- Controlled synchronization
+
+### Shared Whiteboard Pattern
+
+**Architecture**:
+```
+Client A (Drawing)
+    ↓
+[Stroke: x1,y1 → x2,y2]
+    ↓
+Server (Relay)
+    ↓
+[Broadcast drawing operation]
+    ↓
+Client B ← Client C ← Client D
+[Render] [Render] [Render]
+```
+
+**Implementation**:
+```clojure
+;; Client sends drawing operations
+(defn on-mouse-move [e]
+  (when (mouse-down?)
+    (let [x (.. e -clientX)
+          y (.. e -clientY)
+          prev-pos @last-pos]
+      (sente/send! client [:draw/stroke
+        {:from prev-pos :to [x y]}])
+      (reset! last-pos [x y]))))
+
+;; Server relays drawing operations
+(defmethod handle-event :draw/stroke
+  [{:keys [data uid]}]
+  ;; Broadcast to all clients
+  (doseq [other-uid (get-connected-uids)]
+    (when (not= other-uid uid)
+      (sente/send-to-client! other-uid [:draw/stroke data]))))
+
+;; All clients render the stroke
+(defmethod handle-message :draw/stroke
+  [{:keys [data]}]
+  (let [{:keys [from to]} data]
+    (draw-line canvas from to)))
+```
+
+**Features**:
+- Real-time collaborative drawing
+- Multiple users drawing simultaneously
+- Undo/redo support
+- Cursor positions
+- Color/tool selection
+
+### Message Routing Between Servers
+
+**Architecture**:
+```
+Server A ←→ Server B ←→ Server C
+   ↓           ↓           ↓
+Clients    Clients    Clients
+```
+
+**Implementation**:
+```clojure
+;; Server A routes message to Server B
+(defmethod handle-event :msg/route-to-server
+  [{:keys [data]}]
+  (let [{:keys [target-server message]} data]
+    ;; Forward to target server
+    (send-to-server target-server [:msg/relay message])))
+
+;; Server B receives and routes to client
+(defmethod handle-event :msg/relay
+  [{:keys [data]}]
+  (let [{:keys [target-client message]} data]
+    ;; Forward to target client
+    (sente/send-to-client! target-client [:msg/receive message])))
+```
+
+**Use Cases**:
+- Multi-server architecture
+- Service mesh
+- Load balancing
+- Failover routing
+
+### Comparison: Routing Patterns
+
+| Pattern | Complexity | Latency | Scalability | Best For |
+|---------|-----------|---------|-------------|----------|
+| **Client-to-Client** | Low | Low | Medium | Chat, messaging |
+| **Multi-Client Sync** | Low | Low | High | Dashboards, real-time |
+| **Master-Client** | Medium | Low | High | Presentations, teaching |
+| **Shared Whiteboard** | Medium | Medium | Medium | Collaborative drawing |
+| **Server Routing** | High | Medium | High | Microservices |
+
 ---
 
 ## Pattern: Multipurpose Channel Architecture
