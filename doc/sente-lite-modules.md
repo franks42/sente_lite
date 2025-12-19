@@ -3328,6 +3328,110 @@ Unify them in a single module where:
 
 This is a design choice—Sente chose separation of concerns, but sente-lite can provide a simpler unified approach where the buffering queue naturally provides backpressure visibility without extra complexity.
 
+## Receiver-Side Queue & Backpressure
+
+**Sente's Receiver Implementation**:
+- ✅ Provides `ch-recv` - a core.async channel for received messages
+- ✅ Channel has default buffer (usually 1024)
+- ✅ Application hooks event handlers to channel
+- ❌ No explicit backpressure handling
+- ❌ If handlers slow, buffer fills and messages drop
+- ❌ No visibility into receiver backpressure
+- ❌ No queue for handling slow consumers
+
+**The Problem**:
+- Sender-side backpressure tells sender to slow down
+- But receiver-side backpressure is missing
+- If handlers can't keep up, messages silently drop
+- No way to know receiver is backed up
+
+**Sente-Lite Should Implement**:
+
+A **receiver-side queue module** that:
+1. **Decouples reception from processing** - queue messages as they arrive
+2. **Handles slow consumers** - queue persists if handlers are slow
+3. **Provides backpressure visibility** - application knows receiver status
+4. **Prevents message loss** - queue persists before handlers process
+
+**Example Implementation**:
+```clojure
+;; Receiver-side queue
+(def recv-queue (atom {:messages [] :processing false}))
+(def max-recv-queue-size 5000)
+
+;; Receive message and queue it
+(defn queue-received-message [event-id data]
+  "Queue received message, return status"
+  (swap! recv-queue
+    (fn [q]
+      (let [new-size (inc (count (:messages q)))]
+        (if (>= new-size max-recv-queue-size)
+          ;; Queue full: backpressure
+          q
+          ;; Add to queue
+          (update q :messages conj [event-id data])))))
+  
+  ;; Return status
+  (let [queue-size (count (:messages @recv-queue))]
+    (cond
+      (>= queue-size max-recv-queue-size) :backpressure
+      (> queue-size 100) :slow
+      :else :ok)))
+
+;; Process queued messages
+(defn process-queue []
+  "Process messages from queue with backpressure awareness"
+  (when-not (:processing @recv-queue)
+    (swap! recv-queue assoc :processing true)
+    (try
+      (loop []
+        (when-let [[event-id data] (first (:messages @recv-queue))]
+          ;; Process message
+          (try
+            (handle-event event-id data)
+            (catch Exception e
+              (log! :error :handler-error {:event event-id :error e})))
+          ;; Remove from queue
+          (swap! recv-queue update :messages rest)
+          (recur)))
+      (finally
+        (swap! recv-queue assoc :processing false)))))
+
+;; Start processing loop
+(defn start-receiver-processor []
+  (future
+    (loop []
+      (Thread/sleep 10) ; Process every 10ms
+      (process-queue)
+      (recur))))
+```
+
+**Benefits**:
+- ✅ Decouples reception from processing
+- ✅ Slow handlers don't drop messages
+- ✅ Application sees receiver backpressure status
+- ✅ Can implement retry, persistence, prioritization
+- ✅ Prevents silent message loss
+
+**Backpressure Strategies**:
+```clojure
+(case (queue-received-message event-id data)
+  :ok (log! :trace :message-queued)
+  :slow (log! :warn :receiver-slow {:queue-size queue-size})
+  :backpressure (do
+    ;; Options: persist to disk, notify sender, drop oldest
+    (case (get-receiver-backpressure-strategy)
+      :persist (persist-to-disk event-id data)
+      :notify (notify-sender-receiver-backpressure)
+      :drop (log! :error :receiver-queue-full))))
+```
+
+**Why This Matters**:
+- Sender-side buffering prevents sender overload
+- Receiver-side queue prevents receiver overload
+- Together they provide end-to-end flow control
+- Prevents silent message loss on both sides
+
 ---
 
 ## Protocol Enhancements (Sente v1.21+)
