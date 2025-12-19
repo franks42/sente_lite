@@ -1,13 +1,40 @@
 # sente-lite Implementation Plan
 
-**Version:** 2.1
+**Version:** 2.2
 **Created:** 2025-10-24
-**Last Updated:** 2025-12-18
-**Status:** v2.1.0 - Scittle Browser Support Complete
+**Last Updated:** 2025-12-19
+**Status:** v2.2.x - Planning Phase 1: Send Queue Implementation
 
 ---
 
 ## Updates Log
+
+### 2025-12-19: Phase 1 Send Queue - Implementation Planning
+
+**Goal:** Add bounded send queue with backpressure to decouple message sending from network I/O.
+
+**Scope (MVP - No Batching Yet):**
+- Bounded send queue (ArrayBlockingQueue for BB, atom-based for browser)
+- Backpressure signal when queue full (`:rejected` status)
+- Background flush thread/timer
+- Queue stats and observability
+- Graceful shutdown (drain before close)
+
+**Explicitly NOT in Phase 1:**
+- Message batching (Phase 2)
+- Receive queue (Phase 3)
+- Priority queues (future)
+- Compression (separate feature)
+
+**Estimated Effort:** 15-20 hours
+
+**Review Documents:**
+- `doc/review-modules-proposal.md` - Module priority recommendations
+- `doc/review-queue-backpressure-proposal.md` - Queue implementation details
+
+See: [Phase 1: Send Queue Implementation Plan](#phase-1-send-queue-implementation-plan) below.
+
+---
 
 ### 2025-12-18: v2.1.0 - Scittle Browser Integration Complete 🎉
 
@@ -3296,6 +3323,163 @@ Priority queues are most valuable when the receive side is **congested** (slow p
 - Receive queue: Opt-in for slow processing
 - Provide clear configuration and metrics
 - Document trade-offs
+
+---
+
+## Phase 1: Send Queue Implementation Plan
+
+**Status:** Ready for Implementation
+**Estimated Effort:** 15-20 hours
+**Target:** Add bounded send queue with backpressure to decouple message sending from network I/O
+
+### Phase 1 Scope
+
+**In Scope (MVP):**
+- Bounded send queue (ArrayBlockingQueue for BB, atom+vector for browser)
+- Non-blocking `.offer` with backpressure signal (`:rejected` status)
+- Background flush thread (BB) / `js/setInterval` (browser)
+- Queue stats (depth, enqueued, sent, dropped, errors)
+- Graceful shutdown (drain queue before close)
+- Configuration: `max-depth`, `flush-interval-ms`
+
+**Explicitly NOT in Phase 1:**
+- Message batching/bundling (Phase 2)
+- Receive queue (Phase 3)
+- Priority queues (future enhancement)
+- Compression (separate feature)
+
+### File Structure
+
+```
+src/sente_lite/
+├── queue.cljc              # Shared protocol and config defaults
+├── queue_bb.clj            # BB implementation (ArrayBlockingQueue)
+└── queue_scittle.cljs      # Browser implementation (atom + vector)
+```
+
+**Protocol Definition (`queue.cljc`):**
+```clojure
+(defprotocol ISendQueue
+  (enqueue! [this msg] "Add msg to queue. Returns :ok or :rejected")
+  (start! [this] "Start background flush")
+  (stop! [this] "Stop flush, drain remaining messages")
+  (stats [this] "Return {:depth :enqueued :sent :dropped :errors}"))
+```
+
+### Task Breakdown
+
+#### 1. Core Protocol and Types (~2 hours)
+- [ ] Create `src/sente_lite/queue.cljc`
+- [ ] Define `ISendQueue` protocol
+- [ ] Define config defaults: `{:max-depth 1000 :flush-interval-ms 10}`
+- [ ] Add clj-kondo config for new namespace
+
+#### 2. BB Implementation (~4 hours)
+- [ ] Create `src/sente_lite/queue_bb.clj`
+- [ ] Implement using `ArrayBlockingQueue`
+- [ ] Background flush thread with `Thread/sleep`
+- [ ] Stats tracking via atom
+- [ ] Graceful shutdown with `.drainTo`
+- [ ] Unit tests for queue operations
+
+#### 3. Browser/Scittle Implementation (~4 hours)
+- [ ] Create `src/sente_lite/queue_scittle.cljs`
+- [ ] Implement using `(atom {:queue [] :stats {...}})`
+- [ ] Flush via `js/setInterval`
+- [ ] Bounded check on enqueue
+- [ ] Stats tracking
+- [ ] Graceful shutdown (clear interval, flush remaining)
+
+#### 4. Integration with Client (~3 hours)
+- [ ] Add queue option to `client_bb.clj` `make-client`
+- [ ] Add queue option to `client_scittle.cljs` `make-client`
+- [ ] Modify `send!` to route through queue when enabled
+- [ ] Handle `:rejected` status appropriately
+
+#### 5. BB-to-BB Integration Test (~3 hours)
+- [ ] Create `test/scripts/queue/test_send_queue_bb.bb`
+- [ ] Test: Basic enqueue/dequeue flow
+- [ ] Test: Backpressure when queue full
+- [ ] Test: Stats accuracy
+- [ ] Test: Graceful shutdown drains queue
+- [ ] Test: High-throughput stress test
+
+#### 6. Browser Integration Test (~3 hours)
+- [ ] Create `dev/scittle-demo/test-send-queue.html`
+- [ ] Playwright test for browser queue
+- [ ] Test: Enqueue/flush cycle
+- [ ] Test: Backpressure behavior
+- [ ] Test: Stats display
+
+### Test Strategy
+
+**Rule: BB-to-BB First, Always**
+
+1. **Unit Tests** (BB only)
+   - Queue operations in isolation
+   - No network, no WebSocket
+   - Pure queue behavior testing
+
+2. **Integration Tests** (BB-to-BB)
+   - Full client with queue enabled
+   - Connect to BB server
+   - Send messages through queue
+   - Verify delivery and stats
+
+3. **Browser Tests** (Last)
+   - Only after BB tests 100% passing
+   - Playwright automated tests
+   - Verify same behavior as BB
+
+### Acceptance Criteria
+
+**Queue Must:**
+- [ ] Accept messages up to `max-depth`, then return `:rejected`
+- [ ] Flush messages within `flush-interval-ms` of enqueue
+- [ ] Track accurate stats (±1% on high volume)
+- [ ] Drain completely on graceful shutdown
+- [ ] Not lose messages under normal operation
+
+**Performance Targets:**
+- [ ] Enqueue latency: <1ms (non-blocking)
+- [ ] Memory overhead: <100KB for 1000-message queue
+- [ ] No CPU impact when queue empty
+
+**API Contract:**
+```clojure
+;; Creating queue-enabled client
+(def client (make-client {:url "ws://..."
+                          :send-queue {:max-depth 1000
+                                       :flush-interval-ms 10}}))
+
+;; Sending with backpressure handling
+(let [result (send! client [:my/event {:data "here"}])]
+  (case result
+    :ok      (println "Queued successfully")
+    :rejected (println "Queue full, apply backpressure")))
+
+;; Getting stats
+(queue-stats client)
+;; => {:depth 42 :enqueued 1000 :sent 958 :dropped 0 :errors 0}
+```
+
+### Dependencies
+
+**Verified Available:**
+- `java.util.concurrent.ArrayBlockingQueue` (BB) ✅
+- `js/setInterval` / `js/clearInterval` (browser) ✅
+- Clojure atoms (both platforms) ✅
+
+**No New Dependencies Required**
+
+### Risk Mitigation
+
+| Risk | Mitigation |
+|------|------------|
+| Thread safety issues | Use Java concurrent classes; atom+swap! for browser |
+| Message loss on crash | Document: queue is in-memory only, not durable |
+| Flush timing drift | Use monotonic time checks, not just interval count |
+| Memory pressure | Bounded queue with clear max-depth config |
 
 ---
 
