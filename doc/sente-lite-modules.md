@@ -3491,6 +3491,63 @@ Sente v1.21 introduced several important protocol-level enhancements that improv
 - ✅ Error checking for missing library
 - ✅ Pako is de facto standard (no better alternatives)
 
+## Backpressure & Flow Control
+
+**Sente's Current Backpressure**:
+- ⚠️ Limited backpressure support
+- Uses `core.async/put!` without backpressure
+- If buffer fills (1024 + buffer-size), `put!` throws exception
+- Exception drops messages (silent failure)
+- Relies on server-level backpressure (if available)
+
+**The Problem**:
+- Receiver can't keep up with sender
+- Buffer fills up
+- Exception thrown
+- Message dropped silently
+- Connection may close
+
+**Server-Specific Issues**:
+- **http-kit**: No backpressure mechanism
+- **Immutant (servlet)**: No way to exert backpressure
+- **Immutant (standalone)**: Has backpressure support
+
+**Sente-Lite Should Implement**:
+
+1. **Explicit Backpressure Module** (recommended)
+   - Flow control at application level
+   - Don't rely on server backpressure
+   - Sender checks if receiver is ready
+   - Pause sending if buffer fills
+
+```clojure
+;; Backpressure-aware sending
+(defn send-with-backpressure! [uid event-id data]
+  "Send only if buffer has space, otherwise queue or reject"
+  (if (buffer-has-space? uid)
+    (sente/send-to-client! uid [event-id data])
+    (handle-backpressure uid event-id data)))
+
+(defn handle-backpressure [uid event-id data]
+  "Options: queue, drop, or notify sender"
+  (case (get-backpressure-strategy)
+    :queue (queue-event uid event-id data)
+    :drop (log-dropped-event uid event-id)
+    :notify (notify-sender-backpressure uid)))
+```
+
+2. **Buffer Management**
+   - Configurable buffer sizes
+   - Monitor buffer usage
+   - Alert when approaching limits
+   - Metrics on buffer pressure
+
+3. **Graceful Degradation**
+   - Handle buffer overflow gracefully
+   - Don't drop messages silently
+   - Implement retry or queue persistence
+   - Notify application of backpressure
+
 ### Protocol Enhancement Recommendations for Sente-Lite
 
 Based on Sente v1.21+ enhancements, sente-lite should consider:
