@@ -1790,6 +1790,381 @@ examples/
 
 ---
 
+## Module: State Synchronization Patterns
+
+**Status**: Proposed  
+**Complexity**: Low-High (varies by pattern)  
+**Dependencies**: sente-lite core, optional: datascript, shadow-dom  
+**Use Cases**: Shared state, real-time collaboration, data binding, reactive UI
+
+### Overview
+
+Synchronize state across sente channels using various patterns: one-way atom syncing, two-way syncing, DataScript instances, and Shadow DOM integration. Each pattern trades off complexity for synchronization guarantees.
+
+### Pattern 1: One-Way Atom Syncing (Simple)
+
+**Status**: Implemented in many projects  
+**Complexity**: Low  
+**Use Cases**: Server→Browser state push, read-only client state
+
+#### Architecture
+
+```
+Server Atom
+    ↓ watch/add-watch
+    ↓ (on change)
+    ↓ sente send
+    ↓
+Browser Atom
+    ↓ receive message
+    ↓ reset!
+    ↓ triggers watchers
+    ↓ UI updates via handlers
+```
+
+#### Implementation
+
+```clojure
+;; Server side
+(def app-state (atom {:users [] :count 0}))
+
+(add-watch app-state :sync
+  (fn [key ref old-state new-state]
+    ;; Send to all connected clients
+    (doseq [uid (get-connected-uids)]
+      (sente/send-to-client! uid [:state/update new-state]))))
+
+;; Browser side
+(def app-state (atom {}))
+
+(defmethod handle-message :state/update
+  [{:keys [data]}]
+  ;; Update local atom (triggers watchers)
+  (reset! app-state data))
+
+;; UI watches atom
+(add-watch app-state :ui
+  (fn [_ _ old new]
+    (render-ui new)))
+```
+
+**Pros**:
+- ✅ Simple to implement
+- ✅ Familiar pattern (atoms + watchers)
+- ✅ Works with existing code
+- ✅ Low overhead
+
+**Cons**:
+- ⚠️ One-way only
+- ⚠️ No conflict resolution
+- ⚠️ No offline support
+- ⚠️ No history/undo
+
+### Pattern 2: Two-Way Atom Syncing (Complex)
+
+**Status**: Proposed  
+**Complexity**: High  
+**Use Cases**: Collaborative editing, shared forms, real-time data
+
+#### Challenges
+
+- **Conflict resolution**: What if both sides change simultaneously?
+- **Ordering**: Which change wins?
+- **Convergence**: Do both sides eventually agree?
+- **Offline**: What happens when disconnected?
+
+#### Approaches
+
+**Last-Write-Wins (LWW)**:
+```clojure
+;; Include timestamp with every change
+[:state/update {:path [:users 0 :name]
+                :value "Alice"
+                :timestamp 1766108726643
+                :client-id "client-123"}]
+
+;; Server applies if timestamp is newer
+(if (> new-timestamp old-timestamp)
+  (update-state new-value)
+  (send-current-state-back))
+```
+
+**Operational Transformation (OT)**:
+```clojure
+;; Track operations, transform concurrent changes
+[:state/operation {:op :set
+                   :path [:text]
+                   :value "new text"
+                   :version 5}]
+
+;; Server transforms against other concurrent ops
+;; Both clients converge to same state
+```
+
+**CRDT (Conflict-free Replicated Data Type)**:
+```clojure
+;; Use CRDT data structure (e.g., Yjs, Automerge)
+;; Automatically handles conflicts
+;; Both sides converge without coordination
+```
+
+**Code Sketch (LWW)**:
+```clojure
+;; Server
+(defn apply-state-update [path value timestamp client-id]
+  (let [current-ts (get-timestamp-at-path path)]
+    (if (> timestamp current-ts)
+      (do
+        (update-state path value)
+        ;; Broadcast to all clients
+        (broadcast-state-update path value timestamp))
+      ;; Send current state back to client
+      (send-current-state client-id))))
+
+;; Browser
+(add-watch app-state :sync
+  (fn [_ _ old new]
+    ;; Send change with timestamp
+    (sente/send! client [:state/update
+      {:path (diff-path old new)
+       :value (get-in new (diff-path old new))
+       :timestamp (now)
+       :client-id client-id}])))
+```
+
+**Pros**:
+- ✅ Bidirectional sync
+- ✅ Real-time collaboration
+- ✅ Automatic conflict resolution
+
+**Cons**:
+- ⚠️ Complex implementation
+- ⚠️ Requires careful design
+- ⚠️ Performance overhead
+- ⚠️ Debugging difficult
+
+### Pattern 3: DataScript Instance Syncing
+
+**Status**: Proposed  
+**Complexity**: Medium-High  
+**Use Cases**: Complex data, queries, reactive views
+
+#### Architecture
+
+```
+Server DataScript DB
+    ↓ track transactions
+    ↓ sente send
+    ↓
+Browser DataScript DB
+    ↓ apply transactions
+    ↓ query results update
+    ↓ UI re-renders
+```
+
+#### Implementation
+
+```clojure
+;; Server
+(def db (d/create-conn schema))
+
+(defn sync-transaction [tx-data]
+  ;; Apply transaction
+  (d/transact! db tx-data)
+  ;; Send to all clients
+  (doseq [uid (get-connected-uids)]
+    (sente/send-to-client! uid [:db/transaction tx-data])))
+
+;; Browser
+(def db (d/create-conn schema))
+
+(defmethod handle-message :db/transaction
+  [{:keys [data]}]
+  ;; Apply same transaction
+  (d/transact! db data)
+  ;; Queries automatically update
+  ;; UI re-renders via subscriptions)
+
+;; Reactive query
+(def users-query
+  (reaction
+    (d/q '[:find ?e ?name
+           :where [?e :user/name ?name]]
+         @db)))
+
+;; UI watches query
+(add-watch users-query :ui
+  (fn [_ _ old new]
+    (render-users new)))
+```
+
+**Pros**:
+- ✅ Powerful queries
+- ✅ Reactive views
+- ✅ Complex data handling
+- ✅ Transactions
+
+**Cons**:
+- ⚠️ Requires DataScript
+- ⚠️ Schema management
+- ⚠️ Conflict resolution still needed
+- ⚠️ More overhead
+
+### Pattern 4: Shadow DOM Integration
+
+**Status**: Proposed  
+**Complexity**: Medium  
+**Use Cases**: Component state, encapsulation, style isolation
+
+#### Architecture
+
+```
+Server State
+    ↓ sente sync
+    ↓
+Browser Atom
+    ↓
+Shadow DOM Component
+    ↓ encapsulated styles
+    ↓ isolated state
+    ↓ slot-based content
+```
+
+#### Implementation
+
+```clojure
+;; Browser component
+(defn sync-shadow-component [element-id state-atom]
+  (let [host (js/document.getElementById element-id)
+        shadow (.attachShadow host #js{:mode "open"})]
+    ;; Create shadow DOM structure
+    (.innerHTML shadow
+      "<style>
+         :host { display: block; }
+         .content { padding: 10px; }
+       </style>
+       <div class='content'>
+         <slot></slot>
+       </div>")
+    
+    ;; Watch state and update shadow DOM
+    (add-watch state-atom :shadow
+      (fn [_ _ old new]
+        (update-shadow-dom shadow new)))))
+
+;; Server sends state updates
+(add-watch app-state :sync
+  (fn [_ _ old new]
+    (sente/send-to-client! uid [:shadow/update new])))
+
+;; Browser receives and updates
+(defmethod handle-message :shadow/update
+  [{:keys [data]}]
+  (reset! component-state data))
+```
+
+**Pros**:
+- ✅ Style encapsulation
+- ✅ Component isolation
+- ✅ Reusable components
+- ✅ Clean separation
+
+**Cons**:
+- ⚠️ Browser compatibility
+- ⚠️ Shadow DOM complexity
+- ⚠️ Slot management
+- ⚠️ Debugging harder
+
+### Comparison: All Patterns
+
+| Pattern | Complexity | Bidirectional | Conflicts | Offline | Best For |
+|---------|-----------|---------------|-----------|---------|----------|
+| **One-Way Atom** | Low | No | N/A | No | Simple state push |
+| **Two-Way Atom** | High | Yes | LWW/OT/CRDT | Possible | Collaboration |
+| **DataScript** | Medium-High | Yes | Transactions | Possible | Complex data |
+| **Shadow DOM** | Medium | No | N/A | No | Components |
+
+### Configuration Example
+
+```clojure
+;; One-way syncing
+(def sync-config
+  {:enabled true
+   :direction :server->browser
+   :debounce-ms 100
+   :batch-updates true})
+
+;; Two-way syncing with LWW
+(def sync-config
+  {:enabled true
+   :direction :bidirectional
+   :conflict-resolution :last-write-wins
+   :timestamp-fn (fn [] (System/currentTimeMillis))
+   :offline-support true})
+
+;; DataScript syncing
+(def sync-config
+  {:enabled true
+   :db-type :datascript
+   :schema {...}
+   :sync-transactions true
+   :reactive-queries true})
+```
+
+### Integration with sente-lite
+
+**Lifecycle hooks**:
+```clojure
+;; Initialize sync on connect
+:on-open (fn [uid]
+  (init-state-sync uid))
+
+;; Clean up on disconnect
+:on-close (fn [code reason]
+  (cleanup-state-sync uid))
+
+;; Restore on reconnect
+:on-reconnect (fn [uid]
+  (restore-state-sync uid))
+```
+
+**Error handling**:
+```clojure
+;; Handle sync conflicts
+(defmethod handle-event :state/conflict
+  [{:keys [data uid]}]
+  (resolve-conflict data uid))
+```
+
+### File Structure
+
+```
+src/sente_lite/sync/
+├── atom.cljc            # One-way atom syncing
+├── bidirectional.cljc   # Two-way syncing
+├── datascript.clj       # DataScript integration
+├── shadow.cljs          # Shadow DOM integration
+└── conflict.cljc        # Conflict resolution
+
+test/sente_lite/sync/
+├── atom_test.cljc       # Unit tests
+├── bidirectional_test.cljc
+└── integration_test.bb  # Integration tests
+
+examples/
+└── state-sync-demo.bb   # Working examples
+```
+
+### Next Steps
+
+1. **Start with one-way**: Implement simple atom syncing first
+2. **Add two-way**: Implement with LWW conflict resolution
+3. **Explore DataScript**: For complex data scenarios
+4. **Shadow DOM**: For component encapsulation
+5. **Benchmark**: Compare performance of each pattern
+
+---
+
 ### 1. Metrics & Observability
 Track connection metrics, message throughput, latency
 
