@@ -3519,6 +3519,57 @@ Message = Metadata + Payload
 - Compression savings increase with bundle size
 - Small payload applications benefit most from bundling
 
+### WebSocket Frame Size Handling
+
+**Can We Query Frame Size?**
+
+| Question | Answer | Details |
+|----------|--------|---------|
+| Query from browser client? | ❌ No | WebSocket API doesn't expose maxFrameSize |
+| Query from server? | ✅ Yes | Depends on library (Node.js ws, Java, etc.) |
+| Default frame size? | 64KB | 65536 bytes (configurable server-side) |
+| Introspect from metadata? | ❌ No | Not available in standard WebSocket API |
+
+**Automatic Fragmentation & Reassembly**:
+- ✅ **YES** - WebSocket protocol automatically fragments messages > frame size
+- ✅ **YES** - Underlying layer reassembles fragments before handing to application
+- ✅ Application receives complete message (transparent fragmentation)
+- ⚠️ **Exception**: Some implementations (Chrome DevTools) don't handle fragmentation
+
+**How It Works**:
+```
+Application sends 100KB message
+    ↓
+WebSocket layer fragments into 2 frames (64KB + 36KB)
+    ↓
+Frames sent over network
+    ↓
+Receiver reassembles frames
+    ↓
+Application receives complete 100KB message
+```
+
+**Implication for Sente-Lite**:
+
+Since WebSocket handles fragmentation transparently:
+- ✅ **Correctness**: No need to worry about frame size limits
+- ✅ **Oversized messages**: Automatically handled by WebSocket layer
+- ❌ **Performance**: Fragmentation adds overhead (more frames = more overhead)
+- ✅ **Optimization**: Bundling reduces frame count and overhead
+
+**Why Frame Size Awareness Still Matters**:
+1. **Reduce fragmentation overhead**: Smaller messages = fewer frames
+2. **Network efficiency**: Fewer frames = less header overhead
+3. **Latency**: Fewer frames = faster transmission
+4. **Buffering**: Conservative estimate prevents unnecessary fragmentation
+
+**Conservative Estimate Justification**:
+- We can't query actual frame size from browser
+- Default 64KB is reasonable assumption
+- Conservative estimate (30KB for uncompressed) prevents fragmentation
+- Bundling still provides 50-80% bandwidth savings
+- Trade-off: waste frame space vs. avoid fragmentation overhead
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
