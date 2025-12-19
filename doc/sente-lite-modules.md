@@ -3191,20 +3191,80 @@ The same queue provides both optimizations:
 - Track queue size per client
 - Return `:ok` or `:backpressure` status
 - Application decides what to do when backpressured
-- Prevents silent message drops
+- Prevents silent message loss
 
-**Implementation is minimal**:
-1. Queue messages in an atom (with size tracking)
+**Important: Frame Size Constraints**
+
+Message bundling must also respect frame size limits:
+- WebSocket frames have maximum size (~64KB typical)
+- If adding a new message would exceed frame size, flush before adding
+- Track cumulative message size, not just count
+- Flush when: time expires OR buffer full OR frame size exceeded
+
+**Implementation with Frame Size Awareness**:
+```clojure
+(def event-buffer (atom {})) ; {uid -> {:events [...] :size N :bytes B}}
+(def max-buffer-size 1000)   ; Max events per client
+(def max-frame-size 65536)   ; Max bytes per frame
+
+(defn buffer-event [uid event-id data]
+  "Queue event, flush if frame size exceeded"
+  (let [event-bytes (count (pr-str [event-id data]))]
+    (swap! event-buffer
+      (fn [buffers]
+        (let [client-buf (get buffers uid {:events [] :size 0 :bytes 0})
+              new-size (inc (:size client-buf))
+              new-bytes (+ (:bytes client-buf) event-bytes)]
+          
+          ;; Check constraints
+          (cond
+            ;; Frame size exceeded: flush before adding
+            (> new-bytes max-frame-size)
+            (do
+              ;; Flush existing events first
+              (flush-buffer uid)
+              ;; Then add new event to fresh buffer
+              (assoc buffers uid
+                {:events [[event-id data]]
+                 :size 1
+                 :bytes event-bytes}))
+            
+            ;; Buffer full: don't add
+            (>= new-size max-buffer-size)
+            buffers
+            
+            ;; OK to add
+            :else
+            (assoc buffers uid
+              {:events (conj (:events client-buf) [event-id data])
+               :size new-size
+               :bytes new-bytes})))))
+    
+    ;; Return status
+    (let [{:keys [size bytes]} (get @event-buffer uid {:size 0 :bytes 0})]
+      (cond
+        (>= size max-buffer-size) :backpressure
+        (>= bytes max-frame-size) :frame-full
+        :else :ok))))
+
+**Implementation is minimal but frame-aware**:
+1. Queue messages in atom (with size AND byte tracking)
 2. Flush periodically (timer)
-3. Check buffer size before adding
-4. Return status to caller
-5. Clear the queue after flush
+3. Check buffer size AND frame size before adding
+4. Flush if frame size would be exceeded
+5. Return status to caller
+6. Clear the queue after flush
 
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
   (case (buffer-event uid event-id data)
     :ok (log! :trace :event-buffered)
+    :frame-full
+    (do
+      ;; Frame is full, new message will be in next frame
+      (log! :debug :frame-full {:uid uid})
+      :ok) ; Message was queued for next frame
     :backpressure
     (case (get-backpressure-strategy)
       :queue (queue-to-persistent-store uid event-id data)
