@@ -3036,6 +3036,83 @@ This architectural property makes sente-lite particularly powerful: the same mod
 
 ---
 
+## Core Sente Features
+
+### Auto-Buffering & Event Batching
+
+**What is Auto-Buffering?**
+
+Sente automatically buffers outgoing messages and batches them together before sending. This is a core optimization that reduces network overhead:
+
+```
+Application sends events:
+  Event 1 → [buffered]
+  Event 2 → [buffered]
+  Event 3 → [buffered]
+  
+At optimal time (or buffer full):
+  [Event 1, Event 2, Event 3] → Single network packet
+```
+
+**How It Works**:
+1. Application sends events via `send!` or `send-to-client!`
+2. Events are queued in an internal buffer
+3. Buffer is flushed at optimal time (usually milliseconds)
+4. Multiple events sent in single network packet
+5. Receiver unpacks and processes each event
+
+**Benefits**:
+- ✅ Reduces network overhead (fewer packets)
+- ✅ Improves bandwidth efficiency
+- ✅ Especially beneficial over Ajax (high overhead per request)
+- ✅ Transparent to application code
+- ✅ Automatic—no configuration needed
+
+**Example**:
+```clojure
+;; Without batching: 3 separate network requests
+(sente/send-to-client! uid [:event/1 data1])
+(sente/send-to-client! uid [:event/2 data2])
+(sente/send-to-client! uid [:event/3 data3])
+
+;; With auto-batching: 1 network request with 3 events
+;; Sente automatically batches these together
+;; Application code is identical
+```
+
+**Bandwidth Savings**:
+- Over WebSocket: ~20-30% reduction (less critical)
+- Over Ajax: ~50-80% reduction (very significant)
+- Especially important for high-frequency events (metrics, logging, etc.)
+
+**Buffering Behavior**:
+- Events are buffered for a short time (typically 10-50ms)
+- Buffer is flushed when:
+  - Time window expires
+  - Buffer reaches size limit
+  - Explicit flush is called
+  - Connection closes
+
+**Configuration**:
+```clojure
+;; Server-side (if configurable in Sente)
+(start-server 
+  {:event-buffer-ms 25      ; Flush every 25ms
+   :event-buffer-size 100}) ; Or when 100 events queued
+```
+
+**Use Cases Where Batching Shines**:
+- High-frequency logging (100+ messages/second)
+- Metrics collection (CPU, memory, etc.)
+- Real-time analytics events
+- Presence updates
+- Cursor position tracking
+- Any scenario with many small events
+
+**Important Note**: Event ordering is maintained within a batch. Events are processed in the order they were sent, even when batched together.
+
+---
+
 ## Protocol Enhancements (Sente v1.21+)
 
 Sente v1.21 introduced several important protocol-level enhancements that improve performance, flexibility, and reliability:
