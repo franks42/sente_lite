@@ -2624,6 +2624,61 @@ Modules can be combined:
 - Message routing based on type
 - Load balancing across channels
 
+### Transport Abstraction
+
+**Important Architectural Insight**: Sente is layered on top of a bidirectional channel (WebSocket). The same module patterns work with **any bidirectional transport**:
+
+```
+Sente Modules
+    ↓
+[Event Routing & Serialization]
+    ↓
+[Bidirectional Channel]
+    ↓
+WebSocket | Socket | Pipe | IPC | Custom Transport
+```
+
+**This means**:
+- ✅ Modules work over WebSocket (current)
+- ✅ Modules work over raw sockets
+- ✅ Modules work over Unix pipes
+- ✅ Modules work over IPC channels
+- ✅ Modules work over custom transports
+- ✅ Modules work over network protocols
+- ✅ Modules work over local channels
+
+**Implications**:
+1. **Flexibility**: Not locked into WebSocket
+2. **Portability**: Same logic works across different transports
+3. **Testing**: Can test with pipes/sockets instead of WebSocket
+4. **Optimization**: Can choose transport based on use case
+5. **Fallback**: Can switch transports if primary fails
+
+**Example: Same Module Over Different Transports**:
+```clojure
+;; Module logic is transport-agnostic
+(defmethod handle-event :state/update
+  [{:keys [data uid]}]
+  ;; Works the same whether data came from WebSocket, socket, or pipe
+  (update-state data))
+
+;; Transport layer handles the difference
+(defn start-sente-server [transport-type]
+  (case transport-type
+    :websocket (start-websocket-server)
+    :socket (start-socket-server)
+    :pipe (start-pipe-server)
+    :ipc (start-ipc-server)))
+```
+
+**Use Cases for Alternative Transports**:
+- **Pipes**: Local development, testing, debugging
+- **Sockets**: High-performance local communication
+- **IPC**: Inter-process communication
+- **Custom**: Domain-specific optimizations
+
+This architectural property makes sente-lite particularly powerful: the same modules, handlers, and patterns work regardless of the underlying transport mechanism.
+
 ---
 
 ## Module Development Guidelines
