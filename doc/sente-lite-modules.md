@@ -3378,6 +3378,63 @@ Application → Send-Queue → Compress Batch → Send
 - Compression happens at flush (doesn't affect backpressure decisions)
 - Application sees actual message volume, not compressed size
 
+### Compression Frame Size Optimization
+
+**The Challenge**: Compression ratio is unknown until after compression, but frame size limits are fixed.
+
+**Problem Scenarios**:
+1. Fill frame with uncompressed messages, then compress → may exceed frame size
+2. Use conservative estimate → waste frame space (only use 30% of available)
+3. Compress, check, retry → complex logic and potential overhead
+
+**Option 1: Conservative Estimate** (recommended for Phase 2):
+```clojure
+(def max-frame-size 65536)
+(def compression-ratio 0.3)  ; Assume 70% compression
+(def safe-uncompressed-size (* max-frame-size compression-ratio))
+
+;; Queue messages until safe-uncompressed-size, then flush
+```
+- ✅ Simple to implement
+- ✅ Safe (never exceeds frame size)
+- ✅ Good enough for most scenarios
+- ❌ Wastes frame space (only use 30% of available)
+
+**Option 2: Two-Phase Flush** (optimize later):
+```clojure
+(defn flush-buffer [uid]
+  (let [events (vec queue)
+        serialized (pr-str [:batch/events events])
+        compressed (compress-gzip serialized)]
+    
+    ;; Phase 1: Check if compressed fits
+    (if (> (count compressed) max-frame-size)
+      ;; Phase 2: Binary search to find max messages that fit
+      (let [fitting-events (find-max-fitting-events events)]
+        (if fitting-events
+          (do
+            (send-compressed fitting-events)
+            (queue-remaining-events (drop (count fitting-events) events)))
+          nil))  ; Nothing fits (shouldn't happen)
+      ;; Compressed fits: send as-is
+      (send-compressed events))))
+```
+- ✅ Optimal bundling (use full frame)
+- ✅ Handles compression uncertainty
+- ✅ No wasted frame space
+- ❌ More complex (binary search or loop)
+
+**Recommendation**:
+1. **Phase 2**: Use Option 1 (conservative estimate)
+   - Simple, safe, good enough
+   - Compression still provides 50-80% bandwidth savings
+   - Wasting 70% of frame space is acceptable trade-off
+   
+2. **Later Optimization**: Implement Option 2 if needed
+   - Only if frame space utilization becomes critical
+   - Measure actual compression ratios first
+   - May not be worth the complexity
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
