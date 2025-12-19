@@ -1412,6 +1412,372 @@ examples/
 
 ---
 
+## Module: Language Server Protocol (LSP) over Sente
+
+**Status**: Proposed  
+**Complexity**: Medium-High  
+**Dependencies**: sente-lite core, LSP protocol, language servers  
+**Use Cases**: In-browser code editing, IDE features, code completion, diagnostics, refactoring
+
+### Overview
+
+Route Language Server Protocol (LSP) messages through sente channels to enable IDE-like features in the browser. Query LSP servers running on the BB server from browser editors without needing separate WebSocket connections or LSP-specific proxies.
+
+**Example Use Case**:
+```
+Browser Editor (Scittle)
+    ↓ LSP request (completion, hover, diagnostics)
+    ↓ sente channel
+    ↓
+LSP Server Handler (BB)
+    ↓ clojure-lsp, rust-analyzer, typescript-language-server, etc.
+    ↓ LSP response
+    ↓ sente channel
+    ↓
+Browser Editor (Scittle)
+    ↓ Display completions, hover info, diagnostics
+```
+
+### Architecture
+
+#### Design Principles
+
+1. **Unified transport**: LSP over sente, not separate WebSocket
+2. **Any LSP server**: Works with clojure-lsp, rust-analyzer, etc.
+3. **JSON-RPC**: LSP is JSON-RPC, maps naturally to sente events
+4. **Bidirectional**: Server can push diagnostics, notifications
+5. **Multiple editors**: Support multiple browser editors on same connection
+6. **Session management**: Track LSP sessions per editor/file
+
+#### Core Components
+
+**LSP Request Format**:
+```clojure
+;; Browser → Server
+[:lsp/request
+ {:session-id "editor-123"
+  :request-id "req-456"
+  :method "textDocument/completion"
+  :params {:textDocument {:uri "file:///project/src/core.clj"}
+           :position {:line 10 :character 5}}}]
+```
+
+**LSP Response Format**:
+```clojure
+;; Server → Browser
+[:lsp/response
+ {:session-id "editor-123"
+  :request-id "req-456"
+  :result [{:label "defn"
+            :kind 3
+            :detail "macro"
+            :documentation "Define a function"}
+           ...]}]
+```
+
+**LSP Notification Format**:
+```clojure
+;; Server → Browser (unsolicited)
+[:lsp/notification
+ {:method "textDocument/publishDiagnostics"
+  :params {:uri "file:///project/src/core.clj"
+           :diagnostics [{:range {:start {:line 5 :character 0}
+                                  :end {:line 5 :character 10}}
+                          :severity 1
+                          :message "Unused variable"}]}}]
+```
+
+#### Server-Side Handler
+
+```clojure
+;; Handler for LSP requests from browser
+(defmethod handle-event :lsp/request
+  [{:keys [data uid]}]
+  (let [{:keys [session-id request-id method params]} data
+        lsp-server (get-lsp-server session-id)
+        response (send-to-lsp-server lsp-server method params)]
+    ;; Send response back to browser
+    (sente/send-to-client! uid [:lsp/response
+      {:session-id session-id
+       :request-id request-id
+       :result (:result response)}])))
+
+;; Handle LSP notifications from server
+(defn forward-lsp-notifications [session-id uid lsp-server]
+  ;; Listen to LSP server notifications
+  ;; Forward to browser via sente
+  (listen-to-lsp-server lsp-server
+    (fn [notification]
+      (sente/send-to-client! uid [:lsp/notification notification]))))
+```
+
+### Implementation Phases
+
+#### Phase 1: Basic LSP Proxy (~300-400 LOC)
+
+**Goal**: Simple LSP request/response routing
+
+**Features**:
+- Route LSP requests to language server
+- Return responses to browser
+- Basic session management
+- Support common methods (completion, hover, definition)
+
+**Supported Methods**:
+- `textDocument/completion`
+- `textDocument/hover`
+- `textDocument/definition`
+- `textDocument/references`
+- `textDocument/formatting`
+
+**Code Sketch**:
+```clojure
+;; Server
+(defn start-lsp-server [language]
+  ;; Start language server process
+  ;; (clojure-lsp, rust-analyzer, etc.)
+  )
+
+(defmethod handle-event :lsp/request
+  [{:keys [data uid]}]
+  (let [{:keys [method params]} data
+        result (query-lsp-server method params)]
+    (sente/send-to-client! uid [:lsp/response
+      {:result result}])))
+
+;; Browser
+(defmethod handle-message :lsp/response
+  [{:keys [data]}]
+  (let [{:keys [result]} data]
+    (display-completions result)))
+```
+
+**Pros**:
+- ✅ Simple to implement
+- ✅ Works with any LSP server
+- ✅ Reuses sente connection
+- ✅ No separate proxy needed
+
+**Cons**:
+- ⚠️ No notifications
+- ⚠️ No session persistence
+- ⚠️ No file watching
+
+#### Phase 2: Full LSP Support (~500-600 LOC)
+
+**Goal**: Complete LSP protocol implementation
+
+**Features**:
+- All LSP methods
+- Server notifications (diagnostics, etc.)
+- File watching and change tracking
+- Workspace management
+- Multiple language servers
+- Session persistence
+
+**Configuration**:
+```clojure
+(def lsp-config
+  {:enabled true
+   :servers {:clojure {:command "clojure-lsp"
+                       :args ["--stdio"]}
+             :rust {:command "rust-analyzer"}
+             :typescript {:command "typescript-language-server"
+                          :args ["--stdio"]}}
+   :max-sessions 10
+   :session-timeout-ms 3600000})
+```
+
+**Pros**:
+- ✅ Full IDE experience
+- ✅ Real-time diagnostics
+- ✅ Multiple language support
+- ✅ File tracking
+
+**Cons**:
+- ⚠️ More complex state management
+- ⚠️ Resource overhead (multiple servers)
+
+#### Phase 3: Advanced Features (~700+ LOC)
+
+**Goal**: Enterprise-grade LSP infrastructure
+
+**Features**:
+- Language server pooling
+- Load balancing
+- Caching (completions, definitions)
+- Performance optimization
+- Custom language servers
+- Debugging support
+
+### Wire Format & Protocol
+
+**Initialize**:
+```clojure
+[:lsp/initialize
+ {:session-id "editor-123"
+  :rootPath "/project"
+  :capabilities {:textDocument {:completion {}}}}]
+```
+
+**Request**:
+```clojure
+[:lsp/request
+ {:session-id "editor-123"
+  :request-id "req-456"
+  :method "textDocument/completion"
+  :params {...}}]
+```
+
+**Response**:
+```clojure
+[:lsp/response
+ {:session-id "editor-123"
+  :request-id "req-456"
+  :result [...]}]
+```
+
+**Notification**:
+```clojure
+[:lsp/notification
+ {:method "textDocument/publishDiagnostics"
+  :params {...}}]
+```
+
+### Configuration Example
+
+```clojure
+;; Server setup
+(def lsp-config
+  {:clojure {:command "clojure-lsp"
+             :args ["--stdio"]
+             :enabled true}
+   :rust {:command "rust-analyzer"
+          :enabled true}})
+
+;; Start LSP servers
+(start-lsp-servers lsp-config)
+
+;; Browser editor sends completion request
+(sente/send! client [:lsp/request
+  {:session-id "editor-1"
+   :request-id "req-1"
+   :method "textDocument/completion"
+   :params {...}}])
+
+;; Server responds with completions
+;; Browser displays in editor
+```
+
+### Advantages
+
+**IDE Features**:
+- ✅ Code completion
+- ✅ Hover documentation
+- ✅ Go to definition
+- ✅ Find references
+- ✅ Diagnostics/linting
+- ✅ Code formatting
+- ✅ Refactoring
+
+**Architecture**:
+- ✅ Reuses sente connection
+- ✅ Works with any LSP server
+- ✅ No separate proxy needed
+- ✅ Bidirectional (notifications)
+- ✅ Multiple editors supported
+
+**Operations**:
+- ✅ Leverage existing LSP servers
+- ✅ Standard LSP protocol
+- ✅ Easy to add new languages
+- ✅ Familiar to developers
+
+### Disadvantages
+
+**Complexity**:
+- ⚠️ LSP protocol is complex
+- ⚠️ Multiple language servers to manage
+- ⚠️ Resource overhead (server processes)
+
+**Performance**:
+- ⚠️ Latency (sente + LSP roundtrip)
+- ⚠️ Server load (multiple requests)
+- ⚠️ Memory (language server state)
+
+### Use Cases
+
+**In-Browser IDE**:
+- ✅ Code editor with IDE features
+- ✅ Clojure/ClojureScript development
+- ✅ Multi-language support
+- ✅ Educational tools
+
+**Development Tools**:
+- ✅ Code review tools
+- ✅ Documentation generators
+- ✅ Static analysis
+- ✅ Refactoring tools
+
+### Related Projects
+
+**Existing LSP WebSocket Proxies**:
+- `lsp-ws-proxy` (Rust, general-purpose)
+- `clojure-lsp` (Clojure LSP server)
+- `codemirror/lsp-client` (Browser LSP client)
+- `val-town/vtlsp` (Full LSP infrastructure)
+
+**Integration Pattern**:
+The existing `lsp-ws-proxy` project shows the pattern:
+- Start LSP server process (stdio)
+- Proxy JSON-RPC messages over WebSocket
+- Browser client sends LSP requests
+- Server responds with LSP responses
+
+**For sente-lite**: Same pattern but over sente instead of dedicated WebSocket.
+
+### File Structure
+
+```
+src/sente_lite/lsp/
+├── handler.clj          # Server-side LSP handler
+├── client.cljs          # Client-side LSP client
+├── protocol.cljc        # LSP protocol utilities
+├── server.clj           # Language server management
+└── session.clj          # Session tracking
+
+test/sente_lite/lsp/
+├── handler_test.clj     # Server tests
+├── client_test.cljs     # Client tests
+└── integration_test.bb  # Integration tests
+
+examples/
+└── lsp-over-sente-demo.bb  # Working example
+```
+
+### Comparison: Dedicated Proxy vs. Sente
+
+| Aspect | Dedicated Proxy | Sente LSP |
+|--------|-----------------|-----------|
+| **Connections** | 2 | 1 |
+| **Setup** | Separate proxy | Integrated |
+| **Notifications** | Possible | Native |
+| **Session mgmt** | Manual | Automatic |
+| **Complexity** | Lower | Medium |
+| **Reusability** | Limited | High |
+| **Bidirectional** | Yes | Yes |
+
+### Next Steps
+
+1. **Investigate lsp-ws-proxy**: Study existing implementation
+2. **Design LSP-over-Sente**: Map LSP JSON-RPC to sente events
+3. **Implement Phase 1**: Basic request/response routing
+4. **Test with clojure-lsp**: Verify with real language server
+5. **Add notifications**: Support server-to-client messages
+6. **Implement Phase 2**: Full LSP support with multiple servers
+
+---
+
 ### 1. Metrics & Observability
 Track connection metrics, message throughput, latency
 
