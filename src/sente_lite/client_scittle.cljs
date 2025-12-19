@@ -22,7 +22,8 @@
   
   NOTE: SCI/Scittle requires macros to be referred directly, not namespace-qualified."
   (:require [taoensso.trove :as trove :refer [log!]]
-            [sente-lite.packer :as packer]))
+            [sente-lite.packer :as packer]
+            [sente-lite.queue-scittle :as q]))
 
 ;; Event IDs (Sente-compatible)
 (def ^:const event-handshake :chsk/handshake)
@@ -76,7 +77,8 @@
    :max-reconnect-delay (get config :max-reconnect-delay 30000)  ; default 30s
    :last-connect-attempt nil
    :message-count-sent 0
-   :message-count-received 0})
+   :message-count-received 0
+   :send-queue nil})
 
 ;;; Telemetry - uses Trove event ID pattern (:sente-lite.client/*)
 
@@ -111,10 +113,36 @@
                     :error (.-message e)}})
       {:error :parse-failed :raw raw-data})))
 
-(defn- send-raw!
-  "Send an event vector directly"
+(defn- send-event!
+  "Send an event vector directly (packs to EDN)"
   [ws event]
   (.send ws (packer/pack event)))
+
+(defn- send-raw!
+  "Internal: Send serialized message directly over WebSocket (bypassing queue).
+   Used by queue flush. Takes [serialized message] tuple."
+  [client-id serialized message]
+  (if-let [client-state (get @clients client-id)]
+    (let [ws (get client-state :ws)
+          ready-state (if ws (.-readyState ws) -1)]
+      (if (= ready-state 1) ; WebSocket.OPEN = 1
+        (do
+          (.send ws serialized)
+          (swap! clients update-in [client-id :message-count-sent] inc)
+          (log! {:level :trace
+                 :id :sente-lite.client/msg-sent
+                 :data {:client-id client-id
+                        :message-type (first message)
+                        :size (count serialized)}})
+          true)
+        (do
+          (log! {:level :warn
+                 :id :sente-lite.client/send-failed
+                 :data {:client-id client-id
+                        :status (get client-state :status)
+                        :ready-state ready-state}})
+          false)))
+    false))
 
 (defn- handle-handshake
   "Handle :chsk/handshake event - extract uid and store it"
@@ -173,7 +201,7 @@
             (log! {:level :trace
                    :id :sente-lite.client/auto-pong
                    :data {:client-id client-id}})
-            (send-raw! ws [event-ws-pong]))
+            (send-event! ws [event-ws-pong]))
 
           ;; Pass all other events to user handler
           :else
@@ -295,18 +323,23 @@
     :auto-reconnect?      - Enable auto-reconnect (default: true)
     :reconnect-delay      - Initial reconnect delay in ms (default: 1000)
     :max-reconnect-delay  - Maximum reconnect delay in ms (default: 30000)
+    :send-queue           - Send queue config map (optional):
+                            {:max-depth 1000          ; max queued messages
+                             :flush-interval-ms 10}   ; flush interval
 
   Returns client-id handle for send!/close!/set-reconnect! operations."
   [config]
   (let [client-state (make-client-state config)
-        client-id (:id client-state)
-        url (:url config)
+        client-id (get client-state :id)
+        url (get config :url)
+        queue-config (get config :send-queue)
         ws (js/WebSocket. url)]
 
     (log! {:level :debug
            :id :sente-lite.client/creating
            :data {:client-id client-id
                   :url url
+                  :send-queue (some? queue-config)
                   :initial-state (.-readyState ws)}})
 
     ;; Store client state
@@ -318,6 +351,30 @@
     (set! (.-onerror ws) (partial handle-error (get @clients client-id)))
     (set! (.-onclose ws) (partial handle-close (get @clients client-id)))
 
+    ;; Create and start send queue if configured
+    (when queue-config
+      (let [queue (q/make-send-queue
+                   (merge queue-config
+                          {:on-send (fn [msg]
+                                      ;; msg is [serialized message] tuple
+                                      (let [serialized (first msg)
+                                            message (second msg)]
+                                        (send-raw! client-id serialized message)))
+                           :on-error (fn [e msg]
+                                       (let [message (second msg)]
+                                         (log! {:level :error
+                                                :id :sente-lite.client/queue-send-error
+                                                :data {:client-id client-id
+                                                       :message-type (first message)
+                                                       :error (str e)}})))}))]
+        (swap! clients assoc-in [client-id :send-queue] queue)
+        (q/start! queue)
+        (log! {:level :debug
+               :id :sente-lite.client/queue-started
+               :data {:client-id client-id
+                      :max-depth (get queue-config :max-depth 1000)
+                      :flush-interval-ms (get queue-config :flush-interval-ms 10)}})))
+
     (log! {:level :trace
            :id :sente-lite.client/handlers-attached
            :data {:client-id client-id}})
@@ -326,31 +383,50 @@
     client-id))
 
 (defn send!
-  "Send message through client. Message should be EDN-serializable.
+  "Send message through client. Message should be an event vector [event-id data].
+
+  If send-queue is configured:
+    Returns :ok if message was queued, :rejected if queue is full.
+    Message will be sent asynchronously by the background flush timer.
+
+  If no send-queue (direct send):
+    Returns true if sent immediately, false if failed.
 
   Example:
     (send! client [:my/event {:data \"value\"}])"
   [client-id message]
   (if-let [client-state (get @clients client-id)]
-    (let [ws (:ws client-state)
-          ready-state (.-readyState ws)]
-      (if (= ready-state 1) ; WebSocket.OPEN = 1
-        (let [serialized (packer/pack message)]
-          (.send ws serialized)
-          (swap! clients update-in [client-id :message-count-sent] inc)
-          (log! {:level :trace
-                 :id :sente-lite.client/msg-sent
-                 :data {:client-id client-id
-                        :message-type (first message)
-                        :size (count serialized)}})
-          true)
-        (do
-          (log! {:level :warn
-                 :id :sente-lite.client/send-failed
-                 :data {:client-id client-id
-                        :ready-state ready-state
-                        :status (:status client-state)}})
-          false)))
+    (let [send-queue (get client-state :send-queue)]
+      (if send-queue
+        ;; Queue-based sending
+        (let [serialized (packer/pack message)
+              result (q/enqueue! send-queue [serialized message])]
+          (when (= result :rejected)
+            (log! {:level :warn
+                   :id :sente-lite.client/queue-full
+                   :data {:client-id client-id
+                          :message-type (first message)}}))
+          result)
+        ;; Direct sending (no queue)
+        (let [ws (get client-state :ws)
+              ready-state (if ws (.-readyState ws) -1)]
+          (if (= ready-state 1) ; WebSocket.OPEN = 1
+            (let [serialized (packer/pack message)]
+              (.send ws serialized)
+              (swap! clients update-in [client-id :message-count-sent] inc)
+              (log! {:level :trace
+                     :id :sente-lite.client/msg-sent
+                     :data {:client-id client-id
+                            :message-type (first message)
+                            :size (count serialized)}})
+              true)
+            (do
+              (log! {:level :warn
+                     :id :sente-lite.client/send-failed
+                     :data {:client-id client-id
+                            :ready-state ready-state
+                            :status (get client-state :status)}})
+              false)))))
     (do
       (log! {:level :error
              :id :sente-lite.client/invalid-client-id
@@ -358,11 +434,19 @@
       false)))
 
 (defn close!
-  "Close WebSocket connection gracefully."
+  "Close WebSocket connection gracefully. Stops send queue and drains remaining messages."
   [client-id]
   (if-let [client-state (get @clients client-id)]
-    (let [ws (:ws client-state)]
-      ;; Remove client from registry FIRST to prevent on-close from re-adding
+    (let [ws (get client-state :ws)
+          send-queue (get client-state :send-queue)]
+      ;; Stop queue first (drains remaining messages)
+      (when send-queue
+        (let [final-stats (q/stop! send-queue)]
+          (log! {:level :debug
+                 :id :sente-lite.client/queue-stopped
+                 :data {:client-id client-id
+                        :final-stats final-stats}})))
+      ;; Remove client from registry to prevent on-close from re-adding
       (swap! clients dissoc client-id)
       (when ws
         (log! {:level :debug
@@ -449,4 +533,12 @@
   Returns nil if not yet connected or handshake not received."
   [client-id]
   (when-let [client-state (get @clients client-id)]
-    (:uid client-state)))
+    (get client-state :uid)))
+
+(defn queue-stats
+  "Get send queue statistics. Returns nil if no queue configured.
+  Stats include: :depth :enqueued :sent :dropped :errors"
+  [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (when-let [send-queue (get client-state :send-queue)]
+      (q/queue-stats send-queue))))

@@ -21,6 +21,8 @@
     (sente/close! client)"
   (:require [babashka.http-client.websocket :as ws]
             [sente-lite.packer :as packer]
+            [sente-lite.queue :as q]
+            [sente-lite.queue-bb :as qbb]
             [taoensso.trove :as trove]))
 
 ;; Event IDs (Sente-compatible)
@@ -70,7 +72,8 @@
    :max-reconnect-delay (get config :max-reconnect-delay 30000)  ; default 30s
    :last-connect-attempt nil
    :message-count-sent 0
-   :message-count-received 0})
+   :message-count-received 0
+   :send-queue nil})
 
 ;;; Message Parsing
 ;; IMPORTANT: Babashka's babashka.http-client.websocket passes a java.nio.HeapCharBuffer
@@ -294,6 +297,30 @@
 
 ;;; Public API
 
+(defn- send-raw!
+  "Internal: Send serialized message directly over WebSocket (bypassing queue)."
+  [client-id serialized message]
+  (if-let [client-state (get @clients client-id)]
+    (let [ws (:ws client-state)]
+      (if (and ws (= :connected (:status client-state)))
+        (do
+          (ws/send! ws serialized)
+          (swap! clients update-in [client-id :message-count-sent] inc)
+          (trove/log! {:level :trace
+                       :id :sente-lite.client/msg-sent
+                       :data {:client-id client-id
+                              :message-type (first message)
+                              :size (count serialized)}})
+          true)
+        (do
+          (trove/log! {:level :warn
+                       :id :sente-lite.client/send-failed
+                       :data {:client-id client-id
+                              :status (:status client-state)
+                              :has-ws (some? ws)}})
+          false)))
+    false))
+
 (defn make-client!
   "Create and connect a WebSocket client with auto-reconnect and telemetry.
 
@@ -307,20 +334,45 @@
     :auto-reconnect?      - Enable auto-reconnect (default: true)
     :reconnect-delay      - Initial reconnect delay in ms (default: 1000)
     :max-reconnect-delay  - Maximum reconnect delay in ms (default: 30000)
+    :send-queue           - Send queue config map (optional):
+                            {:max-depth 1000          ; max queued messages
+                             :flush-interval-ms 10}   ; flush interval
 
   Returns client-id handle for send!/close!/set-reconnect! operations."
   [config]
   (let [client-state (make-client-state config)
         client-id (:id client-state)
-        url (:url config)]
+        url (:url config)
+        queue-config (:send-queue config)]
 
     (trove/log! {:level :debug
                  :id :sente-lite.client/creating
                  :data {:client-id client-id
-                        :url url}})
+                        :url url
+                        :send-queue (some? queue-config)}})
 
     ;; Store client state
     (swap! clients assoc client-id client-state)
+
+    ;; Create and start send queue if configured
+    (when queue-config
+      (let [queue (qbb/make-send-queue
+                   (merge queue-config
+                          {:on-send (fn [[serialized message]]
+                                      (send-raw! client-id serialized message))
+                           :on-error (fn [e [_ message]]
+                                       (trove/log! {:level :error
+                                                    :id :sente-lite.client/queue-send-error
+                                                    :data {:client-id client-id
+                                                           :message-type (first message)
+                                                           :error (str e)}}))}))]
+        (swap! clients assoc-in [client-id :send-queue] queue)
+        (q/start! queue)
+        (trove/log! {:level :debug
+                     :id :sente-lite.client/queue-started
+                     :data {:client-id client-id
+                            :max-depth (:max-depth queue-config 1000)
+                            :flush-interval-ms (:flush-interval-ms queue-config 10)}})))
 
     ;; Connect - if it fails and auto-reconnect is enabled, schedule retry
     (let [result (connect-internal! client-id)]
@@ -345,28 +397,47 @@
 (defn send!
   "Send message through client. Message should be an event vector [event-id data].
 
+  If send-queue is configured:
+    Returns :ok if message was queued, :rejected if queue is full.
+    Message will be sent asynchronously by the background flush thread.
+
+  If no send-queue (direct send):
+    Returns true if sent immediately, false if failed.
+
   Example:
     (send! client [:my/event {:data \"value\"}])"
   [client-id message]
   (if-let [client-state (get @clients client-id)]
-    (let [ws (:ws client-state)]
-      (if (and ws (= :connected (:status client-state)))
-        (let [serialized (packer/pack message)]
-          (ws/send! ws serialized)
-          (swap! clients update-in [client-id :message-count-sent] inc)
-          (trove/log! {:level :trace
-                       :id :sente-lite.client/msg-sent
-                       :data {:client-id client-id
-                              :message-type (first message)
-                              :size (count serialized)}})
-          true)
-        (do
-          (trove/log! {:level :warn
-                       :id :sente-lite.client/send-failed
-                       :data {:client-id client-id
-                              :status (:status client-state)
-                              :has-ws (some? ws)}})
-          false)))
+    (let [send-queue (:send-queue client-state)]
+      (if send-queue
+        ;; Queue-based sending
+        (let [serialized (packer/pack message)
+              result (q/enqueue! send-queue [serialized message])]
+          (when (= result :rejected)
+            (trove/log! {:level :warn
+                         :id :sente-lite.client/queue-full
+                         :data {:client-id client-id
+                                :message-type (first message)}}))
+          result)
+        ;; Direct sending (no queue)
+        (let [ws (:ws client-state)]
+          (if (and ws (= :connected (:status client-state)))
+            (let [serialized (packer/pack message)]
+              (ws/send! ws serialized)
+              (swap! clients update-in [client-id :message-count-sent] inc)
+              (trove/log! {:level :trace
+                           :id :sente-lite.client/msg-sent
+                           :data {:client-id client-id
+                                  :message-type (first message)
+                                  :size (count serialized)}})
+              true)
+            (do
+              (trove/log! {:level :warn
+                           :id :sente-lite.client/send-failed
+                           :data {:client-id client-id
+                                  :status (:status client-state)
+                                  :has-ws (some? ws)}})
+              false)))))
     (do
       (trove/log! {:level :error
                    :id :sente-lite.client/invalid-client-id
@@ -374,11 +445,19 @@
       false)))
 
 (defn close!
-  "Close WebSocket connection gracefully."
+  "Close WebSocket connection gracefully. Stops send queue and drains remaining messages."
   [client-id]
   (if-let [client-state (get @clients client-id)]
-    (let [ws (:ws client-state)]
-      ;; Remove client from registry FIRST to prevent on-close from re-adding
+    (let [ws (:ws client-state)
+          send-queue (:send-queue client-state)]
+      ;; Stop queue first (drains remaining messages)
+      (when send-queue
+        (let [final-stats (q/stop! send-queue)]
+          (trove/log! {:level :debug
+                       :id :sente-lite.client/queue-stopped
+                       :data {:client-id client-id
+                              :final-stats final-stats}})))
+      ;; Remove client from registry to prevent on-close from re-adding
       (swap! clients dissoc client-id)
       (when ws
         (trove/log! {:level :debug
@@ -415,6 +494,14 @@
      :messages-sent (:message-count-sent client-state)
      :messages-received (:message-count-received client-state)
      :reconnect-count (:reconnect-count client-state)}))
+
+(defn queue-stats
+  "Get send queue statistics. Returns nil if no queue configured.
+  Stats include: :depth :enqueued :sent :dropped :errors"
+  [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (when-let [send-queue (:send-queue client-state)]
+      (q/queue-stats send-queue))))
 
 (defn list-clients
   "List all active client IDs."
