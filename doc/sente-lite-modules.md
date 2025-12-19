@@ -3893,6 +3893,126 @@ This architecture enables:
 - ✅ Per-message compression choice
 - ✅ No type loss or conversion
 
+### Packer Support: Wire Compatibility with Sente
+
+**Sente provides 4 built-in packers** (v1.21+):
+
+| Packer | Type | Speed | Size | Clojure Types | Browser Support |
+|--------|------|-------|------|---------------|-----------------|
+| **EDN** | Text | Slow | Large | ✅ Full | ✅ Yes |
+| **Transit** | Text (JSON) | Fast | Medium | ✅ Full | ✅ Yes |
+| **MessagePack** | Binary | Very Fast | Small | ❌ No* | ✅ Yes |
+| **Gzip** | Wrapper | Slower | Smallest | Depends | ✅ Yes |
+
+*MessagePack loses Clojure types unless using Transit/JSON → MessagePack architecture
+
+**Sente Usage**:
+
+```clojure
+;; EDN (default)
+(let [packer (taoensso.sente.packers.edn/get-packer)]
+  (sente/make-channel-socket-server! ... {:packer packer ...}))
+
+;; Transit
+(let [packer (taoensso.sente.packers.transit/get-packer)]
+  (sente/make-channel-socket-server! ... {:packer packer ...}))
+
+;; MessagePack
+(let [packer (taoensso.sente.packers.msgpack/get-packer)]
+  (sente/make-channel-socket-server! ... {:packer packer ...}))
+
+;; Gzip-wrapped (e.g., MessagePack + Gzip)
+(let [mp-packer (taoensso.sente.packers.msgpack/get-packer)
+      gz-packer (taoensso.sente.packers.gzip/wrap-packer mp-packer {:binary? true})]
+  (sente/make-channel-socket-server! ... {:packer gz-packer ...}))
+```
+
+**Performance Comparison**:
+- **Speed**: MessagePack ~ Transit >> EDN
+- **Size**: MessagePack > Transit >> EDN
+- **Gzip**: Decreases speed, increases compression (often good tradeoff)
+
+**Custom Packers**:
+- ✅ Can implement custom packers by implementing the packer protocol
+
+### Sente-Lite Packer Strategy
+
+**For wire compatibility with Sente, sente-lite should support**:
+
+**Phase 1-3: Core Packers** (wire compatible)
+1. **EDN** (default, text)
+   - ✅ Full Clojure type preservation
+   - ✅ Simple, no dependencies
+   - ✅ Wire compatible with Sente
+   - ❌ Larger size
+
+2. **Transit** (text, JSON transport)
+   - ✅ Full Clojure type preservation
+   - ✅ Compact encoding
+   - ✅ Custom type support (write/read handlers)
+   - ✅ Wire compatible with Sente
+   - ✅ Recommended for production
+
+**Phase 0 (Optional): Advanced Packers**
+3. **MessagePack** (binary, with Transit/JSON wrapper)
+   - ✅ Very compact (30-50% smaller than JSON)
+   - ✅ Fast serialization/deserialization
+   - ✅ Full Clojure type preservation (via Transit/JSON → MessagePack)
+   - ✅ Compression ready (gzip)
+   - ⚠️ Requires Transit/JSON → MessagePack architecture
+
+4. **Gzip** (wrapper)
+   - ✅ Compression on top of any packer
+   - ✅ Auto-detection via magic bytes (0x1F 0x8B)
+   - ✅ Works with EDN, Transit, MessagePack
+
+5. **JSON** (optional, for non-Clojure interop)
+   - ✅ Interoperable with non-Clojure systems
+   - ❌ Loses Clojure types
+   - ⚠️ Only if you need non-Clojure interop
+
+**Packer Negotiation at Connection-Time**:
+
+Since all messages in a connection must use the same packer:
+
+```clojure
+;; Server declares packer
+(make-sente-lite-server 
+  ... 
+  {:packer :transit})  ; or :edn, :msgpack, :gzip-transit
+
+;; Client must use same packer
+(make-sente-lite-client 
+  ... 
+  {:packer :transit})
+```
+
+**Format Detection** (for debugging/logging):
+
+```clojure
+;; Detect format by first character (text formats only)
+(defn detect-format [message]
+  (let [first-char (first (str/trim message))]
+    (case first-char
+      \: :edn        ; keyword
+      \' :edn        ; quote
+      \# :edn        ; dispatch macro
+      \{ :ambiguous  ; could be JSON or EDN
+      \[ :ambiguous  ; could be JSON or EDN
+      :unknown)))
+
+;; For binary formats, check magic bytes
+(defn is-gzipped? [bytes]
+  (and (>= (count bytes) 2)
+       (= (aget bytes 0) 0x1f)
+       (= (aget bytes 1) 0x8b)))
+```
+
+**Recommendation**:
+- **Default**: Transit (best balance of compatibility, compression, and type preservation)
+- **Simple**: EDN (if you don't need compression)
+- **Advanced**: Transit/JSON → MessagePack → Gzip (if you need maximum compression)
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
