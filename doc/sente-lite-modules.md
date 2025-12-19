@@ -3332,12 +3332,20 @@ This is a design choice—Sente chose separation of concerns, but sente-lite can
 
 **Sente's Receiver Implementation**:
 - ✅ Provides `ch-recv` - a core.async channel for received messages
-- ✅ Channel has default buffer (usually 1024)
+- ✅ Channel has default buffer (usually 1024 messages)
 - ✅ Application hooks event handlers to channel
 - ❌ No explicit backpressure handling
 - ❌ If handlers slow, buffer fills and messages drop
 - ❌ No visibility into receiver backpressure
 - ❌ No queue for handling slow consumers
+
+**Important: Buffer is Message-Count Based, Not Byte-Size Based**:
+- core.async buffer size = number of messages, not bytes
+- `(chan 1024)` = buffer 1024 messages (regardless of size)
+- A 1MB message counts as 1 message
+- 1000 x 1KB messages count as 1000 messages
+- No protection against large message floods
+- Backpressure is message-count based, not byte-size based
 
 **The Problem**:
 - Sender-side backpressure tells sender to slow down
