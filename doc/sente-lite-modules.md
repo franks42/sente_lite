@@ -2985,6 +2985,55 @@ A practical use case: Babashka server spawns a separate process where stdin/stdo
 
 This architectural property makes sente-lite particularly powerful: the same modules, handlers, and patterns work regardless of the underlying transport mechanism. Whether communicating with browsers over WebSocket, subprocesses over pipes, or other processes over sockets, the application logic remains identical.
 
+### Comparison: Socket.IO vs Sente-Lite
+
+**Socket.IO** (JavaScript/Node.js):
+- Mature, widely-used library
+- Automatic fallback (WebSocket → polling)
+- Built-in rooms/namespaces
+- Middleware support
+- Large ecosystem
+- Heavier (~100KB minified)
+
+**Sente-Lite** (Clojure/ClojureScript):
+- Minimal, focused design
+- Transport-agnostic (WebSocket, pipes, sockets, IPC)
+- Event-based routing (defmethod)
+- Functional/reactive patterns
+- Lightweight (~20KB)
+- Works across JVM/Babashka/Scittle
+
+| Feature | Socket.IO | Sente-Lite |
+|---------|-----------|-----------|
+| **Language** | JavaScript | Clojure/ClojureScript |
+| **Size** | ~100KB | ~20KB |
+| **Fallback** | Automatic (polling) | Manual (transport layer) |
+| **Rooms** | Built-in | Custom via modules |
+| **Namespaces** | Built-in | Event routing |
+| **Middleware** | Yes | Custom handlers |
+| **Transport** | WebSocket only | Any bidirectional |
+| **Serialization** | JSON | EDN |
+| **Async** | Callbacks/Promises | Atoms/Reactions |
+| **State Sync** | Manual | Atoms + watchers |
+| **Modules** | Limited | 30+ patterns |
+| **Learning Curve** | Medium | Low (if Clojure familiar) |
+
+**When to Use Socket.IO**:
+- JavaScript-only stack
+- Need automatic fallback to polling
+- Large Node.js ecosystem
+- Team familiar with JavaScript
+
+**When to Use Sente-Lite**:
+- Clojure/ClojureScript stack
+- Need transport abstraction
+- Want minimal, composable design
+- Need to work with Babashka/Scittle
+- Building modular real-time features
+- Want functional/reactive patterns
+
+**Key Difference**: Socket.IO is a complete solution with batteries included. Sente-lite is a minimal foundation designed for composability—you build what you need as modules on top.
+
 ---
 
 ## Module Development Guidelines
