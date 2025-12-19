@@ -2946,7 +2946,44 @@ WebSocket | Socket | Pipe | IPC | Custom Transport
 - **IPC**: Inter-process communication
 - **Custom**: Domain-specific optimizations
 
-This architectural property makes sente-lite particularly powerful: the same modules, handlers, and patterns work regardless of the underlying transport mechanism.
+**Real-World Example: Subprocess Communication**
+
+A practical use case: Babashka server spawns a separate process where stdin/stdout/stderr are connected to the server. With sente abstraction:
+
+```clojure
+;; Server spawns subprocess with connected pipes
+(def proc (ProcessBuilder. ["./subprocess"]))
+(.redirectInput proc ProcessBuilder$Redirect/PIPE)
+(.redirectOutput proc ProcessBuilder$Redirect/PIPE)
+(.redirectError proc ProcessBuilder$Redirect/PIPE)
+(def process (.start proc))
+
+;; Wrap stdin/stdout as sente transport
+(def subprocess-transport
+  (create-pipe-transport
+    (.getInputStream process)
+    (.getOutputStream process)))
+
+;; Use same sente handlers as WebSocket
+(defmethod handle-event :subprocess/compute
+  [{:keys [data]}]
+  ;; Works identically whether message came from WebSocket or pipe
+  (let [result (expensive-computation data)]
+    (send-response result)))
+
+;; Subprocess communicates via stdin/stdout
+;; Server treats it like any other sente client
+;; All modules (logging, state sync, RPC, etc.) work transparently
+```
+
+**Benefits**:
+- ✅ Same event handlers for subprocess and browser clients
+- ✅ All modules work with subprocess communication
+- ✅ Easy to test (use pipes instead of WebSocket)
+- ✅ No special subprocess communication code needed
+- ✅ Transparent fallback if WebSocket unavailable
+
+This architectural property makes sente-lite particularly powerful: the same modules, handlers, and patterns work regardless of the underlying transport mechanism. Whether communicating with browsers over WebSocket, subprocesses over pipes, or other processes over sockets, the application logic remains identical.
 
 ---
 
