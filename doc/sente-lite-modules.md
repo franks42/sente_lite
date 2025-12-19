@@ -3111,6 +3111,77 @@ At optimal time (or buffer full):
 
 **Important Note**: Event ordering is maintained within a batch. Events are processed in the order they were sent, even when batched together.
 
+### Simple Implementation
+
+Event buffering is straightforward to implement. Here's a minimal example for sente-lite:
+
+```clojure
+;; Server-side event buffer
+(def event-buffer (atom {})) ; {uid -> [events]}
+
+(defn buffer-event [uid event-id data]
+  "Queue event for batching"
+  (swap! event-buffer update uid (fnil conj []) [event-id data]))
+
+(defn flush-buffer [uid]
+  "Send all buffered events to client"
+  (when-let [events (get @event-buffer uid)]
+    (when (seq events)
+      ;; Send all events in one message
+      (sente/send-to-client! uid [:batch/events events])
+      ;; Clear buffer
+      (swap! event-buffer dissoc uid))))
+
+;; Flush periodically (e.g., every 25ms)
+(defn start-buffer-flusher []
+  (future
+    (loop []
+      (Thread/sleep 25)
+      ;; Flush all buffers
+      (doseq [uid (keys @event-buffer)]
+        (flush-buffer uid))
+      (recur))))
+
+;; Application code: use buffer instead of direct send
+(buffer-event uid :metric/cpu {:value 45})
+(buffer-event uid :metric/memory {:value 2048})
+(buffer-event uid :metric/disk {:value 512})
+;; All three sent together in next flush cycle
+```
+
+**Client-side**:
+```clojure
+;; Receive batched events
+(defmethod handle-message :batch/events
+  [{:keys [data]}]
+  (doseq [[event-id event-data] data]
+    ;; Process each event as if it came individually
+    (handle-event event-id event-data)))
+```
+
+**That's it**. The implementation is:
+1. Queue messages in an atom
+2. Flush periodically (timer)
+3. Send all queued messages in one packet
+4. Clear the queue
+
+**Why Sente Includes This**:
+- Simple but high-impact optimization
+- Especially valuable over Ajax (high overhead per request)
+- Transparent to application code
+- Automatic—developers don't need to think about it
+
+**For Sente-Lite**:
+This could be a simple module that wraps the core send functions:
+```clojure
+;; sente_lite.modules.buffering
+(defn make-buffered-sender [flush-ms]
+  ;; Returns wrapped send-to-client! with buffering
+  )
+```
+
+The simplicity is the beauty—it's a small optimization that provides significant bandwidth savings with minimal code.
+
 ---
 
 ## Protocol Enhancements (Sente v1.21+)
