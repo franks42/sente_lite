@@ -1924,6 +1924,104 @@ Reagent atoms are **perfect for browser-side state** because they integrate seam
       (swap! app-state assoc :search (.. e -target -value)))}])
 ```
 
+#### Form Field Syncing Pattern (Real-Time)
+
+**Powerful pattern**: Every form field change is automatically synced to server atoms in real-time.
+
+```clojure
+;; Browser: Form component with Reagent
+(defn form-component []
+  [:form
+   [:input
+    {:type "text"
+     :placeholder "Name"
+     :value (:name @form-state)
+     :on-change (fn [e]
+       (swap! form-state assoc :name (.. e -target -value)))}]
+   [:input
+    {:type "email"
+     :placeholder "Email"
+     :value (:email @form-state)
+     :on-change (fn [e]
+       (swap! form-state assoc :email (.. e -target -value)))}]
+   [:textarea
+    {:value (:message @form-state)
+     :on-change (fn [e]
+       (swap! form-state assoc :message (.. e -target -value)))}]
+   [:button
+    {:on-click (fn []
+      (sente/send! client [:form/submit @form-state]))}
+    "Submit"]])
+
+;; Browser: Watch form state and sync to server
+(add-watch form-state :sync
+  (fn [key ref old-state new-state]
+    (when (not= old-state new-state)
+      ;; Send each field change in real-time
+      (sente/send! client [:form/field-change
+        {:field (diff-field old-state new-state)
+         :value (get-in new-state (diff-field old-state new-state))
+         :timestamp (now)}]))))
+
+;; Server: Receive form field changes
+(def form-atoms (atom {}))
+
+(defmethod handle-event :form/field-change
+  [{:keys [data uid]}]
+  (let [{:keys [field value timestamp]} data
+        form-id (get-form-id uid)]
+    ;; Update server-side form atom
+    (swap! (get-or-create-form-atom form-id) assoc-in field value)
+    ;; Trigger change handlers
+    (trigger-field-change-handlers form-id field value)))
+
+;; Server: Change handlers triggered automatically
+(defn on-email-change [form-id email]
+  ;; Validate email in real-time
+  (if (valid-email? email)
+    (update-form-validation form-id :email :valid)
+    (update-form-validation form-id :email :invalid)))
+
+(defn on-name-change [form-id name]
+  ;; Update character count
+  (update-form-stats form-id :name-length (count name)))
+```
+
+**Real-Time Features Enabled**:
+- ✅ Live validation (email, phone, etc.)
+- ✅ Character counters
+- ✅ Autocomplete suggestions
+- ✅ Duplicate checking
+- ✅ Field dependencies
+- ✅ Dynamic form updates
+- ✅ Server-side change handlers
+
+**Example: Live Validation**:
+```clojure
+;; Server validates email in real-time
+(defmethod handle-event :form/field-change
+  [{:keys [data uid]}]
+  (let [{:keys [field value]} data]
+    (when (= field :email)
+      ;; Check if email already exists
+      (if (email-exists? value)
+        (sente/send-to-client! uid [:form/error
+          {:field :email :message "Email already registered"}])
+        (sente/send-to-client! uid [:form/valid
+          {:field :email}])))))
+
+;; Browser receives validation feedback
+(defmethod handle-message :form/error
+  [{:keys [data]}]
+  (let [{:keys [field message]} data]
+    (swap! form-state assoc-in [:errors field] message)))
+
+(defmethod handle-message :form/valid
+  [{:keys [data]}]
+  (let [{:keys [field]} data]
+    (swap! form-state update :errors dissoc field)))
+```
+
 **Pros**:
 - ✅ Simple to implement
 - ✅ Familiar pattern (atoms + watchers)
@@ -1932,12 +2030,16 @@ Reagent atoms are **perfect for browser-side state** because they integrate seam
 - ✅ **Reagent: Automatic React integration**
 - ✅ **Reagent: Efficient re-renders**
 - ✅ **Reagent: Reactions for derived state**
+- ✅ **Real-time form validation**
+- ✅ **Server-side change handlers**
+- ✅ **Live feedback to user**
 
 **Cons**:
-- ⚠️ One-way only (unless two-way implemented)
+- ⚠️ Network overhead (every keystroke)
 - ⚠️ No conflict resolution
 - ⚠️ No offline support
 - ⚠️ No history/undo
+- ⚠️ Debouncing may be needed for performance
 
 ### Pattern 2: Two-Way Atom Syncing (Complex)
 
