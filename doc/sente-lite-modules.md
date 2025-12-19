@@ -3786,6 +3786,113 @@ This enables a **hybrid text/binary approach**:
 
 **This is a key optimization**: Sente-lite can use **mixed text/binary per message** without any protocol overhead. The receiver automatically knows which format was used.
 
+### Transit: Type Preservation + Binary Transport
+
+**Transit is NOT binary—it's a layer ON TOP of JSON or MessagePack**:
+
+Transit uses **encoding conventions** to preserve Clojure types within JSON/MessagePack:
+
+```
+EDN Data
+  ↓
+Transit Encoding (type tags + conventions)
+  ↓
+JSON or MessagePack (transport)
+  ↓
+Transit Decoding
+  ↓
+EDN Data (exact same structure)
+```
+
+**Transit's Encoding Conventions** (in JSON):
+
+```clojure
+;; Original EDN
+{:id :event/foo
+ :tags #{:urgent :important}
+ :ratio 1/3}
+
+;; Transit JSON encoding
+{"~#'id" "~:event/foo"
+ "~#'tags" ["~#set" [["~:urgent"] ["~:important"]]]
+ "~#'ratio" ["~#ratio" [1 3]]}
+
+;; Key conventions:
+;; "~:" = keyword prefix
+;; "~#" = tagged value prefix
+;; "~'" = symbol prefix
+;; "~#set" = set type tag
+;; "~#ratio" = ratio type tag
+```
+
+**Brilliant Architecture: Transit/JSON → MessagePack → Gzip**:
+
+```
+EDN Data
+  ↓
+Transit/JSON (preserves types, human-readable)
+  ↓
+MessagePack (binary transport, compact)
+  ↓
+Gzip (optional compression)
+  ↓
+WebSocket (binary frame)
+  ↓
+Gzip decompress
+  ↓
+MessagePack unpack
+  ↓
+Transit/JSON (preserves types)
+  ↓
+EDN Data (exact same structure)
+```
+
+**Example Flow**:
+
+```clojure
+;; Sender (sente-lite)
+(let [edn-data {:id :event/foo :data 123}
+      transit-json (transit/write edn-data)  ; {"~#'id" "~:event/foo" ...}
+      msgpack-bytes (msgpack/pack transit-json)  ; Binary blob
+      gzipped (gzip/compress msgpack-bytes)]  ; Compressed binary
+  (ws.send gzipped))
+
+;; Receiver (sente-lite)
+(let [gzipped event.data
+      msgpack-bytes (gzip/decompress gzipped)
+      transit-json (msgpack/unpack msgpack-bytes)  ; {"~#'id" "~:event/foo" ...}
+      edn-data (transit/read transit-json)]  ; {:id :event/foo :data 123}
+  (handle-event edn-data))
+```
+
+**Key Advantages**:
+
+1. **Type Preservation**: Keywords, sets, ratios, symbols all preserved
+2. **Binary Transport**: MessagePack is compact (30-50% smaller than JSON)
+3. **Compression Ready**: Can gzip the MessagePack bytes
+4. **Wire Compatible**: Works with Sente's Transit packer
+5. **Flexible**: Can choose compression per-message
+6. **Self-Describing**: Transit encoding is self-describing (no schema needed)
+
+**Why This is Better Than Alternatives**:
+
+| Approach | Type Preservation | Binary | Compression | Wire Compatible |
+|----------|------------------|--------|-------------|-----------------|
+| **EDN** | ✅ Yes | ❌ No | ❌ No | ✅ Yes (Sente) |
+| **Transit/JSON** | ✅ Yes | ❌ No | ❌ No | ✅ Yes (Sente) |
+| **MessagePack** | ❌ No | ✅ Yes | ✅ Yes | ❌ No |
+| **Transit/JSON → MessagePack** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes (Sente) |
+
+**Implication for Sente-Lite**:
+
+This architecture enables:
+- ✅ Full Clojure type preservation (keywords, sets, ratios, symbols)
+- ✅ Compact binary transport (MessagePack)
+- ✅ Optional compression (gzip)
+- ✅ Wire compatibility with Sente (Transit encoding)
+- ✅ Per-message compression choice
+- ✅ No type loss or conversion
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
