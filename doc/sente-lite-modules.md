@@ -1822,7 +1822,7 @@ Browser Atom
     ↓ UI updates via handlers
 ```
 
-#### Implementation
+#### Implementation with Plain Atoms
 
 ```clojure
 ;; Server side
@@ -1848,14 +1848,93 @@ Browser Atom
     (render-ui new)))
 ```
 
+#### Implementation with Reagent Atoms (Recommended for Browser)
+
+Reagent atoms are **perfect for browser-side state** because they integrate seamlessly with React components:
+
+```clojure
+;; Browser side with Reagent
+(def app-state (r/atom {:users [] :count 0}))
+
+;; Receive updates from server
+(defmethod handle-message :state/update
+  [{:keys [data]}]
+  ;; Update Reagent atom (triggers component re-renders)
+  (reset! app-state data))
+
+;; Reagent component watches atom automatically
+(defn users-list []
+  (let [users (:users @app-state)]
+    [:div
+     [:h2 "Users"]
+     [:ul
+      (for [user users]
+        ^{:key (:id user)}
+        [:li (:name user)])]]))
+
+;; Component automatically re-renders when atom changes
+(defn app []
+  [:div
+   [users-list]])
+
+;; Mount to DOM
+(r/render [app] (js/document.getElementById "app"))
+```
+
+**Reagent Advantages**:
+- ✅ Automatic component re-renders on atom change
+- ✅ No manual watchers needed
+- ✅ Efficient React diffing
+- ✅ Deref syntax (`@app-state`) in components
+- ✅ Reactions for computed values
+- ✅ Ratoms for local component state
+
+#### Reagent Reactions for Computed State
+
+```clojure
+;; Derived state using reactions
+(def user-count (r/reaction (count (:users @app-state))))
+(def active-users (r/reaction (filter :active (:users @app-state))))
+
+;; Use in components
+(defn stats []
+  [:div
+   [:p "Total users: " @user-count]
+   [:p "Active users: " (count @active-users)]])
+```
+
+#### Two-Way Sync with Reagent
+
+```clojure
+;; Browser sends changes back to server
+(add-watch app-state :sync
+  (fn [key ref old-state new-state]
+    ;; Send only if changed by user (not from server)
+    (when (not= old-state new-state)
+      (sente/send! client [:state/update
+        {:state new-state
+         :timestamp (now)
+         :client-id client-id}]))))
+
+;; Component can update state
+(defn user-input []
+  [:input
+   {:value (:search @app-state)
+    :on-change (fn [e]
+      (swap! app-state assoc :search (.. e -target -value)))}])
+```
+
 **Pros**:
 - ✅ Simple to implement
 - ✅ Familiar pattern (atoms + watchers)
 - ✅ Works with existing code
 - ✅ Low overhead
+- ✅ **Reagent: Automatic React integration**
+- ✅ **Reagent: Efficient re-renders**
+- ✅ **Reagent: Reactions for derived state**
 
 **Cons**:
-- ⚠️ One-way only
+- ⚠️ One-way only (unless two-way implemented)
 - ⚠️ No conflict resolution
 - ⚠️ No offline support
 - ⚠️ No history/undo
