@@ -3193,13 +3193,28 @@ The same queue provides both optimizations:
 - Application decides what to do when backpressured
 - Prevents silent message loss
 
-**Important: Frame Size Constraints**
+**Important: Two Distinct Limits**
 
-Message bundling must also respect frame size limits:
-- WebSocket frames have maximum size (~64KB typical)
-- If adding a new message would exceed frame size, flush before adding
-- Track cumulative message size, not just count
-- Flush when: time expires OR buffer full OR frame size exceeded
+Message bundling has two separate constraints:
+
+**1. Frame Size Limit** (~64KB typical):
+- Determines which messages fit in a single WebSocket frame
+- When adding a message would exceed frame size → flush current frame, start new one
+- Message still gets queued (for next frame)
+- Automatic, transparent to application
+- Prevents oversized frames that would be rejected
+
+**2. Total Buffer Limit** (e.g., 1000 events):
+- Determines when to tell application to back off
+- When buffer reaches this limit → return `:backpressure`
+- Application must handle it (queue elsewhere, drop, notify, block)
+- Application-visible, requires explicit handling
+- Prevents unbounded memory growth
+
+**Flush Triggers**:
+- Time expires (e.g., 25ms)
+- Frame size would be exceeded (automatic)
+- Buffer full (backpressure signal to app)
 
 **Implementation with Frame Size Awareness**:
 ```clojure
