@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>sente-lite Queue Scittle Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; max-width: 800px; margin: 0 auto; }
+    .pass { color: green; font-weight: bold; }
+    .fail { color: red; font-weight: bold; }
+    .pending { color: orange; }
+    pre { background: #f5f5f5; padding: 10px; overflow-x: auto; }
+    #results { margin-top: 20px; }
+    .test-item { margin: 5px 0; padding: 5px; border-left: 3px solid #ccc; }
+    .test-item.pass { border-left-color: green; }
+    .test-item.fail { border-left-color: red; }
+    .summary { margin-top: 20px; padding: 10px; background: #eee; }
+  </style>
+</head>
+<body>
+  <h1>sente-lite Queue Scittle Test</h1>
+  <p>Testing send queue integration in browser with Scittle/SCI</p>
+  <p><strong>Server:</strong> ws://localhost:1346/</p>
+  <div id="status">Initializing...</div>
+  <div id="results"></div>
+
+  <!-- Load Trove (vendored version for Scittle) -->
+  <script type="application/x-scittle" src="taoensso/trove.cljs"></script>
+
+  <!-- Load packer (required by client) -->
+  <script type="application/x-scittle" src="../../src/sente_lite/packer.cljc"></script>
+
+  <!-- Load queue_scittle (required by client with queue) -->
+  <script type="application/x-scittle" src="../../src/sente_lite/queue_scittle.cljs"></script>
+
+  <!-- Load client_scittle -->
+  <script type="application/x-scittle" src="../../src/sente_lite/client_scittle.cljs"></script>
+
+  <!-- Test script -->
+  <script type="application/x-scittle">
+    (ns test-queue-scittle
+      (:require [sente-lite.client-scittle :as client]))
+
+    ;; Forward declarations for SCI compatibility
+    (declare continue-tests!)
+    (declare cleanup-tests!)
+
+    ;; Test state
+    (def test-results (atom []))
+    (def client-id-atom (atom nil))
+    (def echo-responses (atom []))
+
+    (defn set-status! [msg]
+      (set! (.-innerHTML (.getElementById js/document "status"))
+            (str "<strong>Status:</strong> " msg)))
+
+    (defn log-result! [name pass? detail]
+      (swap! test-results conj {:name name :pass pass? :detail detail})
+      (let [el (.createElement js/document "div")
+            class (if pass? "pass" "fail")
+            icon (if pass? "✓" "✗")]
+        (set! (.-className el) (str "test-item " class))
+        (set! (.-innerHTML el) (str "<span class='" class "'>" icon "</span> " name ": " detail))
+        (.appendChild (.getElementById js/document "results") el)))
+
+    (defn show-summary! []
+      (let [results @test-results
+            passed (count (filter :pass results))
+            failed (count (filter #(not (get % :pass)) results))
+            total (count results)
+            el (.createElement js/document "div")]
+        (set! (.-className el) "summary")
+        (set! (.-innerHTML el)
+              (str "<h3>Test Summary</h3>"
+                   "<p>Total: " total " | "
+                   "<span class='pass'>Passed: " passed "</span> | "
+                   "<span class='fail'>Failed: " failed "</span></p>"
+                   (if (zero? failed)
+                     "<p class='pass'>✓ ALL TESTS PASSED</p>"
+                     "<p class='fail'>✗ SOME TESTS FAILED</p>")))
+        (.appendChild (.getElementById js/document "results") el)
+        ;; Set window property for Playwright to detect
+        (set! (.-testsPassed js/window) (zero? failed))
+        (set! (.-testsComplete js/window) true)
+        (js/console.log (str "TESTS_COMPLETE: " (if (zero? failed) "PASS" "FAIL")))))
+
+    (defn handle-message [event-id data]
+      (js/console.log "Received:" (pr-str event-id) (pr-str data))
+      (when (= event-id :sente-lite/echo)
+        (swap! echo-responses conj data)))
+
+    (defn run-tests! []
+      (set-status! "Creating client with queue...")
+
+      ;; Test 1: Create client with queue config
+      (let [cid (client/make-client!
+                 {:url "ws://localhost:1346/"
+                  :send-queue {:max-depth 100
+                               :flush-interval-ms 5}
+                  :on-open (fn [uid]
+                             (js/console.log "Connected with uid:" uid)
+                             (log-result! "Handshake"
+                                          (string? uid)
+                                          (str "UID: " uid))
+                             (set-status! "Connected! Running queue tests...")
+                             ;; Continue tests after connection
+                             (js/setTimeout #(continue-tests!) 500))
+                  :on-message handle-message
+                  :on-close (fn [event]
+                              (js/console.log "Disconnected"))
+                  :auto-reconnect? false})]
+        (reset! client-id-atom cid)
+        (log-result! "Client With Queue Created"
+                     (string? cid)
+                     (str "client-id: " cid))))
+
+    (defn continue-tests! []
+      (let [cid @client-id-atom]
+        ;; Test 2: Verify queue stats exist
+        (let [stats (client/queue-stats cid)]
+          (log-result! "Queue Stats Available"
+                       (some? stats)
+                       (pr-str stats)))
+
+        ;; Test 3: Send messages through queue
+        (let [result1 (client/send! cid [:queue/test1 {:n 1}])
+              result2 (client/send! cid [:queue/test2 {:n 2}])
+              result3 (client/send! cid [:queue/test3 {:n 3}])]
+          (log-result! "Queue Send Returns :ok"
+                       (and (= result1 :ok) (= result2 :ok) (= result3 :ok))
+                       (str "Results: " result1 ", " result2 ", " result3)))
+
+        ;; Test 4: Check queue stats after sending
+        (js/setTimeout
+         (fn []
+           (let [stats (client/queue-stats cid)]
+             (log-result! "Queue Enqueued 3 Messages"
+                          (= 3 (get stats :enqueued))
+                          (str "enqueued: " (get stats :enqueued)))))
+         50)
+
+        ;; Test 5: Wait for flush and verify echo responses
+        (js/setTimeout
+         (fn []
+           (let [stats (client/queue-stats cid)
+                 echoes @echo-responses
+                 queue-echoes (filter #(#{:queue/test1 :queue/test2 :queue/test3}
+                                        (get % :original-event-id)) echoes)]
+             (log-result! "Queue Messages Sent"
+                          (>= (get stats :sent) 3)
+                          (str "sent: " (get stats :sent)))
+             (log-result! "Echo Responses Received"
+                          (= 3 (count queue-echoes))
+                          (str "echoes: " (count queue-echoes)))))
+         500)
+
+        ;; Test 6: Verify no drops or errors
+        (js/setTimeout
+         (fn []
+           (let [stats (client/queue-stats cid)]
+             (log-result! "No Messages Dropped"
+                          (= 0 (get stats :dropped))
+                          (str "dropped: " (get stats :dropped)))
+             (log-result! "No Errors"
+                          (= 0 (get stats :errors))
+                          (str "errors: " (get stats :errors)))))
+         600)
+
+        ;; Test 7: High throughput test
+        (js/setTimeout
+         (fn []
+           (set-status! "Running high throughput test...")
+           (let [start (.now js/Date)]
+             (dotimes [i 100]
+               (client/send! cid [:throughput/msg {:i i}]))
+             (let [enqueue-time (- (.now js/Date) start)]
+               (log-result! "High Throughput Enqueue"
+                            (< enqueue-time 200)
+                            (str "Enqueued 100 msgs in " enqueue-time "ms")))))
+         700)
+
+        ;; Test 8: Verify high throughput messages
+        (js/setTimeout
+         (fn []
+           (let [stats (client/queue-stats cid)]
+             (log-result! "High Throughput Sent"
+                          (>= (get stats :sent) 100)
+                          (str "sent: " (get stats :sent)))))
+         1500)
+
+        ;; Cleanup
+        (js/setTimeout #(cleanup-tests!) 2000)))
+
+    (defn cleanup-tests! []
+      (let [cid @client-id-atom]
+        ;; Test 9: Close with queue
+        (let [closed (client/close! cid)]
+          (log-result! "Close With Queue"
+                       closed
+                       (str "closed: " closed)))
+
+        ;; Final verification
+        (js/setTimeout
+         (fn []
+           (let [status (client/get-status cid)]
+             (log-result! "Client Cleaned Up"
+                          (nil? status)
+                          (str "status: " status)))
+           (set-status! "Tests complete!")
+           (show-summary!))
+         200)))
+
+    ;; Start tests when page loads
+    (js/setTimeout run-tests! 500)
+  </script>
+</body>
+</html>
