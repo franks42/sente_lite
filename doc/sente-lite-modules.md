@@ -3363,19 +3363,29 @@ A **receiver-side queue module** that:
 
 **Why PersistentQueue?**
 
-Use `clojure.lang.PersistentQueue` for the receiver queue:
+Use `PersistentQueue` for the receiver queue:
 - ✅ FIFO semantics (first-in, first-out)
 - ✅ O(1) conj (add) and O(1) peek/pop (remove)
 - ✅ Immutable (safe for concurrent access)
-- ✅ Built-in to Clojure (no external dependency)
+- ✅ Built-in to Clojure/ClojureScript (no external dependency)
 - ✅ Efficient for queue operations
 - ✅ Works seamlessly with atoms
 - ❌ Not suitable for priority queuing (if needed later)
 
+**Platform-Specific Access**:
+- **Clojure/Babashka**: `clojure.lang.PersistentQueue/EMPTY`
+- **ClojureScript/Scittle**: `#queue []` or `cljs.core.PersistentQueue`
+
 **Example Implementation**:
 ```clojure
 ;; Receiver-side queue using PersistentQueue
+;; Clojure/Babashka version:
 (def recv-queue (atom {:queue clojure.lang.PersistentQueue/EMPTY 
+                       :bytes 0 
+                       :processing false}))
+
+;; ClojureScript/Scittle version:
+(def recv-queue (atom {:queue #queue []
                        :bytes 0 
                        :processing false}))
 (def max-recv-queue-size 5000)
