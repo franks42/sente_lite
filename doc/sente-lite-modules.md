@@ -3341,17 +3341,73 @@ Sente v1.21 introduced several important protocol-level enhancements that improv
 - Better performance
 - More reliable timeout handling
 
+### Implementation Dependencies: Binary Mode → Compression
+
+**Important**: Compression requires binary mode first.
+
+**Why**:
+- Text EDN compression: ~30-40% reduction (modest)
+- Binary + compression: ~70-90% reduction (significant)
+- Gzip designed for binary data
+
+**Implementation Order**:
+1. **Phase 1**: Binary packer (MessagePack or similar)
+   - Serialize to bytes instead of text
+   - 50-70% smaller payloads
+   
+2. **Phase 2**: Compression wrapper
+   - Wrap binary packer with gzip
+   - Additional 30-50% reduction
+   - Total: 70-90% reduction vs text EDN
+
+### Compression Availability Across Platforms
+
+**JVM/Babashka**:
+- ✅ `java.util.zip.GZIPOutputStream/GZIPInputStream`
+- ✅ Built-in, no dependencies
+- ✅ Always available
+
+**Browser/Scittle**:
+- ✅ `pako` library (high-speed zlib port)
+- ⚠️ Requires external dependency (CDN or npm)
+- ✅ Works in all modern browsers
+
+**Node.js/nbb**:
+- ✅ Native `zlib` module
+- ✅ Built-in, no dependencies
+
+**Challenge**: No universal compression across all platforms without external dependencies.
+
+**Solution Options**:
+1. **Platform-specific compression** (recommended)
+   - JVM: Built-in gzip
+   - Browser: pako (CDN)
+   - Node.js: Native zlib
+   - Accept platform differences
+
+2. **Lightweight custom compression**
+   - Simple RLE or LZ77 variant
+   - Works everywhere
+   - Less efficient than gzip
+
+3. **Optional compression**
+   - Provide gzip where available
+   - Fall back to uncompressed
+   - Application chooses
+
 ### Protocol Enhancement Recommendations for Sente-Lite
 
 Based on Sente v1.21+ enhancements, sente-lite should consider:
 
-1. **Add MessagePack Packer Module**
-   - Binary serialization for performance
-   - Ideal for metrics, logging, large data
+1. **Add Binary Packer Module** (prerequisite for compression)
+   - MessagePack or similar binary serialization
+   - 50-70% smaller payloads
+   - Prerequisite for effective compression
 
-2. **Add Compression Module**
-   - Gzip wrapping for bandwidth optimization
-   - Transparent to application code
+2. **Add Compression Module** (depends on binary packer)
+   - Platform-specific gzip (JVM/Browser/Node.js)
+   - Additional 30-50% reduction on binary
+   - Total: 70-90% reduction vs text EDN
 
 3. **Add Connection Recovery Module**
    - Automatic reconnection with state preservation
