@@ -4013,6 +4013,63 @@ Since all messages in a connection must use the same packer:
 - **Simple**: EDN (if you don't need compression)
 - **Advanced**: Transit/JSON → MessagePack → Gzip (if you need maximum compression)
 
+### Sente-Lite Packer Implementation Strategy
+
+**Phase 1-3: Simplified Approach**
+
+For **Sente wire compatibility**, sente-lite defaults to **EDN packer** (no optimization for now):
+
+```clojure
+;; Hard-coded EDN packer for Sente compatibility
+(defn pack [data]
+  (pr-str data))
+
+(defn unpack [packed-str]
+  (edn/read-string packed-str))
+```
+
+**No packer negotiation** — matches Sente's static configuration approach.
+
+**Optional Transparent Compression**:
+
+Compression is **orthogonal to packing** and requires **no negotiation or separate channel**:
+
+```clojure
+;; Sender: pack → compress (optional)
+(let [edn-string (pack data)
+      message (if (> (count edn-string) 1024)
+                (gzip/compress edn-string)  ; Only compress large messages
+                edn-string)]
+  (ws.send message))
+
+;; Receiver: decompress (if needed) → unpack
+(let [message event.data
+      edn-string (if (gzipped? message)
+                   (gzip/decompress message)
+                   message)
+      data (unpack edn-string)]
+  (handle-event data))
+
+;; Auto-detection via gzip magic bytes (0x1F 0x8B)
+(defn gzipped? [data]
+  (and (>= (count data) 2)
+       (= (aget data 0) 0x1f)
+       (= (aget data 1) 0x8b)))
+```
+
+**Key Points**:
+- ✅ **No packer negotiation** — EDN is hard-coded
+- ✅ **No separate channel** — compression is transparent
+- ✅ **No handshake** — gzip magic bytes auto-detect compression
+- ✅ **Wire compatible** — matches Sente's EDN packer
+- ✅ **Simple** — no optimization complexity
+- ✅ **Compression is optional** — only compress large messages
+
+**Future Optimization** (Phase 0):
+- Add other packers (Transit, MessagePack) if needed
+- Add packer negotiation if moving away from Sente compatibility
+- Optimize compression thresholds based on benchmarks
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
