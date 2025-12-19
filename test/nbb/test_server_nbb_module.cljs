@@ -20,7 +20,9 @@
 
 ;; Start server
 (println "1. Starting nbb server...")
-(def server-instance (server/start-server! {:port 9093 :heartbeat {:enabled false}}))
+(def server-instance (server/start-server! {:port 9093
+                                            :heartbeat {:enabled false}
+                                            :wrap-recv-evs? true}))
 (println "   Server started on port" (server/get-server-port))
 
 ;; Wait for server to be ready

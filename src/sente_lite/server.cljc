@@ -22,6 +22,7 @@
   {:port 3000
    :host "localhost"
    :wire-format :edn  ; Default to EDN for Clojure-to-Clojure communication
+   :wrap-recv-evs? false
    :telemetry {:enabled true
                :handler-id :sente-lite-server}
    :websocket {:max-connections 1000
@@ -98,6 +99,19 @@
   "Get the wire format spec keyword from config (:edn, :json, :transit-json)"
   [config]
   (:wire-format config :edn))
+
+(defn- maybe-wrap-recv
+  [event config]
+  (let [wrap? (get config :wrap-recv-evs? false)
+        event-id (cond
+                   (and (vector? event) (keyword? (first event))) (first event)
+                   (and (vector? event) (vector? (first event)) (keyword? (ffirst event))) (ffirst event)
+                   :else nil)
+        recv? (= event-id wf/event-recv)
+        system? (and event-id (wf/system-event? event-id))]
+    (if (and wrap? (not recv?) (not system?))
+      [wf/event-recv event]
+      event)))
 
 (defn- parse-message
   "Parse a raw wire message into an event map {:event-id ... :data ... :cb-uuid ...}"
@@ -543,7 +557,9 @@
                       :target-connections (count @connections)}})
 
   (let [sent-count (atom 0)
-        format-spec (get-format-spec (:config @server-state))]
+        config (:config @server-state)
+        format-spec (get-format-spec config)
+        event (maybe-wrap-recv event config)]
     (doseq [[channel _conn-data] @connections]
       (when (send-event! channel event format-spec)
         (swap! sent-count inc)))
@@ -561,9 +577,12 @@
   (let [channel-info (channels/get-channel-info channel-id)]
     (if channel-info
       (let [subscribers (:subscribers channel-info)
-            event (wf/make-channel-msg channel-id message-data from-conn-id)
+            config (:config @server-state)
+            event (maybe-wrap-recv
+                   (wf/make-channel-msg channel-id message-data from-conn-id)
+                   config)
             delivered (atom 0)
-            format-spec (get-format-spec (:config @server-state))]
+            format-spec (get-format-spec config)]
 
         (trove/log! {:level :debug
                      :id :sente-lite.server/chan-broadcast-start

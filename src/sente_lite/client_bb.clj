@@ -31,6 +31,24 @@
 (def ^:const event-unsubscribe :sente-lite/unsubscribe)
 (def ^:const event-publish :sente-lite/publish)
 
+(defn- maybe-unwrap-recv
+  [event-id data config]
+  (let [wrap? (get config :wrap-recv-evs? false)]
+    (cond
+      (and (not wrap?)
+           (= event-id :chsk/recv)
+           (vector? data)
+           (keyword? (first data)))
+      [(first data) (second data)]
+
+      (and wrap?
+           (not= event-id :chsk/recv)
+           (not (.startsWith (str event-id) ":chsk/")))
+      [:chsk/recv [event-id data]]
+
+      :else
+      [event-id data])))
+
 ;;; State Management
 
 (defonce ^:private clients (atom {}))  ; client-id -> client-state
@@ -122,8 +140,7 @@
                      :id :sente-lite.client/msg-error
                      :data {:client-id client-id
                             :error (:error parsed)}})
-        (let [event-id (:event-id parsed)
-              data (:data parsed)]
+        (let [[event-id data] (maybe-unwrap-recv (:event-id parsed) (:data parsed) config)]
           (trove/log! {:level :trace
                        :id :sente-lite.client/msg-recv
                        :data {:client-id client-id

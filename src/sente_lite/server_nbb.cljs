@@ -47,10 +47,27 @@
 (def default-config
   {:port 3000
    :host "0.0.0.0"
+   :wrap-recv-evs? false
    :heartbeat {:enabled true
                :interval-ms 30000
                :timeout-ms 60000}
    :channels {:auto-create true}})
+
+(defn- system-event-id?
+  [event-id]
+  (and (keyword? event-id)
+       (= "chsk" (namespace event-id))))
+
+(defn- maybe-wrap-recv
+  [event config]
+  (let [wrap? (get config :wrap-recv-evs? false)
+        event-id (when (and (vector? event) (keyword? (first event)))
+                   (first event))]
+    (if (and wrap?
+             (not= event-id :chsk/recv)
+             (not (system-event-id? event-id)))
+      [:chsk/recv event]
+      event)))
 
 ;; ============================================================================
 ;; Connection Management
@@ -119,12 +136,16 @@
       {:error :parse-failed :message (.-message e)})))
 
 (defn- broadcast-to-channel! [channel-id data from-conn-id]
-  (let [subscribers (get @channels channel-id #{})]
+  (let [subscribers (get @channels channel-id #{})
+        config (:config @server-state)
+        event (maybe-wrap-recv
+               [event-channel-msg {:channel-id channel-id
+                                   :data data
+                                   :from from-conn-id}]
+               config)]
     (doseq [conn-id subscribers]
       (when-let [ws (get @connection-index conn-id)]
-        (send-event! ws [event-channel-msg {:channel-id channel-id
-                                            :data data
-                                            :from from-conn-id}])))))
+        (send-event! ws event)))))
 
 (defn- handle-message [ws raw-data]
   (let [conn-data (get @connections ws)
@@ -333,7 +354,9 @@
 (defn broadcast-message!
   "Send an event to all connected clients."
   [event]
-  (let [sent (atom 0)]
+  (let [sent (atom 0)
+        config (:config @server-state)
+        event (maybe-wrap-recv event config)]
     (doseq [[ws _] @connections]
       (when (send-event! ws event)
         (swap! sent inc)))
