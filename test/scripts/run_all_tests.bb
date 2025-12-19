@@ -49,11 +49,11 @@
 (run-test "Server Foundation" "test_server_foundation.bb")
 
 ;; Phase 3: Channel integration
-(println "📡 === Phase 3: Channel Integration Tests ===")
+(println " === Phase 3: Channel Integration Tests ===")
 (run-test "Channel Integration" "test_channel_integration.bb")
 
 ;; Summary
-(println "📊 === Test Summary ===")
+(println " === Test Summary ===")
 (let [results @test-results]
   (println (format "Total tests: %d" (:total results)))
   (println (format "Passed: %d" (:passed results)))
@@ -62,17 +62,17 @@
 
   (if (zero? (:failed results))
     (do
-      (println "🎉 ✅ ALL TESTS PASSED!")
+      (println " ALL TESTS PASSED!")
       (println)
-      (println "🚀 Ready for Production:")
-      (println "  ✅ Wire Formats: JSON, EDN, Transit+JSON")
-      (println "  ✅ WebSocket Foundation: Production-ready server")
-      (println "  ✅ Channel System: Complete pub/sub messaging with RPC")
-      (println "  ✅ Logging: Trove integration")
+      (println " Ready for Production:")
+      (println "  Wire Formats: JSON, EDN, Transit+JSON")
+      (println "  WebSocket Foundation: Production-ready server")
+      (println "  Channel System: Complete pub/sub messaging with RPC")
+      (println "  Logging: Trove integration")
       (println)
-      (println "🎯 Sente-lite with Trove logging!")
+      (println " Sente-lite with Trove logging!")
       (System/exit 0))
     (do
-      (println "⚠️  ❌ SOME TESTS FAILED!")
+      (println "  ❌ SOME TESTS FAILED!")
       (println (format "Fix %d failing test(s) before proceeding" (:failed results)))
       (System/exit 1))))
