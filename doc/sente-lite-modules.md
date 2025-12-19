@@ -3036,6 +3036,201 @@ This architectural property makes sente-lite particularly powerful: the same mod
 
 ---
 
+## Protocol Enhancements (Sente v1.21+)
+
+Sente v1.21 introduced several important protocol-level enhancements that improve performance, flexibility, and reliability:
+
+### 1. Binary Serialization & Packers
+
+**MessagePack Packer** (v1.21+):
+- High-speed binary serialization
+- Smaller payload size than EDN
+- Better performance for large data transfers
+- UUID support
+
+```clojure
+;; Use MessagePack packer for binary serialization
+(require '[taoensso.sente.packers.msgpack :as msgpack])
+
+(def packer (msgpack/make-packer))
+
+;; Server configuration
+(start-server {:packer packer})
+
+;; Benefits:
+;; - Smaller payloads (binary vs text)
+;; - Faster serialization/deserialization
+;; - Better for large data transfers
+;; - Ideal for metrics, logging, streaming data
+```
+
+**Gzip-Wrapping Packer** (v1.21+):
+- Compress messages on the wire
+- Transparent compression/decompression
+- Reduces bandwidth usage
+- Works with any packer (EDN, MessagePack, etc.)
+
+```clojure
+;; Wrap any packer with gzip compression
+(require '[taoensso.sente.packers.gzip :as gzip])
+
+(def compressed-packer 
+  (gzip/make-gzip-packer msgpack/make-packer))
+
+;; Benefits:
+;; - Reduces bandwidth by 50-80% for text data
+;; - Transparent to application code
+;; - Ideal for high-volume messaging
+;; - Works with any serialization format
+```
+
+### 2. WebSocket Binary Type
+
+**Default Change** (v1.21+):
+- Changed from `blob` to `arraybuffer`
+- Better performance for binary data
+- More efficient memory usage
+- Enables true binary communication
+
+```clojure
+;; WebSocket now defaults to arraybuffer
+;; This enables efficient binary data transfer
+;; No configuration needed—automatic
+
+;; Benefits:
+;; - Faster binary data handling
+;; - Lower memory overhead
+;; - Better for large transfers
+;; - Native browser support
+```
+
+### 3. Backpressure & Flow Control
+
+**Connection State Recovery** (v1.21+):
+- Recover from temporary disconnections
+- Maintain message ordering
+- Prevent message loss
+- Configurable recovery window
+
+```clojure
+;; Server configuration with connection recovery
+(start-server 
+  {:connection-state-recovery
+   {:backup-secs 5  ; Keep state for 5 seconds
+    :max-msgs 100}}) ; Max messages to buffer
+
+;; Benefits:
+;; - Automatic reconnection without data loss
+;; - Maintains message ordering
+;; - Prevents duplicate processing
+;; - Transparent to application code
+```
+
+**WebSocket Ping/Timeout** (v1.21+):
+- Enabled by default
+- Detects dead connections
+- Configurable timeout (default: 10 seconds)
+- Prevents resource leaks
+
+```clojure
+;; Server configuration
+(start-server 
+  {:ws-ping-timeout-ms 10000  ; 10 second timeout
+   :ws-kalive-ms 5000})       ; Keep-alive interval
+
+;; Benefits:
+;; - Detects disconnected clients
+;; - Prevents zombie connections
+;; - Automatic cleanup
+;; - Reduces server resource usage
+```
+
+### 4. Flexible Packer Architecture
+
+**Custom Packer Support** (v1.21+):
+- Define custom serialization formats
+- Compose packers (e.g., compress + encrypt)
+- Dynamic packer selection
+- Full control over wire format
+
+```clojure
+;; Custom packer example
+(defn make-custom-packer []
+  {:pack (fn [data]
+           ;; Custom serialization logic
+           (-> data
+               (serialize-custom)
+               (encrypt-aes)
+               (compress)))
+   :unpack (fn [packed]
+             ;; Custom deserialization logic
+             (-> packed
+                 (decompress)
+                 (decrypt-aes)
+                 (deserialize-custom)))})
+
+;; Use in server
+(start-server {:packer (make-custom-packer)})
+
+;; Benefits:
+;; - Encryption support
+;; - Custom compression algorithms
+;; - Domain-specific formats
+;; - Full flexibility
+```
+
+### 5. Improved Reliability
+
+**Better Error Handling** (v1.21+):
+- Don't throw on Ajax read timeouts (configurable)
+- Better WebSocket close handling
+- More informative error messages
+- Graceful degradation
+
+**Lightweight Timer Implementation** (v1.21+):
+- Custom timer implementation
+- Reduced resource usage
+- Better performance
+- More reliable timeout handling
+
+### Protocol Enhancement Recommendations for Sente-Lite
+
+Based on Sente v1.21+ enhancements, sente-lite should consider:
+
+1. **Add MessagePack Packer Module**
+   - Binary serialization for performance
+   - Ideal for metrics, logging, large data
+
+2. **Add Compression Module**
+   - Gzip wrapping for bandwidth optimization
+   - Transparent to application code
+
+3. **Add Connection Recovery Module**
+   - Automatic reconnection with state preservation
+   - Message buffering and ordering
+
+4. **Add Custom Packer Support**
+   - Enable encryption, custom formats
+   - Composable packer architecture
+
+5. **Add Backpressure Handling Module**
+   - Flow control for high-volume messaging
+   - Buffer management
+   - Prevent overwhelming receivers
+
+### Comparison: Protocol Features
+
+| Feature | Purpose | Impact |
+|---------|---------|--------|
+| **MessagePack** | Binary serialization | 50-80% smaller payloads |
+| **Gzip Compression** | Bandwidth optimization | 50-80% bandwidth reduction |
+| **Connection Recovery** | Reliability | Zero message loss on reconnect |
+| **WebSocket Ping** | Health checking | Prevent zombie connections |
+| **Custom Packers** | Flexibility | Enable encryption, custom formats |
+| **Backpressure** | Flow control | Prevent receiver overwhelm |
+
+---
+
 ## Module Development Guidelines
 
 ### Principles
