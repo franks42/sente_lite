@@ -3570,6 +3570,69 @@ Since WebSocket handles fragmentation transparently:
 - Bundling still provides 50-80% bandwidth savings
 - Trade-off: waste frame space vs. avoid fragmentation overhead
 
+### WebSocket Layer Buffering
+
+**Does WebSocket Do Message Bundling?**
+
+**WebSocket Layer Buffering**:
+- ✅ **bufferedAmount property**: Tracks bytes queued but not yet transmitted
+- ✅ **TCP-level buffering**: Underlying TCP layer buffers data
+- ✅ **Nagle's algorithm**: TCP may bundle small packets (enabled by default)
+- ❌ **No application-level bundling**: WebSocket doesn't bundle messages
+
+**How It Works**:
+```javascript
+ws.send(msg1);  // Queued in buffer
+ws.send(msg2);  // Queued in buffer
+ws.send(msg3);  // Queued in buffer
+// bufferedAmount = total bytes of msg1 + msg2 + msg3
+
+// TCP/Nagle may bundle these into fewer TCP packets
+// But WebSocket protocol treats each send() as separate message
+```
+
+**Nagle's Algorithm Effect**:
+- TCP may delay sending small packets waiting for ACK
+- Bundles multiple small packets into fewer TCP packets
+- **Unintended bundling** (not explicit, not controlled)
+- Can cause latency issues for real-time apps
+- Some WebSocket libraries disable it (TCP_NODELAY)
+
+**WebSocket bufferedAmount**:
+```javascript
+ws.send(msg);
+console.log(ws.bufferedAmount);  // Bytes queued but not sent
+// Resets to 0 when data is transmitted
+```
+
+**Comparison**:
+
+| Aspect | WebSocket Layer | TCP Layer | Sente-Lite |
+|--------|-----------------|-----------|-----------|
+| **Bundling** | ❌ No | ✅ Nagle (TCP) | ✅ Yes (explicit) |
+| **Buffering** | ✅ bufferedAmount | ✅ TCP buffer | ✅ PersistentQueue |
+| **Message boundary** | Per send() call | TCP packets | Per flush() |
+| **Control** | Limited | OS-dependent | Full control |
+| **Compression** | ❌ No | ❌ No | ✅ Yes |
+| **Backpressure** | ❌ No | ❌ No | ✅ Yes |
+
+**Implication for Sente-Lite**:
+
+WebSocket layer does buffer, but:
+- ✅ Buffering is automatic (TCP level)
+- ❌ No control over bundling strategy
+- ❌ No compression
+- ❌ No backpressure visibility
+- ❌ Nagle's algorithm may cause unintended delays
+- ✅ **Sente-Lite adds**: Explicit bundling, compression, backpressure awareness, controlled flushing
+
+**Why Sente-Lite's Explicit Bundling is Better**:
+1. **Control**: Decide exactly when to bundle and flush
+2. **Compression**: Bundle before compressing (better ratio)
+3. **Backpressure**: Know when buffer is full
+4. **Latency**: Avoid Nagle's algorithm delays
+5. **Optimization**: Tune bundling for your use case
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
