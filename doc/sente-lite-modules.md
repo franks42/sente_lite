@@ -3468,6 +3468,57 @@ Application → Send-Queue → Compress Batch → Send
 
 This is a key architectural advantage of sente-lite: **bundling + compression together** for better efficiency than Sente's per-message approach.
 
+### Compression Effectiveness Analysis
+
+**Message Structure**:
+```
+Message = Metadata + Payload
+```
+
+**Compression Effectiveness by Payload Size**:
+
+| Payload Size | Metadata % | Compression Effective? | Notes |
+|--------------|-----------|----------------------|-------|
+| **Large** (>1MB) | <1% | ✅ Yes | Compression counts on payload |
+| **Medium** (10-100KB) | 1-5% | ✅ Yes | Good compression ratio |
+| **Small** (<1KB) | 10-50% | ⚠️ Marginal | Compression overhead > savings |
+| **Metadata only** | 100% | ❌ No | Compression ineffective |
+
+**Key Insights**:
+1. **Large payloads**: Compression is highly effective (50-80% savings)
+2. **Small payloads**: Compression overhead may exceed savings
+3. **Metadata alone**: Compression is ineffective (no entropy)
+4. **Bundling effect**: Mixing large + small messages improves overall ratio
+
+**Optimization Strategy**:
+```clojure
+;; Compress selectively based on payload size
+(defn should-compress? [serialized-size]
+  ;; Only compress if payload is large enough to benefit
+  (> serialized-size 1024))  ; 1KB threshold
+
+(defn flush-buffer [uid]
+  (let [events (vec queue)
+        serialized (pr-str [:batch/events events])
+        ;; Only compress if it's worth it
+        compressed (if (should-compress? (count serialized))
+                     (compress-gzip serialized)
+                     serialized)]
+    (sente/send-to-client! uid compressed)))
+```
+
+**Bundling Advantage**:
+- Small messages alone: compression ineffective
+- Large messages alone: compression effective
+- **Bundled together**: Average payload increases, compression becomes effective
+- Example: 100 small (100B each) + 1 large (10KB) = 20KB batch → compression effective
+
+**Implication for Phase 2**:
+- Bundling helps compression effectiveness
+- Conservative frame size estimate is reasonable
+- Compression savings increase with bundle size
+- Small payload applications benefit most from bundling
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
