@@ -2165,29 +2165,283 @@ examples/
 
 ---
 
+## Additional Modules & Patterns
+
 ### 1. Metrics & Observability
-Track connection metrics, message throughput, latency
+**Use Cases**: Connection metrics, message throughput, latency, performance monitoring
+
+Track and report metrics through sente:
+- Connection uptime, latency, message rates
+- Server-side metrics pushed to browser
+- Browser-side metrics sent to server
+- Real-time dashboards
 
 ### 2. Retry & Circuit Breaker
-Advanced reconnection strategies, circuit breaker pattern
+**Use Cases**: Advanced reconnection strategies, backpressure handling
+
+Intelligent retry logic over sente:
+- Exponential backoff
+- Circuit breaker pattern
+- Jitter to prevent thundering herd
+- Graceful degradation
 
 ### 3. Message Compression
-Compress large messages before sending
+**Use Cases**: Bandwidth optimization for large payloads
 
-### 4. Rate Limiting
-Per-client rate limiting, backpressure handling
+Compress messages before sending:
+- Gzip/brotli compression
+- Automatic for large messages
+- Transparent to handlers
+- Bandwidth savings
 
-### 5. Authentication Middleware
-Token-based auth, permission checking
+### 4. Rate Limiting & Backpressure
+**Use Cases**: Per-client rate limiting, flow control
+
+Prevent overwhelming either side:
+- Token bucket algorithm
+- Per-client quotas
+- Adaptive backpressure
+- Queue management
+
+### 5. Authentication & Authorization
+**Use Cases**: Token-based auth, permission checking, role-based access
+
+Secure sente channels:
+- JWT token validation
+- Permission checks per event
+- Role-based handlers
+- Audit logging
 
 ### 6. Request/Response Tracking
-Correlation IDs, request tracing
+**Use Cases**: Correlation IDs, request tracing, debugging
+
+Trace requests across systems:
+- Correlation IDs
+- Distributed tracing
+- Request/response pairing
+- Performance profiling
 
 ### 7. Caching Layer
-Client-side message caching, offline support
+**Use Cases**: Client-side caching, offline support, data deduplication
 
-### 8. Analytics
-Event tracking, user behavior analysis
+Cache frequently accessed data:
+- Browser-side cache
+- Server-side cache
+- Cache invalidation
+- Offline-first support
+
+### 8. Analytics & Event Tracking
+**Use Cases**: User behavior analysis, event aggregation, insights
+
+Track events through sente:
+- User actions
+- Performance events
+- Error tracking
+- Aggregation and reporting
+
+### 9. File Synchronization
+**Use Cases**: Keep files in sync across processes, collaborative editing
+
+Sync file changes:
+- Watch file system
+- Send diffs over sente
+- Apply changes on other side
+- Conflict resolution for concurrent edits
+- Use case: Collaborative code editor
+
+### 10. Database Replication
+**Use Cases**: Keep databases in sync, master-slave replication
+
+Replicate database changes:
+- Track mutations
+- Send change log over sente
+- Apply on replica
+- Consistency guarantees
+- Use case: Browser-side read replica of server DB
+
+### 11. Message Queue/Pub-Sub
+**Use Cases**: Decouple producers and consumers, fan-out messaging
+
+Implement pub-sub over sente:
+- Topic subscriptions
+- Message routing
+- Fan-out to multiple subscribers
+- Durable queues
+- Use case: Real-time notifications, event streaming
+
+### 12. Command/Event Sourcing
+**Use Cases**: Audit trail, event replay, temporal queries
+
+Track all state changes as events:
+- Immutable event log
+- Event replay for state reconstruction
+- Temporal queries (state at time T)
+- Audit trail
+- Use case: Financial transactions, audit logs
+
+### 13. Distributed Locking
+**Use Cases**: Coordinate access to shared resources
+
+Implement locks over sente:
+- Acquire/release locks
+- Deadlock detection
+- Lock timeouts
+- Fair queuing
+- Use case: Prevent concurrent modifications
+
+### 14. Presence & Awareness
+**Use Cases**: See who's online, cursor positions, collaborative awareness
+
+Track user presence:
+- Online/offline status
+- Cursor positions
+- Active selections
+- User awareness
+- Use case: Collaborative editing, multiplayer games
+
+### 15. Time Synchronization
+**Use Cases**: Keep clocks in sync, handle clock skew
+
+Synchronize time across processes:
+- NTP-like protocol
+- Clock skew detection
+- Timestamp correction
+- Use case: Distributed tracing, event ordering
+
+### 16. Configuration Management
+**Use Cases**: Push config changes, feature flags, A/B testing
+
+Manage configuration remotely:
+- Push config updates
+- Feature flags
+- A/B test variants
+- Hot reload
+- Use case: Feature toggles, dynamic configuration
+
+### 17. Health Checks & Heartbeat
+**Use Cases**: Monitor health, detect failures, auto-recovery
+
+Implement health monitoring:
+- Periodic heartbeats
+- Health check responses
+- Failure detection
+- Auto-recovery triggers
+- Use case: Detect dead connections, trigger reconnect
+
+### 18. Batch Operations
+**Use Cases**: Efficient bulk operations, reduce message count
+
+Batch multiple operations:
+- Collect operations
+- Send in batch
+- Atomic processing
+- Reduce overhead
+- Use case: Bulk imports, batch updates
+
+### 19. Streaming/Chunking
+**Use Cases**: Handle large data streams, progressive delivery
+
+Stream data in chunks:
+- Progressive delivery
+- Backpressure handling
+- Resume on failure
+- Use case: Large file transfers, streaming analytics
+
+### 20. RPC/Procedure Calls
+**Use Cases**: Call functions on other side, distributed computing
+
+Implement RPC over sente:
+- Call functions remotely
+- Pass arguments, return results
+- Error handling
+- Timeout handling
+- Use case: Distributed computation, microservices
+
+### 21. Debugging & Inspection
+**Use Cases**: Remote debugging, state inspection, breakpoints
+
+Debug remotely:
+- Inspect state
+- Set breakpoints
+- Step through code
+- Inspect variables
+- Use case: Browser debugging from server, remote REPL
+
+### 22. Consensus & Voting
+**Use Cases**: Distributed consensus, voting, quorum
+
+Implement consensus:
+- Voting protocols
+- Quorum checks
+- Byzantine fault tolerance
+- Use case: Cluster coordination, distributed decisions
+
+### 23. Dependency Injection
+**Use Cases**: Inject dependencies, service discovery
+
+Manage dependencies:
+- Service registry
+- Service discovery
+- Dependency resolution
+- Use case: Microservices, plugin systems
+
+### 24. Schema Validation
+**Use Cases**: Validate messages, enforce contracts
+
+Validate message schemas:
+- JSON Schema validation
+- Type checking
+- Contract enforcement
+- Use case: API contracts, data validation
+
+### 25. Compression & Encoding
+**Use Cases**: Optimize encoding, reduce payload size
+
+Optimize encoding:
+- MessagePack, Protocol Buffers
+- Custom encodings
+- Compression algorithms
+- Use case: Bandwidth optimization, mobile networks
+
+---
+
+## Pattern: Multipurpose Channel Architecture
+
+All these modules share a common pattern:
+
+```
+Browser                          Server
+   ↓                               ↓
+[Event Handler]                [Event Handler]
+   ↓                               ↓
+[Sente Channel] ←──────────────→ [Sente Channel]
+   ↓                               ↓
+[Module Logic]                 [Module Logic]
+   ↓                               ↓
+[State/Action]                 [State/Action]
+```
+
+**Key Benefits**:
+- ✅ Single connection for all communication
+- ✅ Unified error handling
+- ✅ Shared authentication/authorization
+- ✅ Consistent logging
+- ✅ Simplified deployment
+- ✅ Reduced resource usage
+- ✅ Easier debugging
+
+**Composition**:
+Modules can be combined:
+- Logging + Metrics + Analytics
+- State Sync + Presence + Awareness
+- RPC + Batch Operations + Streaming
+- Database Replication + Consensus + Locking
+
+**Scalability**:
+- Multiple sente channels for different concerns
+- Channel prioritization
+- Message routing based on type
+- Load balancing across channels
 
 ---
 
