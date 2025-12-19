@@ -3633,6 +3633,60 @@ WebSocket layer does buffer, but:
 4. **Latency**: Avoid Nagle's algorithm delays
 5. **Optimization**: Tune bundling for your use case
 
+### WebSocket Frames vs TCP Frames
+
+**Are They the Same?**
+
+**NO** - WebSocket frames and TCP frames are completely independent:
+
+| Aspect | WebSocket Frame | TCP Frame (Segment) |
+|--------|-----------------|-------------------|
+| **Layer** | Application (Layer 7) | Transport (Layer 4) |
+| **Size** | Configurable (default 64KB) | MSS (typically 1460 bytes) |
+| **Determined by** | WebSocket protocol | TCP MSS, MTU, network conditions |
+| **Relationship** | Independent | Independent |
+| **Fragmentation** | WebSocket fragments into frames | TCP segments into MSS-sized chunks |
+| **Reassembly** | WebSocket reassembles frames | TCP reassembles segments |
+
+**How They Stack**:
+```
+Application Layer
+    ↓
+WebSocket Frame (e.g., 64KB)
+    ↓
+TCP Segment (e.g., 1460 bytes)
+    ↓
+IP Packet (e.g., 1500 bytes MTU)
+    ↓
+Network
+```
+
+**Example**:
+```
+Application sends 100KB message
+    ↓
+WebSocket layer: fragments into 2 frames (64KB + 36KB)
+    ↓
+TCP layer: fragments each frame into ~70 segments (1460 bytes each)
+    ↓
+Network: sends ~140 IP packets
+    ↓
+Receiver: TCP reassembles segments → WebSocket reassembles frames → Application gets 100KB message
+```
+
+**Key Points**:
+- ✅ WebSocket frame size (64KB) >> TCP MSS (1460 bytes)
+- ✅ Multiple TCP segments = 1 WebSocket frame
+- ✅ Multiple WebSocket frames = 1 WebSocket message
+- ✅ Each layer reassembles independently
+- ✅ Application never sees TCP segments or IP packets
+
+**Implication for Sente-Lite**:
+- WebSocket frame size (64KB) is the relevant limit for bundling
+- TCP MSS is transparent (TCP handles it automatically)
+- Conservative estimate (30KB uncompressed) is well below WebSocket frame size
+- No need to worry about TCP fragmentation (TCP handles it)
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
