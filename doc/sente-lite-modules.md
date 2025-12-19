@@ -3435,6 +3435,39 @@ Application → Send-Queue → Compress Batch → Send
    - Measure actual compression ratios first
    - May not be worth the complexity
 
+### How Sente Addresses This
+
+**Sente's Approach**:
+- ✅ Provides gzip-wrapping packer (v1.21+)
+- ✅ Packer composition (wrap any packer with gzip)
+- ❌ No explicit frame size optimization
+- ❌ No message bundling (no queue)
+- ❌ Compression per-message, not per-batch
+
+**Why Sente Doesn't Solve It**:
+1. Sente doesn't do message bundling (no queue infrastructure)
+2. Compression is per-message, not per-batch
+3. No frame size awareness in packer layer
+4. Relies on WebSocket protocol to handle oversized frames
+
+**Sente-Lite Improvement**:
+- ✅ Bundle messages first (better compression ratio)
+- ✅ Compress batch, not individual messages
+- ✅ Frame size awareness (conservative estimate)
+- ✅ Two-phase optimization (if needed later)
+- ✅ Unified PersistentQueue architecture
+
+**Comparison**:
+| Feature | Sente | Sente-Lite |
+|---------|-------|-----------|
+| Message bundling | ❌ No | ✅ Yes (Phase 2) |
+| Compression | ✅ Per-message | ✅ Per-batch |
+| Frame size aware | ❌ No | ✅ Yes |
+| Batch compression ratio | N/A | 50-80% savings |
+| Optimization strategy | N/A | Conservative → Two-phase |
+
+This is a key architectural advantage of sente-lite: **bundling + compression together** for better efficiency than Sente's per-message approach.
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
