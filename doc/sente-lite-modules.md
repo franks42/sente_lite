@@ -3142,12 +3142,14 @@ Event buffering is straightforward to implement. Here's a minimal example for se
 
 (defn flush-buffer [uid]
   "Send all buffered events to client"
-  (when-let [{:keys [events]} (get @event-buffer uid)]
-    (when (seq events)
-      ;; Send all events in one message
-      (sente/send-to-client! uid [:batch/events events])
-      ;; Clear buffer
-      (swap! event-buffer dissoc uid))))
+  (when-let [{:keys [queue]} (get @send-buffer uid)]
+    (when (seq queue)
+      ;; Convert queue to vector for sending
+      (let [events (vec queue)]
+        ;; Send all events in one message
+        (sente/send-to-client! uid [:batch/events events])
+        ;; Clear buffer
+        (swap! send-buffer dissoc uid)))))
 
 ;; Flush periodically (e.g., every 25ms)
 (defn start-buffer-flusher []
@@ -3155,7 +3157,7 @@ Event buffering is straightforward to implement. Here's a minimal example for se
     (loop []
       (Thread/sleep 25)
       ;; Flush all buffers
-      (doseq [uid (keys @event-buffer)]
+      (doseq [uid (keys @send-buffer)]
         (flush-buffer uid))
       (recur))))
 
@@ -3216,18 +3218,24 @@ Message bundling has two separate constraints:
 - Frame size would be exceeded (automatic)
 - Buffer full (backpressure signal to app)
 
-**Implementation with Frame Size Awareness**:
+**Implementation with Frame Size Awareness Using PersistentQueue**:
 ```clojure
-(def event-buffer (atom {})) ; {uid -> {:events [...] :size N :bytes B}}
+;; Sender-side buffer using PersistentQueue
+;; Clojure/Babashka version:
+(def send-buffer (atom {})) ; {uid -> {:queue PersistentQueue :size N :bytes B}}
+
+;; ClojureScript/Scittle version:
+(def send-buffer (atom {})) ; {uid -> {:queue #queue [] :size N :bytes B}}
+
 (def max-buffer-size 1000)   ; Max events per client
 (def max-frame-size 65536)   ; Max bytes per frame
 
 (defn buffer-event [uid event-id data]
-  "Queue event, flush if frame size exceeded"
+  "Queue event for bundling, flush if frame size exceeded"
   (let [event-bytes (count (pr-str [event-id data]))]
-    (swap! event-buffer
+    (swap! send-buffer
       (fn [buffers]
-        (let [client-buf (get buffers uid {:events [] :size 0 :bytes 0})
+        (let [client-buf (get buffers uid {:queue #queue [] :size 0 :bytes 0})
               new-size (inc (:size client-buf))
               new-bytes (+ (:bytes client-buf) event-bytes)]
           
@@ -3240,7 +3248,7 @@ Message bundling has two separate constraints:
               (flush-buffer uid)
               ;; Then add new event to fresh buffer
               (assoc buffers uid
-                {:events [[event-id data]]
+                {:queue (conj #queue [] [event-id data])
                  :size 1
                  :bytes event-bytes}))
             
@@ -3251,12 +3259,12 @@ Message bundling has two separate constraints:
             ;; OK to add
             :else
             (assoc buffers uid
-              {:events (conj (:events client-buf) [event-id data])
+              {:queue (conj (:queue client-buf) [event-id data])
                :size new-size
                :bytes new-bytes})))))
     
     ;; Return status
-    (let [{:keys [size bytes]} (get @event-buffer uid {:size 0 :bytes 0})]
+    (let [{:keys [size bytes]} (get @send-buffer uid {:size 0 :bytes 0})]
       (cond
         (>= size max-buffer-size) :backpressure
         (>= bytes max-frame-size) :frame-full
