@@ -3116,16 +3116,33 @@ At optimal time (or buffer full):
 Event buffering is straightforward to implement. Here's a minimal example for sente-lite:
 
 ```clojure
-;; Server-side event buffer
-(def event-buffer (atom {})) ; {uid -> [events]}
+;; Server-side event buffer with backpressure
+(def event-buffer (atom {})) ; {uid -> {:events [...] :size N}}
+(def max-buffer-size 1000)   ; Max events per client
 
 (defn buffer-event [uid event-id data]
-  "Queue event for batching"
-  (swap! event-buffer update uid (fnil conj []) [event-id data]))
+  "Queue event for batching, return :ok or :backpressure"
+  (swap! event-buffer
+    (fn [buffers]
+      (let [client-buf (get buffers uid {:events [] :size 0})
+            new-size (inc (:size client-buf))]
+        (if (>= new-size max-buffer-size)
+          ;; Backpressure: buffer full
+          buffers
+          ;; Add to buffer
+          (assoc buffers uid
+            {:events (conj (:events client-buf) [event-id data])
+             :size new-size})))))
+  
+  ;; Return status
+  (let [buf-size (get-in @event-buffer [uid :size] 0)]
+    (if (>= buf-size max-buffer-size)
+      :backpressure
+      :ok)))
 
 (defn flush-buffer [uid]
   "Send all buffered events to client"
-  (when-let [events (get @event-buffer uid)]
+  (when-let [{:keys [events]} (get @event-buffer uid)]
     (when (seq events)
       ;; Send all events in one message
       (sente/send-to-client! uid [:batch/events events])
@@ -3142,11 +3159,13 @@ Event buffering is straightforward to implement. Here's a minimal example for se
         (flush-buffer uid))
       (recur))))
 
-;; Application code: use buffer instead of direct send
-(buffer-event uid :metric/cpu {:value 45})
-(buffer-event uid :metric/memory {:value 2048})
-(buffer-event uid :metric/disk {:value 512})
-;; All three sent together in next flush cycle
+;; Application code: check backpressure status
+(case (buffer-event uid :metric/cpu {:value 45})
+  :ok (log! :info :metric-buffered)
+  :backpressure (do
+    (log! :warn :backpressure-triggered {:uid uid})
+    ;; Options: queue elsewhere, drop, or notify sender
+    ))
 ```
 
 **Client-side**:
@@ -3159,28 +3178,60 @@ Event buffering is straightforward to implement. Here's a minimal example for se
     (handle-event event-id event-data)))
 ```
 
-**That's it**. The implementation is:
-1. Queue messages in an atom
-2. Flush periodically (timer)
-3. Send all queued messages in one packet
-4. Clear the queue
+### Dual-Purpose: Buffering + Backpressure
 
-**Why Sente Includes This**:
-- Simple but high-impact optimization
-- Especially valuable over Ajax (high overhead per request)
-- Transparent to application code
-- Automatic—developers don't need to think about it
+The same queue provides both optimizations:
+
+**1. Message Bundling** (bandwidth optimization):
+- Queue messages for 25ms
+- Send all together in one packet
+- 50-80% bandwidth reduction over Ajax
+
+**2. Backpressure** (flow control):
+- Track queue size per client
+- Return `:ok` or `:backpressure` status
+- Application decides what to do when backpressured
+- Prevents silent message drops
+
+**Implementation is minimal**:
+1. Queue messages in an atom (with size tracking)
+2. Flush periodically (timer)
+3. Check buffer size before adding
+4. Return status to caller
+5. Clear the queue after flush
+
+**Backpressure Strategies**:
+```clojure
+(defn send-with-backpressure! [uid event-id data]
+  (case (buffer-event uid event-id data)
+    :ok (log! :trace :event-buffered)
+    :backpressure
+    (case (get-backpressure-strategy)
+      :queue (queue-to-persistent-store uid event-id data)
+      :drop (log! :warn :event-dropped {:uid uid :event event-id})
+      :notify (notify-client-backpressure uid)
+      :block (wait-for-buffer-space uid))))
+```
+
+**Why This Works**:
+- ✅ Single queue serves two purposes
+- ✅ No additional overhead
+- ✅ Transparent to application
+- ✅ Application controls backpressure response
+- ✅ Prevents silent message loss
+- ✅ Enables intelligent flow control
 
 **For Sente-Lite**:
 This could be a simple module that wraps the core send functions:
 ```clojure
-;; sente_lite.modules.buffering
-(defn make-buffered-sender [flush-ms]
-  ;; Returns wrapped send-to-client! with buffering
+;; sente_lite.modules.buffering-with-backpressure
+(defn make-buffered-sender [flush-ms max-buffer-size]
+  ;; Returns wrapped send-to-client! with buffering + backpressure
+  ;; Returns {:status :ok|:backpressure :queue-size N}
   )
 ```
 
-The simplicity is the beauty—it's a small optimization that provides significant bandwidth savings with minimal code.
+The beauty is that buffering and backpressure are the same mechanism—you get both optimizations with minimal code.
 
 ---
 
