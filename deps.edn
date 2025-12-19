@@ -7,8 +7,9 @@
         cheshire/cheshire {:mvn/version "6.1.0"}
         http-kit/http-kit {:mvn/version "2.9.0-beta3"}
 
-        ;; Trove - minimal logging facade (0 deps)
-        com.taoensso/trove {:mvn/version "1.1.0"}}
+        ;; Note: Trove is vendored in src/taoensso/ - no external dependency needed
+        ;; com.taoensso/trove {:mvn/version "1.1.0"} - REMOVED, using vendored version
+        }
 
  :aliases
  {:dev {:extra-paths ["dev"]

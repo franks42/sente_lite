@@ -2,27 +2,39 @@
 
 ## Executive Summary
 
-Migrate sente-lite from hardcoded telemere-lite logging to Trove-based pluggable logging, following the architecture proven by Sente v1.21.0 (released 2025-11-04). This will make sente-lite a true zero-dependency library facade while preserving our robust telemetry infrastructure for development and testing.
+Migration from telemere-lite to Trove-based logging is **COMPLETE**. Sente-lite now uses Trove exclusively for all logging, with the Trove library vendored in `src/taoensso/` to maintain zero external dependencies.
 
-**Status**: Phase 2 Complete (2025-12-10) ✅
+**Status**: Migration Complete (2025-12-18) ✅
 **Complexity**: Medium
-**Timeline**: Completed ahead of schedule
+**Timeline**: Completed
 **Breaking Changes**: No (backward compatible)
 
 **Progress**:
 - ✅ Phase 1: Trove wrapper added (2025-11-07)
-- ✅ Phase 2: Migrate sente-lite calls (2025-12-10)
-- ⏳ Phase 3: Extract backend (future, optional)
+- ✅ Phase 2: Migrate all sente-lite calls (2025-12-10)
+- ✅ Phase 3: Vendored Trove, removed telemere-lite (2025-12-18)
 
 ---
 
-## Current State (2025-12-10)
+## Current State (2025-12-18)
 
 ### Implementation Summary
 
-Trove is now fully integrated into sente-lite. All logging uses `trove/log!` pattern.
+Trove is now the exclusive logging solution for sente-lite. All telemere-lite dependencies have been removed.
 
-**Source Files Using Trove** (99 `trove/log!` calls total):
+**Source Files Using Trove** (167 `log!` calls total across all files):
+| File | Calls | Purpose |
+|------|-------|---------|
+| `sente_lite/server.cljc` | 32 | WebSocket server, connection lifecycle |
+| `sente_lite/client_bb.clj` | 26 | Babashka client |
+| `sente_lite/client_scittle.cljs` | 25 | Browser/nbb client |
+| `sente_lite/channels.cljc` | 16 | Pub/sub channel system |
+| `sente_lite/wire_format.cljc` | 15 | Wire format handling |
+| `sente_lite/server_nbb.cljs` | 14 | nbb server |
+| `sente_lite/server_simple.cljc` | 13 | Simplified server |
+| `sente_lite/serialization.cljc` | 9 | Serialization layer |
+
+**Previous counts from Phase 2**:
 | File | Calls | Purpose |
 |------|-------|---------|
 | `sente_lite/server.cljc` | 29 | WebSocket server, connection lifecycle |
@@ -30,7 +42,7 @@ Trove is now fully integrated into sente-lite. All logging uses `trove/log!` pat
 | `sente_lite/channels.cljc` | 15 | Pub/sub channel system |
 | `sente_lite/server_simple.cljc` | 13 | Simplified server |
 | `sente_lite/wire_format.cljc` | 9 | Wire format handling |
-| `sente_lite/wire_multiplexer.cljc` | 9 | Message multiplexing |
+| `sente_lite/wire_multiplexer.cljc` | 9 | Message multiplexing (archived) |
 
 **Trove Infrastructure** (vendored in `src/taoensso/`):
 - `trove.cljc` - Main facade with `log!` macro
@@ -51,7 +63,7 @@ Trove is now fully integrated into sente-lite. All logging uses `trove/log!` pat
 - `bb test/scripts/run_all_tests.bb` - Foundation tests only
 - `bb test/scripts/multiprocess/run_multiprocess_tests.bb` - Integration tests only
 
-**Test Results** (2025-12-10):
+**Test Results** (2025-12-18):
 - Unit Tests: 1 test, 9 assertions, 0 failures ✅
 - Integration Tests: 6/6 pass ✅
   - Basic Multi-Process (1 server + 2 clients)
@@ -62,17 +74,19 @@ Trove is now fully integrated into sente-lite. All logging uses `trove/log!` pat
   - Stress Test (20 clients, 380 messages)
 
 **Code Quality**:
-- clj-kondo: 0 errors, 8 warnings (in vendored Trove code)
+- clj-kondo: 0 errors, 0 warnings (vendored Trove excluded via .clj-kondo/config.edn)
 - cljfmt: All files formatted correctly
+- No telemere-lite references in production code (only in docs and old examples)
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `deps.edn` | Trove 1.1.0 dependency |
-| `src/taoensso/trove.cljc` | Trove facade (vendored) |
-| `run_tests.bb` | Main test runner |
-| `test/taoensso/trove_tests.cljc` | Trove unit tests |
+| File | Purpose | Status |
+|------|---------|--------|
+| `deps.edn` | Dependencies (no Trove dep needed) | ✅ Updated |
+| `src/taoensso/trove.cljc` | Trove facade (vendored) | ✅ Vendored |
+| `src/taoensso/trove/*.cljc` | Trove backends (vendored) | ✅ Vendored |
+| `run_tests.bb` | Main test runner | ✅ Working |
+| `test/taoensso/trove_tests.cljc` | Trove unit tests | ✅ Passing |
 
 ---
 
@@ -97,13 +111,17 @@ Trove is now fully integrated into sente-lite. All logging uses `trove/log!` pat
 
 On 2025-11-04, Peter Taoussanis released **Sente v1.21.0** with a major breaking change: switching from Timbre to **Trove** for logging. This validates the exact architectural pattern we discussed earlier.
 
-### Problems with Current Approach
+### Problems with Previous Approach (Now Resolved)
 
-**1. Forced Dependency**
+**1. Forced Dependency** ✅ RESOLVED
 ```clojure
-;; Current: Sente-lite forces telemere-lite on all users
+;; Previous: Sente-lite forced telemere-lite on all users
 (require '[sente-lite.server :as server])
-;; → Implicitly requires telemere-lite + Timbre + Cheshire
+;; → Implicitly required telemere-lite + Timbre + Cheshire
+
+;; Current: Zero external logging dependencies
+(require '[sente-lite.server :as server])
+;; → Uses vendored Trove (no external deps)
 ```
 
 **2. Monolithic Architecture**

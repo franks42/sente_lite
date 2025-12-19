@@ -13,7 +13,7 @@
 (defn simulate-sente-server-message
   "Simulate a message as it would come from a real Sente server"
   [event-or-events]
-  (if (and (vector? event-or-events) 
+  (if (and (vector? event-or-events)
            (vector? (first event-or-events))
            (keyword? (ffirst event-or-events)))
     ;; Already buffered format
@@ -31,17 +31,17 @@
         (wf/buffered-events? parsed)
         {:type :buffered
          :events (wf/unwrap-buffered-events parsed)}
-        
+
         ;; Empty vector is treated as empty buffer
         (and (vector? parsed) (empty? parsed))
         {:type :buffered
          :events []}
-        
+
         ;; Single event (including those with nil event-id)
         (vector? parsed)
         {:type :single
          :event parsed}
-        
+
         :else
         {:type :unknown
          :raw parsed}))
@@ -59,26 +59,26 @@
                   [:chsk/ws-ping]]
           msg (simulate-sente-server-message events)
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= 3 (count (:events parsed))))
       (is (= :chsk/handshake (first (first (:events parsed)))))
       (is (= :my/event (first (second (:events parsed)))))
       (is (= :chsk/ws-ping (first (nth (:events parsed) 2))))))
-  
+
   (testing "Empty buffer"
     ;; When we pass [] to simulate-sente-server-message, it wraps it as [[]]
     ;; So we need to test with the actual wire format
     (let [msg (pr-str [])  ; Direct empty buffer
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= 0 (count (:events parsed))))))
-  
+
   (testing "Single event in buffer"
     (let [msg (simulate-sente-server-message [[:test/event {:value 42}]])
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= 1 (count (:events parsed))))
       (is (= [:test/event {:value 42}] (first (:events parsed)))))))
@@ -90,32 +90,32 @@
     (let [cb-uuid (wf/generate-cb-uuid)
           event-with-cb (wf/encode-event-with-callback :test/echo {:msg "Hello"} cb-uuid)
           wire-msg (pr-str event-with-cb)]
-      
+
       (is (vector? event-with-cb))
       (is (= 2 (count event-with-cb)))
       (is (vector? (first event-with-cb)))
       (is (string? (second event-with-cb)))
       (is (= cb-uuid (second event-with-cb)))))
-  
+
   (testing "Parsing callback reply from server"
     (let [cb-uuid "test-cb-123"
           ;; Sente sends callback replies as: [:chsk/recv [cb-uuid data]]
           reply [:chsk/recv [cb-uuid {:result "success"}]]
           msg (simulate-sente-server-message reply)
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (let [event (first (:events parsed))]
         (is (= :chsk/recv (first event)))
         (is (vector? (second event)))
         (is (= cb-uuid (first (second event))))
         (is (= {:result "success"} (second (second event)))))))
-  
+
   (testing "Callback timeout handling"
     ;; This tests the pattern, actual timeout would be handled by client
     (let [cb-uuid (wf/generate-cb-uuid)
           event (wf/encode-event-with-callback :test/slow {:delay 5000} cb-uuid)]
-      
+
       (is (= cb-uuid (second event)))
       ;; In real usage, client would track this UUID and timeout after X ms
       (is (string? cb-uuid))
@@ -127,22 +127,22 @@
   (testing "Ping event format"
     (let [ping (wf/make-ws-ping)]
       (is (= [:chsk/ws-ping] ping))))
-  
+
   (testing "Pong event format"
     (let [pong (wf/make-ws-pong)]
       (is (= [:chsk/ws-pong] pong))))
-  
+
   (testing "Ping from server"
     (let [msg (simulate-sente-server-message [:chsk/ws-ping])
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= [:chsk/ws-ping] (first (:events parsed))))))
-  
+
   (testing "Pong response wire format"
     (let [pong (wf/make-ws-pong)
           wire-msg (pr-str pong)]
-      
+
       (is (= "[:chsk/ws-pong]" wire-msg)))))
 
 ;;; System Events Tests
@@ -156,10 +156,10 @@
                   [:chsk/ws-pong]]
           msg (simulate-sente-server-message events)
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= 5 (count (:events parsed))))
-      
+
       ;; All should be recognized as system events
       (doseq [event (:events parsed)]
         (let [event-id (first event)]
@@ -180,24 +180,24 @@
                               :set #{1 2 3}}]
           wire-msg (simulate-sente-server-message event)
           parsed (parse-client-message wire-msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= event (first (:events parsed))))))
-  
+
   (testing "Special characters in strings"
     (let [event [:test/event {:msg "Hello \"world\" \n\t\\"}]
           wire-msg (simulate-sente-server-message event)
           parsed (parse-client-message wire-msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= event (first (:events parsed))))))
-  
+
   (testing "Large payload"
     (let [large-data (apply str (repeat 1000 "x"))
           event [:test/event {:data large-data}]
           wire-msg (simulate-sente-server-message event)
           parsed (parse-client-message wire-msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= 1000 (count (get-in (first (:events parsed)) [1 :data])))))))
 
@@ -209,19 +209,19 @@
           wrapped-event [:chsk/recv [:my/push {:data "server push"}]]
           msg (simulate-sente-server-message wrapped-event)
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (let [event (first (:events parsed))]
         (is (= :chsk/recv (first event)))
         (is (= [:my/push {:data "server push"}] (second event))))))
-  
+
   (testing "Multiple wrapped events in buffer"
     (let [events [[:chsk/recv [:event/one {:n 1}]]
                   [:chsk/recv [:event/two {:n 2}]]
                   [:chsk/ws-ping]]  ; System event not wrapped
           msg (simulate-sente-server-message events)
           parsed (parse-client-message msg)]
-      
+
       (is (= :buffered (:type parsed)))
       (is (= 3 (count (:events parsed))))
       ;; First two are wrapped
@@ -236,11 +236,11 @@
   (testing "Malformed message"
     (let [parsed (parse-client-message "not-valid-edn")]
       (is (= :unknown (:type parsed)))))
-  
+
   (testing "Non-vector event"
     (let [parsed (parse-client-message (pr-str {:not "an event"}))]
       (is (= :unknown (:type parsed)))))
-  
+
   (testing "Event without event-id"
     (let [parsed (parse-client-message (pr-str [nil {:data "test"}]))]
       ;; Should still parse but event-id is nil
