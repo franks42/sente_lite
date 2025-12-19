@@ -1721,9 +1721,16 @@ Browser Editor (Scittle)
 
 ### Related Projects
 
+**Babashka Pod for LSP** (Recommended):
+- `com.github.clojure-lsp/clojure-lsp` - Clojure LSP as Babashka pod
+  - Available in pod-registry
+  - Load with `(pods/load-pod 'com.github.clojure-lsp/clojure-lsp "2022.11.03-00.14.57")`
+  - Provides LSP API directly in Babashka
+  - No separate process needed
+  - Perfect for sente-lite integration
+
 **Existing LSP WebSocket Proxies**:
 - `lsp-ws-proxy` (Rust, general-purpose)
-- `clojure-lsp` (Clojure LSP server)
 - `codemirror/lsp-client` (Browser LSP client)
 - `val-town/vtlsp` (Full LSP infrastructure)
 
@@ -1734,7 +1741,12 @@ The existing `lsp-ws-proxy` project shows the pattern:
 - Browser client sends LSP requests
 - Server responds with LSP responses
 
-**For sente-lite**: Same pattern but over sente instead of dedicated WebSocket.
+**For sente-lite**: Use Babashka pod approach:
+- Load clojure-lsp pod in BB server
+- Call LSP API directly from sente handlers
+- Route LSP requests/responses through sente
+- No separate proxy process needed
+- Simpler, more integrated architecture
 
 ### File Structure
 
