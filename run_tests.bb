@@ -29,10 +29,54 @@
     (println "❌ Unit tests failed!")))
 
 ;;
-;; Part 2: Multi-Process Integration Tests
+;; Part 2: Queue Tests
 ;;
 
-(println "\n\n=== Part 2: Multi-Process Integration Tests ===")
+(println "\n\n=== Part 2: Queue Tests ===")
+
+(def queue-bb-passed? (atom false))
+(def queue-nbb-passed? (atom true))  ; Default true if skipped
+(def queue-integration-passed? (atom false))
+
+;; BB Queue Unit Tests
+(println "Running BB queue unit tests...")
+(try
+  (def queue-bb-result @(p/process ["bb" "test/scripts/queue/test_queue_bb.bb"]
+                                   {:out :inherit
+                                    :err :inherit}))
+  (reset! queue-bb-passed? (zero? (:exit queue-bb-result)))
+  (catch Exception e
+    (println "❌ BB queue tests error:" (str e))
+    (reset! queue-bb-passed? false)))
+
+;; nbb Queue Unit Tests (if nbb available)
+(when (.exists (java.io.File. "test/nbb/node_modules/ws"))
+  (println "\nRunning nbb queue unit tests...")
+  (try
+    (def queue-nbb-result @(p/process ["nbb" "--classpath" "src" "test/scripts/queue/test_queue_nbb.cljs"]
+                                      {:out :inherit
+                                       :err :inherit}))
+    (reset! queue-nbb-passed? (zero? (:exit queue-nbb-result)))
+    (catch Exception e
+      (println "❌ nbb queue tests error:" (str e))
+      (reset! queue-nbb-passed? false))))
+
+;; BB-to-BB Queue Integration Test
+(println "\nRunning BB-to-BB queue integration test...")
+(try
+  (def queue-int-result @(p/process ["bb" "test/scripts/queue/test_queue_integration_bb.bb"]
+                                    {:out :inherit
+                                     :err :inherit}))
+  (reset! queue-integration-passed? (zero? (:exit queue-int-result)))
+  (catch Exception e
+    (println "❌ Queue integration tests error:" (str e))
+    (reset! queue-integration-passed? false)))
+
+;;
+;; Part 3: Multi-Process Integration Tests
+;;
+
+(println "\n\n=== Part 3: Multi-Process Integration Tests ===")
 
 (def mp-test-script "test/scripts/multiprocess/01_basic.bb")
 (def mp-passed? (atom false))
@@ -47,10 +91,10 @@
     (reset! mp-passed? false)))
 
 ;;
-;; Part 3: nbb Platform Tests (if nbb is available)
+;; Part 4: nbb Platform Tests (if nbb is available)
 ;;
 
-(println "\n\n=== Part 3: nbb Platform Tests ===")
+(println "\n\n=== Part 4: nbb Platform Tests ===")
 
 (def nbb-passed? (atom true))  ; Default to true if skipped
 
@@ -75,15 +119,24 @@
 (println "\n\n=== Final Test Summary ===")
 (let [ur unit-results
       unit-passed? (and (zero? (:fail ur)) (zero? (:error ur)))
-      all-passed? (and unit-passed? @mp-passed? @nbb-passed?)]
+      queue-passed? (and @queue-bb-passed? @queue-nbb-passed? @queue-integration-passed?)
+      all-passed? (and unit-passed? queue-passed? @mp-passed? @nbb-passed?)]
 
-  (println "\nUnit Tests:")
+  (println "\nUnit Tests (Trove):")
   (println (format "  Tests: %d | Assertions: %d | Failures: %d | Errors: %d"
                    (:test ur)
                    (+ (:pass ur) (:fail ur) (:error ur))
                    (:fail ur)
                    (:error ur)))
   (println (if unit-passed? "  ✅ PASSED" "  ❌ FAILED"))
+
+  (println "\nQueue Tests:")
+  (println (str "  BB Unit: " (if @queue-bb-passed? "✅" "❌")))
+  (if (.exists (java.io.File. "test/nbb/node_modules/ws"))
+    (println (str "  nbb Unit: " (if @queue-nbb-passed? "✅" "❌")))
+    (println "  nbb Unit: ⏭ SKIPPED"))
+  (println (str "  BB Integration: " (if @queue-integration-passed? "✅" "❌")))
+  (println (if queue-passed? "  ✅ PASSED" "  ❌ FAILED"))
 
   (println "\nMulti-Process Integration Tests:")
   (println (if @mp-passed? "  ✅ PASSED" "  ❌ FAILED"))
