@@ -828,13 +828,198 @@ examples/
 └── nrepl-over-sente-demo.bb  # Working example
 ```
 
+### Bidirectional nREPL Proxy Pattern
+
+**Advanced Architecture**: Route nREPL through sente in both directions using a proxy pattern.
+
+#### Browser → Server Direction
+
+```
+nREPL Client (external tool)
+    ↓ bencode request
+    ↓
+nREPL Server Proxy (BB)
+    ↓ extract request message
+    ↓ send via sente
+    ↓
+nREPL Handler (Scittle)
+    ↓ eval code in browser
+    ↓ send response via sente
+    ↓
+nREPL Server Proxy (BB)
+    ↓ wrap in bencode
+    ↓
+nREPL Client (external tool)
+    ↓ bencode response
+```
+
+**Implementation** (BB Server):
+```clojure
+;; nREPL server proxy handler
+(defmethod handle-event :nrepl/request
+  [{:keys [data uid]}]
+  ;; Extract nREPL request from bencode (from external nREPL client)
+  (let [{:keys [op code ns session]} data]
+    ;; Forward to browser via sente
+    (sente/send-to-client! uid [:nrepl/request
+      {:op op :code code :ns ns :session session}])))
+
+;; Capture response from browser
+(defmethod handle-event :nrepl/response
+  [{:keys [data uid]}]
+  ;; Wrap in bencode and return to external nREPL client
+  (let [bencode-response (bencode/encode data)]
+    (send-to-nrepl-client bencode-response)))
+```
+
+#### Server → Browser Direction (Reversible)
+
+```
+nREPL Client (Scittle)
+    ↓ nREPL request (no bencode)
+    ↓ send via sente
+    ↓
+nREPL Handler (BB)
+    ↓ eval code on server
+    ↓ send response via sente
+    ↓
+nREPL Client (Scittle)
+    ↓ nREPL response
+```
+
+**Implementation** (BB Server):
+```clojure
+;; nREPL server handler for browser requests
+(defmethod handle-event :nrepl/browser-request
+  [{:keys [data uid]}]
+  (let [{:keys [op code ns session request-id]} data]
+    ;; Evaluate on BB server
+    (process-nrepl-request
+      {:op op :code code :ns ns}
+      ;; Send responses back to browser
+      (fn [response-chunk]
+        (sente/send-to-client! uid [:nrepl/response
+          (assoc response-chunk :request-id request-id)])))))
+```
+
+#### Key Advantages
+
+- ✅ **Bidirectional**: Works in both directions on same channel
+- ✅ **Transparent**: Proxy is invisible to nREPL clients
+- ✅ **Reuses code**: Borrow from existing scittle-nrepl-server proxy
+- ✅ **No bencode in browser**: Scittle side uses pure EDN
+- ✅ **Standard nREPL tools**: External tools connect normally
+- ✅ **Symmetric**: Same pattern works both ways
+
+#### Proxy Implementation Strategy
+
+**Phase 1: Browser → Server (Proxy)**
+```clojure
+;; src/sente_lite/nrepl/proxy.clj
+(defn start-nrepl-proxy-server [sente-send-fn]
+  ;; Start standard nREPL server
+  ;; Intercept requests, forward to browser via sente
+  ;; Capture responses, wrap in bencode
+  )
+```
+
+**Phase 2: Server → Browser (Reverse)**
+```clojure
+;; src/sente_lite/nrepl/reverse_proxy.clj
+(defn handle-browser-nrepl-request [request uid sente-send-fn]
+  ;; Process nREPL request on server
+  ;; Send responses back to browser
+  )
+```
+
+#### Code Reuse from Existing Implementation
+
+The existing scittle-nrepl-server proxy already has:
+- Bencode encoding/decoding
+- Request/response correlation
+- Session management
+- Error handling
+
+**Files to reference**:
+- `dev/scittle-demo/nrepl-server-proxy.clj` (or similar)
+- Extract bencode handling logic
+- Adapt to sente message format
+
+#### Wire Format
+
+**Browser → Server (via proxy)**:
+```clojure
+;; External nREPL client sends bencode
+;; Proxy extracts and sends to browser
+[:nrepl/request
+ {:session-id "sess-123"
+  :request-id "req-456"
+  :op "eval"
+  :code "(+ 1 2)"
+  :ns "user"}]
+```
+
+**Server → Browser (reverse)**:
+```clojure
+;; Browser sends nREPL request directly
+[:nrepl/browser-request
+ {:session-id "sess-789"
+  :request-id "req-012"
+  :op "eval"
+  :code "(js/alert \"Hello\")"
+  :ns "user"}]
+```
+
+#### Configuration Example
+
+```clojure
+;; BB Server setup
+(def nrepl-config
+  {:proxy {:enabled true
+           :port 7888
+           :bind "127.0.0.1"}
+   :reverse {:enabled true
+             :max-eval-time-ms 30000}})
+
+;; Start proxy
+(start-nrepl-proxy-server sente-send-fn nrepl-config)
+
+;; Now external tools can connect:
+;; nrepl-client :connect 127.0.0.1:7888
+;; And Scittle can also send nREPL requests to BB
+```
+
+#### Use Cases
+
+**Browser → Server (Proxy)**:
+- Use standard nREPL tools (Cider, Calva) to debug browser code
+- External IDE connects to proxy, evaluates in browser
+- Transparent to IDE (looks like normal nREPL)
+
+**Server → Browser (Reverse)**:
+- Browser-side REPL can eval on server
+- Useful for testing server-side code from browser
+- Bidirectional development workflow
+
+#### Comparison: Proxy vs. Direct
+
+| Aspect | Direct | Proxy |
+|--------|--------|-------|
+| **External tools** | No | Yes |
+| **Standard nREPL** | No | Yes |
+| **IDE integration** | No | Yes |
+| **Complexity** | Lower | Higher |
+| **Bidirectional** | Yes | Yes |
+| **Code reuse** | N/A | Existing proxy |
+
 ### Next Steps
 
-1. **Validate async patterns**: Choose callback vs. channel approach
-2. **Build Phase 1 MVP**: Basic eval with streaming
-3. **Test with real REPL**: Verify request correlation
-4. **Add session persistence**: Phase 2 enhancement
-5. **Benchmark**: Compare with dedicated WebSocket
+1. **Locate existing proxy code**: Find scittle-nrepl-server proxy implementation
+2. **Extract bencode logic**: Isolate reusable components
+3. **Implement Phase 1**: Browser → Server proxy
+4. **Test with IDE**: Connect Cider/Calva to proxy
+5. **Implement Phase 2**: Server → Browser reverse proxy
+6. **Document patterns**: Best practices for bidirectional nREPL
 
 ---
 
