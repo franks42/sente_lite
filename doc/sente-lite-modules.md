@@ -3278,6 +3278,52 @@ Message bundling has two separate constraints:
 5. Return status to caller
 6. Clear the queue after flush
 
+### Migration Strategy: Incremental PersistentQueue Adoption
+
+**Phase 1: Drop-in Replacement (max-queue-size = 1)**:
+```clojure
+(def max-buffer-size 1)   ; Queue size of 1 = current behavior
+(def max-frame-size 65536) ; Still respect frame limits
+```
+- ✅ No functional change (messages sent immediately)
+- ✅ Replaces current implementation with PersistentQueue
+- ✅ Enables infrastructure for future phases
+- ✅ Tests existing behavior with new data structure
+- ✅ Low risk, easy to validate
+
+**Phase 2: Enable Sender-Side Bundling**:
+```clojure
+(def max-buffer-size 100)  ; Bundle up to 100 messages
+(def flush-ms 25)          ; Flush every 25ms
+```
+- ✅ Reduce bandwidth (50-80% over Ajax)
+- ✅ Maintain frame size awareness
+- ✅ Return backpressure status to application
+- ✅ Application can handle backpressure
+
+**Phase 3: Enable Receiver-Side Queue**:
+```clojure
+(def recv-queue (atom {:queue #queue [] :bytes 0}))
+(def max-recv-queue-size 5000)
+(def max-recv-bytes 100000000) ; 100MB
+```
+- ✅ Decouple reception from processing
+- ✅ Handle slow handlers without dropping messages
+- ✅ Provide backpressure visibility
+- ✅ Prevent silent message loss
+
+**Why This Order?**:
+1. **Phase 1**: Infrastructure change, no behavior change
+2. **Phase 2**: Sender-side optimization (bandwidth savings)
+3. **Phase 3**: Receiver-side reliability (message preservation)
+
+**Receiver-Side First Alternative**:
+If receiver-side feels more useful/easier:
+- Start with Phase 1 (infrastructure)
+- Skip Phase 2, go directly to Phase 3
+- Add sender-side bundling later if needed
+- Receiver-side prevents message loss (more critical)
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
