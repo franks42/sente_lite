@@ -3233,6 +3233,26 @@ This could be a simple module that wraps the core send functions:
 
 The beauty is that buffering and backpressure are the same mechanism—you get both optimizations with minimal code.
 
+### Why Sente Doesn't Use Buffering for Backpressure
+
+**Interesting Gap**: Sente implements event batching/buffering but does NOT use it for backpressure. Instead, it relies on `core.async/put!` which throws exceptions when buffer fills.
+
+**Why the Separation**:
+- **Buffering** is time-based (flush every 25ms) and transparent
+- **Backpressure** is size-based (buffer full) and requires application awareness
+- Sente treats them as separate concerns
+- Sente's buffering is automatic—application doesn't interact with it
+- Backpressure requires explicit status return to caller
+
+**Sente-Lite Opportunity**:
+Unify them in a single module where:
+- Buffering is still automatic (transparent)
+- But backpressure status is available to application if needed
+- Application can opt-in to backpressure handling
+- Same queue serves both purposes
+
+This is a design choice—Sente chose separation of concerns, but sente-lite can provide a simpler unified approach where the buffering queue naturally provides backpressure visibility without extra complexity.
+
 ---
 
 ## Protocol Enhancements (Sente v1.21+)
