@@ -3691,8 +3691,100 @@ Receiver: TCP reassembles segments → WebSocket reassembles frames → Applicat
 **Implication for Sente-Lite**:
 - WebSocket frame size (64KB) is the relevant limit for bundling
 - TCP MSS is transparent (TCP handles it automatically)
-- Conservative estimate (30KB uncompressed) is well below WebSocket frame size
+- Conservative estimate (30KB uncompressed) prevents fragmentation
 - No need to worry about TCP fragmentation (TCP handles it)
+
+### WebSocket Per-Message Type Support
+
+**Does WebSocket Support Mixed Text/Binary?**
+
+**YES - WebSocket fully supports per-message type detection**:
+
+**Sending**:
+```javascript
+ws.send("text message");           // Text frame
+ws.send(arrayBuffer);              // Binary frame
+ws.send(new Uint8Array([1,2,3]));  // Binary frame
+```
+
+**Receiving - Automatic Type Detection**:
+```javascript
+ws.addEventListener('message', (event) => {
+  // event.data type depends on what was sent:
+  if (typeof event.data === 'string') {
+    // Received text message
+    console.log("Text:", event.data);
+  } else if (event.data instanceof ArrayBuffer) {
+    // Received binary message
+    console.log("Binary:", new Uint8Array(event.data));
+  }
+});
+```
+
+**WebSocket Frame Header** (automatic):
+```
+FIN | RSV | Opcode (4 bits)
+     0x1 = Text frame
+     0x2 = Binary frame
+     0x8 = Close frame
+     0x9 = Ping
+     0xA = Pong
+```
+
+**Configuration**:
+```javascript
+// Set how to receive binary data
+ws.binaryType = "arraybuffer";  // Use ArrayBuffer (preferred)
+// or
+ws.binaryType = "blob";         // Use Blob (default, less efficient)
+```
+
+**Key Points**:
+- ✅ Per-message type: Each message can be text OR binary
+- ✅ Automatic detection: Receiver knows type by checking `event.data` type
+- ✅ No header needed: WebSocket protocol includes frame type in header
+- ✅ No overhead: Type detection is built-in, no extra bytes needed
+- ✅ Mixed mode: Can send text and binary in same connection
+
+**Implication for Sente-Lite**:
+
+This enables a **hybrid text/binary approach**:
+
+```clojure
+;; Send text for small messages (no compression overhead)
+(ws.send (serialize-text event))
+
+;; Send binary for large messages (compression effective)
+(ws.send (compress-gzip (serialize-binary event)))
+
+;; Receiver automatically detects type
+(ws.addEventListener 'message
+  (fn [event]
+    (if (string? event.data)
+      (deserialize-text event.data)
+      (deserialize-binary event.data))))
+```
+
+**Benefits**:
+1. **Hybrid approach**: Use text for small messages, binary for large
+2. **No overhead**: WebSocket handles type detection automatically
+3. **Format flexibility**: Mix JSON, EDN, MessagePack in same connection
+4. **Compression ready**: Binary format enables compression
+5. **Optimal per-message**: Choose format based on message size/type
+
+**Example Strategy**:
+```clojure
+(defn send-event [uid event-id data]
+  (let [serialized (serialize event-id data)
+        size (count serialized)]
+    (if (> size 1024)
+      ;; Large: use binary (compress if enabled)
+      (ws.send (compress-gzip serialized))
+      ;; Small: use text (no compression overhead)
+      (ws.send serialized))))
+```
+
+**This is a key optimization**: Sente-lite can use **mixed text/binary per message** without any protocol overhead. The receiver automatically knows which format was used.
 
 **Backpressure Strategies**:
 ```clojure
