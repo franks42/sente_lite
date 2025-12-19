@@ -3361,30 +3361,53 @@ A **receiver-side queue module** that:
 3. **Provides backpressure visibility** - application knows receiver status
 4. **Prevents message loss** - queue persists before handlers process
 
+**Why PersistentQueue?**
+
+Use `clojure.lang.PersistentQueue` for the receiver queue:
+- ✅ FIFO semantics (first-in, first-out)
+- ✅ O(1) conj (add) and O(1) peek/pop (remove)
+- ✅ Immutable (safe for concurrent access)
+- ✅ Built-in to Clojure (no external dependency)
+- ✅ Efficient for queue operations
+- ✅ Works seamlessly with atoms
+- ❌ Not suitable for priority queuing (if needed later)
+
 **Example Implementation**:
 ```clojure
-;; Receiver-side queue
-(def recv-queue (atom {:messages [] :processing false}))
+;; Receiver-side queue using PersistentQueue
+(def recv-queue (atom {:queue clojure.lang.PersistentQueue/EMPTY 
+                       :bytes 0 
+                       :processing false}))
 (def max-recv-queue-size 5000)
+(def max-recv-bytes 100000000) ; 100MB
 
 ;; Receive message and queue it
 (defn queue-received-message [event-id data]
   "Queue received message, return status"
-  (swap! recv-queue
-    (fn [q]
-      (let [new-size (inc (count (:messages q)))]
-        (if (>= new-size max-recv-queue-size)
-          ;; Queue full: backpressure
-          q
-          ;; Add to queue
-          (update q :messages conj [event-id data])))))
-  
-  ;; Return status
-  (let [queue-size (count (:messages @recv-queue))]
-    (cond
-      (>= queue-size max-recv-queue-size) :backpressure
-      (> queue-size 100) :slow
-      :else :ok)))
+  (let [msg-bytes (count (pr-str [event-id data]))]
+    (swap! recv-queue
+      (fn [q]
+        (let [new-size (inc (count (:queue q)))
+              new-bytes (+ (:bytes q) msg-bytes)]
+          (cond
+            ;; Queue full: backpressure
+            (>= new-size max-recv-queue-size) q
+            ;; Bytes limit: backpressure
+            (>= new-bytes max-recv-bytes) q
+            ;; OK to add
+            :else
+            (-> q
+              (update :queue conj [event-id data])
+              (assoc :bytes new-bytes))))))
+    
+    ;; Return status
+    (let [{:keys [queue bytes]} @recv-queue
+          queue-size (count queue)]
+      (cond
+        (>= queue-size max-recv-queue-size) :backpressure
+        (>= bytes max-recv-bytes) :backpressure
+        (> queue-size 100) :slow
+        :else :ok))))
 
 ;; Process queued messages
 (defn process-queue []
@@ -3393,14 +3416,19 @@ A **receiver-side queue module** that:
     (swap! recv-queue assoc :processing true)
     (try
       (loop []
-        (when-let [[event-id data] (first (:messages @recv-queue))]
+        (when-let [[event-id data] (peek (:queue @recv-queue))]
           ;; Process message
           (try
             (handle-event event-id data)
             (catch Exception e
               (log! :error :handler-error {:event event-id :error e})))
-          ;; Remove from queue
-          (swap! recv-queue update :messages rest)
+          ;; Remove from queue and update bytes
+          (let [msg-bytes (count (pr-str [event-id data]))]
+            (swap! recv-queue
+              (fn [q]
+                (-> q
+                  (update :queue pop)
+                  (update :bytes - msg-bytes)))))
           (recur)))
       (finally
         (swap! recv-queue assoc :processing false)))))
