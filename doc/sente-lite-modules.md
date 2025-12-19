@@ -3430,6 +3430,67 @@ Sente v1.21 introduced several important protocol-level enhancements that improv
 - Node.js: Native `zlib.gzipSync()`
 - All use same GZIP format (interoperable)
 
+### Scittle/ClojureScript Pako Integration
+
+**Current State**:
+- ❌ No built-in gzip in Scittle/ClojureScript
+- ✅ Pako is standard JavaScript solution
+- ✅ No special shim needed—direct JavaScript interop
+
+**Simple Pako Wrapper**:
+```clojure
+;; sente_lite/compression/pako.cljs
+(ns sente-lite.compression.pako
+  "Pako gzip compression wrapper for Scittle/ClojureScript")
+
+(defn gzip
+  "Compress data using pako.gzip"
+  [data]
+  (when-not (exists? js/pako)
+    (throw (js/Error. "pako library not loaded. Add script tag to HTML.")))
+  (js/pako.gzip data))
+
+(defn ungzip
+  "Decompress gzip data using pako.ungzip"
+  [compressed-data]
+  (when-not (exists? js/pako)
+    (throw (js/Error. "pako library not loaded. Add script tag to HTML.")))
+  (js/pako.ungzip compressed-data))
+
+(defn gzip-string
+  "Compress string to gzip bytes"
+  [s]
+  (gzip s))
+
+(defn ungzip-string
+  "Decompress gzip bytes to string"
+  [compressed-data]
+  (js/pako.ungzip compressed-data #js {:to "string"}))
+```
+
+**HTML Setup**:
+```html
+<!-- Load pako before Scittle -->
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+
+<script type="application/x-scittle">
+  (require '[sente-lite.compression.pako :as gzip])
+  
+  ;; Use it
+  (def compressed (gzip/gzip-string "Hello, World!"))
+  (def decompressed (gzip/ungzip-string compressed))
+</script>
+```
+
+**Key Points**:
+- ✅ No special shim needed—just JavaScript interop
+- ✅ Load pako via CDN before Scittle
+- ✅ Access via `js/pako` in ClojureScript
+- ✅ Simple wrapper functions for Clojure-style API
+- ✅ Error checking for missing library
+- ✅ Pako is de facto standard (no better alternatives)
+
 ### Protocol Enhancement Recommendations for Sente-Lite
 
 Based on Sente v1.21+ enhancements, sente-lite should consider:
