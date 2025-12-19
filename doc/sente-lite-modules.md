@@ -3324,6 +3324,60 @@ If receiver-side feels more useful/easier:
 - Add sender-side bundling later if needed
 - Receiver-side prevents message loss (more critical)
 
+### Compression in the Pipeline
+
+**Where Should Compression Happen?**
+
+**Option 1: Before Queue** (compress each message):
+```
+Application → Compress → Send-Queue → Flush → Send
+```
+- ❌ Can't bundle compressed messages (each is different)
+- ❌ Compression overhead per message
+- ❌ Smaller queue (but less important benefit)
+
+**Option 2: After Queue** (compress batch at flush):
+```
+Application → Send-Queue → Compress Batch → Send
+```
+- ✅ Bundle messages first (better compression ratio)
+- ✅ Compress once per batch (more efficient)
+- ✅ Backpressure limits based on uncompressed size
+- ✅ Cleaner architecture (queue handles bundling, compression is separate)
+- ✅ Fewer compression operations overall
+
+**Recommended: Compress After Queue**
+
+**Why**:
+1. **Better compression ratio**: Compressing a batch of 100 messages is more efficient than compressing each individually
+2. **Fewer operations**: One compress per batch vs. one per message
+3. **Cleaner separation**: Queue handles bundling, compression is a separate concern
+4. **Backpressure clarity**: Limits based on actual message count, not compressed size
+
+**Implementation**:
+```clojure
+(defn flush-buffer [uid]
+  "Send all buffered events to client (with optional compression)"
+  (when-let [{:keys [queue]} (get @send-buffer uid)]
+    (when (seq queue)
+      (let [events (vec queue)
+            ;; Serialize batch
+            serialized (pr-str [:batch/events events])
+            ;; Compress if enabled
+            compressed (if (compression-enabled?)
+                         (compress-gzip serialized)
+                         serialized)]
+        ;; Send compressed batch
+        (sente/send-to-client! uid compressed)
+        ;; Clear buffer
+        (swap! send-buffer dissoc uid)))))
+```
+
+**Backpressure Limits**:
+- Track uncompressed message count and byte size
+- Compression happens at flush (doesn't affect backpressure decisions)
+- Application sees actual message volume, not compressed size
+
 **Backpressure Strategies**:
 ```clojure
 (defn send-with-backpressure! [uid event-id data]
