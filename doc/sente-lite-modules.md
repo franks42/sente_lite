@@ -1023,7 +1023,394 @@ The existing scittle-nrepl-server proxy already has:
 
 ---
 
-## Other Potential Modules
+## Module: HTTP Blob Transfer via Sente Directives
+
+**Status**: Proposed  
+**Complexity**: Medium  
+**Dependencies**: sente-lite core, HTTP client/server  
+**Use Cases**: Large file transfers, model loading, asset distribution, high-performance data sync
+
+### Overview
+
+Send directives through sente channels to instruct the other side to fetch large blobs via HTTP instead of WebSocket. The HTTP layer handles compression, chunking, caching, and resumable transfers automatically. Sente carries lightweight control messages and metadata.
+
+**Example Use Case**:
+```
+Server wants to send 500MB model to Browser
+    ↓ sente directive
+    ↓ [:blob/fetch-and-eval {:url "http://server/models/model.bin" 
+                              :handler :ml/load-model}]
+Browser receives directive
+    ↓ HTTP GET with browser caching/compression
+    ↓ Automatic chunking, resumable on failure
+    ↓ Browser cache handles subsequent requests
+    ↓
+Browser processes blob via handler
+    ↓ :ml/load-model handler receives blob
+    ↓ eval/render/display as needed
+```
+
+### Architecture
+
+#### Design Principles
+
+1. **Offload to HTTP**: Large transfers use HTTP, not WebSocket
+2. **Browser caching**: Automatic caching, compression, deduplication
+3. **Lightweight control**: Sente carries directives and metadata only
+4. **Handler routing**: Blob destination determined by handler type
+5. **Resumable**: HTTP layer handles partial transfers, retries
+6. **Bidirectional**: Works both directions (server→browser, browser→server)
+
+#### Core Components
+
+**Directive Format**:
+```clojure
+;; Server → Browser
+[:blob/fetch-and-eval
+ {:url "http://server/models/model.bin"
+  :handler :ml/load-model
+  :metadata {:size 524288000
+             :sha256 "abc123..."
+             :content-type "application/octet-stream"}
+  :options {:timeout-ms 300000
+            :retry-count 3
+            :cache true}}]
+
+;; Browser → Server
+[:blob/fetch-and-process
+ {:url "http://browser/uploads/data.csv"
+  :handler :data/import
+  :metadata {:size 104857600
+             :sha256 "def456..."}}]
+```
+
+#### Handler Types
+
+**Evaluation Handler** (`:eval`):
+```clojure
+;; Browser receives blob and evaluates as code
+[:blob/fetch-and-eval
+ {:url "http://server/code/plugin.cljs"
+  :handler :eval}]
+```
+
+**Presentation Handler** (`:display`):
+```clojure
+;; Browser receives blob and displays (HTML, SVG, etc.)
+[:blob/fetch-and-display
+ {:url "http://server/assets/dashboard.html"
+  :handler :ui/dashboard}]
+```
+
+**Graphics Handler** (`:render`):
+```clojure
+;; Browser receives blob and renders (image, 3D model, etc.)
+[:blob/fetch-and-render
+ {:url "http://server/models/scene.glb"
+  :handler :graphics/webgl}]
+```
+
+**Custom Handler**:
+```clojure
+;; Route to custom handler for processing
+[:blob/fetch-and-process
+ {:url "http://server/data/dataset.bin"
+  :handler :custom/my-processor}]
+```
+
+### Implementation Phases
+
+#### Phase 1: Basic Blob Transfer (~200-300 LOC)
+
+**Goal**: Proof of concept with simple HTTP fetch
+
+**Features**:
+- Send fetch directive via sente
+- Browser fetches via HTTP
+- Route to handler for processing
+- Basic error handling
+
+**Code Sketch**:
+```clojure
+;; Server
+(defn send-blob-directive [uid url handler metadata]
+  (sente/send-to-client! uid [:blob/fetch-and-process
+    {:url url :handler handler :metadata metadata}]))
+
+;; Browser
+(defmethod handle-message :blob/fetch-and-process
+  [{:keys [data]}]
+  (let [{:keys [url handler metadata]} data]
+    (fetch url)
+      .then(response => response.arrayBuffer())
+      .then(blob => (process-blob-with-handler handler blob metadata)))))
+
+;; Handler dispatch
+(defmulti process-blob-with-handler (fn [handler _ _] handler))
+
+(defmethod process-blob-with-handler :eval [_ blob _]
+  (eval-blob blob))
+
+(defmethod process-blob-with-handler :graphics/webgl [_ blob _]
+  (render-webgl-model blob))
+```
+
+**Pros**:
+- ✅ Simple to implement
+- ✅ Leverages browser HTTP
+- ✅ Automatic compression/caching
+- ✅ Works immediately
+
+**Cons**:
+- ⚠️ No resume on failure
+- ⚠️ No progress tracking
+- ⚠️ No verification (SHA256)
+
+#### Phase 2: Robust Transfer (~400-500 LOC)
+
+**Goal**: Production-ready with reliability features
+
+**Features**:
+- SHA256 verification
+- Progress tracking via sente
+- Resumable transfers
+- Retry logic
+- Timeout handling
+- Partial content support (HTTP 206)
+
+**Code Sketch**:
+```clojure
+;; Server sends directive with verification
+(defn send-blob-directive [uid url handler metadata]
+  (let [sha256 (compute-sha256 url)]
+    (sente/send-to-client! uid [:blob/fetch-and-process
+      {:url url
+       :handler handler
+       :metadata (assoc metadata :sha256 sha256)
+       :options {:retry-count 3
+                 :timeout-ms 300000
+                 :verify true}}])))
+
+;; Browser with progress tracking
+(defmethod handle-message :blob/fetch-and-process
+  [{:keys [data]}]
+  (let [{:keys [url handler metadata options]} data]
+    (fetch-with-progress url
+      :on-progress (fn [loaded total]
+        ;; Send progress back to server
+        (sente/send! client [:blob/progress
+          {:url url :loaded loaded :total total}]))
+      :on-complete (fn [blob]
+        ;; Verify SHA256
+        (if (verify-sha256 blob (:sha256 metadata))
+          (process-blob-with-handler handler blob metadata)
+          (handle-verification-error url))))))
+```
+
+**Pros**:
+- ✅ Reliable transfers
+- ✅ Progress visibility
+- ✅ Resumable on failure
+- ✅ Verification
+- ✅ Timeout handling
+
+**Cons**:
+- ⚠️ More complex code
+- ⚠️ Server-side progress tracking overhead
+
+#### Phase 3: Advanced Features (~600+ LOC)
+
+**Goal**: Enterprise-grade blob distribution
+
+**Features**:
+- CDN support (multiple URLs)
+- Bandwidth throttling
+- Deduplication (same blob, multiple requests)
+- Streaming processing (process while downloading)
+- Compression negotiation
+- Mirror/fallback URLs
+
+### Wire Format & Protocol
+
+**Directive** (Sente → Browser):
+```clojure
+[:blob/fetch-and-process
+ {:url "http://server/data.bin"
+  :handler :custom/processor
+  :metadata {:size 104857600
+             :sha256 "abc123..."
+             :content-type "application/octet-stream"
+             :timestamp 1766108726643}
+  :options {:timeout-ms 300000
+            :retry-count 3
+            :verify true
+            :cache true}}]
+```
+
+**Progress** (Browser → Sente):
+```clojure
+[:blob/progress
+ {:url "http://server/data.bin"
+  :loaded 52428800
+  :total 104857600
+  :percent 50}]
+```
+
+**Completion** (Browser → Sente):
+```clojure
+[:blob/complete
+ {:url "http://server/data.bin"
+  :handler :custom/processor
+  :status :success
+  :duration-ms 5000
+  :bytes-transferred 104857600}]
+```
+
+**Error** (Browser → Sente):
+```clojure
+[:blob/error
+ {:url "http://server/data.bin"
+  :error "Network timeout"
+  :retry-count 3
+  :status-code 503}]
+```
+
+### Configuration Example
+
+```clojure
+;; Server setup
+(def blob-config
+  {:enabled true
+   :base-url "http://server/blobs"
+   :timeout-ms 300000
+   :retry-count 3
+   :verify-sha256 true
+   :max-concurrent 5})
+
+;; Send large model to browser
+(send-blob-directive uid 
+  "http://server/models/gpt-2.bin"
+  :ml/load-model
+  {:size 548000000
+   :description "GPT-2 model"})
+
+;; Browser receives and loads
+(defmethod process-blob-with-handler :ml/load-model [_ blob _]
+  (load-ml-model blob))
+```
+
+### Advantages
+
+**Performance**:
+- ✅ HTTP compression (gzip, brotli)
+- ✅ Browser caching (avoid re-download)
+- ✅ Chunked transfer encoding
+- ✅ Parallel downloads (multiple connections)
+- ✅ Resumable on failure (HTTP 206)
+
+**Architecture**:
+- ✅ Sente carries only metadata
+- ✅ HTTP handles heavy lifting
+- ✅ Offloads from WebSocket
+- ✅ Bidirectional (both directions)
+- ✅ Flexible handler routing
+
+**Operations**:
+- ✅ Leverage HTTP caching infrastructure
+- ✅ Use CDN for distribution
+- ✅ Standard HTTP monitoring/logging
+- ✅ No WebSocket bandwidth limits
+
+### Disadvantages
+
+**Complexity**:
+- ⚠️ Two protocols (sente + HTTP)
+- ⚠️ More moving parts
+- ⚠️ Requires HTTP server setup
+
+**Coordination**:
+- ⚠️ Need to coordinate sente + HTTP
+- ⚠️ Verification overhead (SHA256)
+- ⚠️ Progress tracking adds latency
+
+### Use Cases
+
+**Server → Browser**:
+- ✅ Large ML models (100MB+)
+- ✅ Asset bundles (images, fonts)
+- ✅ Code plugins/extensions
+- ✅ Database snapshots
+- ✅ Video/media files
+
+**Browser → Server**:
+- ✅ Large file uploads
+- ✅ Bulk data import
+- ✅ Log aggregation
+- ✅ Analytics data
+
+### Integration with sente-lite
+
+**Lifecycle hooks**:
+```clojure
+;; Track active transfers
+:on-open (fn [uid]
+  (init-blob-transfers uid))
+
+:on-close (fn [code reason]
+  (cleanup-blob-transfers uid))
+```
+
+**Error handling**:
+```clojure
+;; Handle blob transfer errors
+(defmethod handle-event :blob/error
+  [{:keys [data uid]}]
+  (log/error "Blob transfer failed" data)
+  ;; Retry or notify user
+  )
+```
+
+### File Structure
+
+```
+src/sente_lite/blob/
+├── transfer.cljc        # Core transfer logic
+├── handler.clj          # Server-side handler
+├── client.cljs          # Client-side fetcher
+├── verify.cljc          # SHA256 verification
+└── progress.cljc        # Progress tracking
+
+test/sente_lite/blob/
+├── transfer_test.cljc   # Unit tests
+└── integration_test.bb  # Integration tests
+
+examples/
+└── blob-transfer-demo.bb  # Working example
+```
+
+### Comparison: WebSocket vs. HTTP Blob Transfer
+
+| Aspect | WebSocket | HTTP Blob |
+|--------|-----------|-----------|
+| **Compression** | Manual | Automatic |
+| **Caching** | No | Yes |
+| **Resumable** | No | Yes (206) |
+| **Chunking** | Manual | Automatic |
+| **Bandwidth** | Limited | Unlimited |
+| **Setup** | Simple | Moderate |
+| **Latency** | Lower | Slightly higher |
+| **Large files** | Inefficient | Efficient |
+
+### Next Steps
+
+1. **Validate use case**: Identify real blob transfer needs
+2. **Build Phase 1 MVP**: Basic fetch + handler routing
+3. **Test with real data**: 100MB+ file transfer
+4. **Add verification**: SHA256 validation
+5. **Implement Phase 2**: Progress tracking, resumable
+6. **Benchmark**: Compare with WebSocket transfer
+
+---
 
 ### 1. Metrics & Observability
 Track connection metrics, message throughput, latency
