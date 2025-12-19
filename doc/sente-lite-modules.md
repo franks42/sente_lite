@@ -3371,6 +3371,7 @@ Sente v1.21 introduced several important protocol-level enhancements that improv
 - ✅ `pako` library (high-speed zlib port)
 - ⚠️ Requires external dependency (CDN or npm)
 - ✅ Works in all modern browsers
+- ✅ Implements DEFLATE algorithm (same as gzip)
 
 **Node.js/nbb**:
 - ✅ Native `zlib` module
@@ -3378,22 +3379,56 @@ Sente v1.21 introduced several important protocol-level enhancements that improv
 
 **Challenge**: No universal compression across all platforms without external dependencies.
 
-**Solution Options**:
-1. **Platform-specific compression** (recommended)
-   - JVM: Built-in gzip
-   - Browser: pako (CDN)
-   - Node.js: Native zlib
-   - Accept platform differences
+### Standardize on GZIP
 
-2. **Lightweight custom compression**
-   - Simple RLE or LZ77 variant
-   - Works everywhere
-   - Less efficient than gzip
+**Recommendation**: Use **GZIP** (gzip format with DEFLATE algorithm) across all platforms.
 
-3. **Optional compression**
-   - Provide gzip where available
-   - Fall back to uncompressed
-   - Application chooses
+**Why GZIP?**
+- ✅ Industry standard
+- ✅ Widely supported everywhere
+- ✅ Includes header and CRC32 checksum (error detection)
+- ✅ Works with standard gzip tools
+- ✅ Pako implements it (`pako.gzip()`, `pako.ungzip()`)
+- ✅ Java has `GZIPOutputStream/GZIPInputStream`
+- ✅ Node.js has native gzip support
+
+**Pako Details**:
+- ✅ JavaScript port of zlib v1.2.8
+- ✅ Binary-equal to C implementation
+- ✅ ~10x faster than other JS implementations
+- ✅ Supports: `gzip()`, `ungzip()`, `deflate()`, `inflate()`
+- ✅ For sente-lite: use `pako.gzip()` and `pako.ungzip()`
+
+**Platform-Specific Implementation**:
+```clojure
+;; Server (JVM/Babashka)
+(import [java.util.zip GZIPOutputStream GZIPInputStream]
+        [java.io ByteArrayOutputStream ByteArrayInputStream])
+
+(defn compress-gzip [data]
+  (let [out (ByteArrayOutputStream.)
+        gz (GZIPOutputStream. out)]
+    (.write gz data)
+    (.close gz)
+    (.toByteArray out)))
+
+;; Browser (Scittle) - requires pako CDN
+;; <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+(defn compress-gzip [data]
+  (js/pako.gzip data))
+
+;; Node.js (nbb)
+(require '[node.zlib :as zlib])
+
+(defn compress-gzip [data]
+  (zlib/gzipSync data))
+```
+
+**Solution**: Platform-specific GZIP implementation
+- JVM: Built-in `java.util.zip.GZIPOutputStream`
+- Browser: `pako.gzip()` (via CDN)
+- Node.js: Native `zlib.gzipSync()`
+- All use same GZIP format (interoperable)
 
 ### Protocol Enhancement Recommendations for Sente-Lite
 
