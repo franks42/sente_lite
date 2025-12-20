@@ -412,10 +412,54 @@ No framework needed. Just Clojure.
 
 ---
 
+## Cross-Runtime Verification (2025-12-20)
+
+**VERIFIED: All core functions work across ALL deployment targets!**
+
+| Runtime | Host Stack | Status |
+|---------|------------|--------|
+| Babashka | SCI / Clojure / GraalVM | ✅ 8/8 tests pass |
+| Scittle | SCI / ClojureScript / Browser JS | ✅ 8/8 tests pass |
+| nbb | SCI / ClojureScript / Node.js | ✅ 8/8 tests pass |
+
+Functions verified on each runtime:
+
+| Function | BB | Scittle | nbb | Notes |
+|----------|:--:|:-------:|:---:|-------|
+| `create-ns` | ✅ | ✅ | ✅ | Creates namespace dynamically |
+| `intern` | ✅ | ✅ | ✅ | Requires namespace to exist first |
+| `resolve` | ✅ | ✅ | ✅ | Returns var from FQN symbol |
+| `find-var` | ✅ | ✅ | ✅ | Alternative to resolve |
+| `deref` (@@) | ✅ | ✅ | ✅ | Double-deref for atom value |
+
+**The `ensure-atom!` pattern works on all three runtimes:**
+
+```clojure
+(defn ensure-atom! [fqn-str]
+  (let [sym (symbol fqn-str)
+        ns-sym (symbol (namespace sym))
+        name-sym (symbol (name sym))]
+    (create-ns ns-sym)
+    (or (find-var sym)
+        (intern ns-sym name-sym (atom {})))))
+
+;; Usage - works identically in BB and browser
+(ensure-atom! "ui.buttons/button-1")
+(reset! @(resolve 'ui.buttons/button-1) {:pressed true})
+@@(resolve 'ui.buttons/button-1)  ;; => {:pressed true}
+```
+
+**Implication:** The FQN-based registry approach is viable across all sente-lite deployment targets:
+- Server: Babashka
+- Browser client: Scittle
+- Node.js client/worker: nbb
+
+---
+
 ## Next Steps
 
-1. **Verify `intern`/`resolve` work in SCI/Scittle** - may have limitations
-2. **Prototype FQN-based atom-sync** - if SCI supports it
+1. ~~Verify `intern`/`resolve` work in SCI/Scittle~~ ✅ Done (2025-12-20)
+2. **Prototype FQN-based atom-sync** - SCI supports it!
 3. **atom-sync Phase 2** - Two-way sync with conflict resolution
 
 ---

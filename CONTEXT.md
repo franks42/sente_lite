@@ -67,8 +67,12 @@ Created `doc/process-registry.md` (1422 lines - needs trimming)
 ## NEXT STEPS
 
 1. ~~Trim `doc/process-registry.md` to be concise~~ ✅ Done (1423→430 lines)
-2. Verify `intern`/`resolve` work in SCI/Scittle
-3. Possibly prototype FQN-based atom-sync
+2. ~~Verify `intern`/`resolve` work across all runtimes~~ ✅ Done (2025-12-20)
+   - **Babashka**: 8/8 tests pass (SCI/Clojure/GraalVM)
+   - **Scittle**: 8/8 tests pass (SCI/ClojureScript/Browser) - Playwright verified
+   - **nbb**: 8/8 tests pass (SCI/ClojureScript/Node.js)
+   - `ensure-atom!` pattern works identically on all three
+3. Prototype FQN-based atom-sync (all runtimes support it!)
 4. atom-sync Phase 2: Two-way sync with conflict resolution
 
 ---
