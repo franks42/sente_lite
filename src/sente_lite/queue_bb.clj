@@ -4,7 +4,7 @@
    Uses Java concurrent queue for thread-safe bounded queue with
    non-blocking offer and efficient batch drain."
   (:require [sente-lite.queue :as q])
-  (:import [java.util.concurrent ArrayBlockingQueue]
+  (:import [java.util.concurrent ArrayBlockingQueue TimeUnit]
            [java.util ArrayList]))
 
 ;; ============================================================================
@@ -22,6 +22,43 @@
       (do
         (q/update-stats stats :drop)
         :rejected)))
+
+  (enqueue-blocking! [_this msg timeout-ms]
+    (if (.offer ^ArrayBlockingQueue queue msg timeout-ms TimeUnit/MILLISECONDS)
+      (do
+        (q/update-stats stats :enqueue)
+        :ok)
+      :timeout))
+
+  (enqueue-async! [this msg opts]
+    (let [timeout-ms (get opts :timeout-ms 30000)
+          callback (get opts :callback)
+          poll-interval-ms 10]
+      (assert callback ":callback is required for enqueue-async!")
+      ;; Try immediate enqueue first
+      (let [result (q/enqueue! this msg)]
+        (if (= result :ok)
+          ;; Immediate success
+          (callback :ok)
+          ;; Start async polling in background thread
+          (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+            (future
+              (loop []
+                (let [result (q/enqueue! this msg)]
+                  (cond
+                    ;; Success
+                    (= result :ok)
+                    (callback :ok)
+
+                    ;; Timeout reached
+                    (>= (System/currentTimeMillis) deadline)
+                    (callback :timeout)
+
+                    ;; Keep polling
+                    :else
+                    (do
+                      (Thread/sleep poll-interval-ms)
+                      (recur)))))))))))
 
   (start! [this]
     (reset! running? true)

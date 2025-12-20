@@ -16,6 +16,14 @@
   "Protocol for send queue implementations."
   (enqueue! [this msg]
     "Add message to queue. Returns :ok if queued, :rejected if full.")
+  (enqueue-blocking! [this msg timeout-ms]
+    "Block until space available or timeout. Returns :ok or :timeout.
+     BB/JVM only - not available in browser (JS is single-threaded).")
+  (enqueue-async! [this msg opts]
+    "Async enqueue with callback.
+     opts: {:timeout-ms N :callback (fn [result] ...)}
+     Callback called with :ok or :timeout.
+     Works in both BB and browser.")
   (start! [this]
     "Start background flush thread/timer. Returns this.")
   (stop! [this]

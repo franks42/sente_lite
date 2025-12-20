@@ -110,10 +110,47 @@
               (let [current-state @state
                     stats (get current-state :stats)
                     queue-vec (get current-state :queue)]
-                (assoc stats :depth (count queue-vec))))]
+                (assoc stats :depth (count queue-vec))))
+
+            (enqueue-blocking! [_msg _timeout-ms]
+              ;; Not supported in browser - JS is single-threaded
+              (throw (js/Error. "enqueue-blocking! not supported in browser (JS is single-threaded)")))
+
+            (enqueue-async! [msg opts]
+              (let [timeout-ms (get opts :timeout-ms 30000)
+                    callback (get opts :callback)
+                    poll-interval-ms 10]
+                (assert callback ":callback is required for enqueue-async!")
+                ;; Try immediate enqueue first
+                (let [result (enqueue! msg)]
+                  (if (= result :ok)
+                    ;; Immediate success
+                    (callback :ok)
+                    ;; Start async polling with setTimeout
+                    (let [deadline (+ (.now js/Date) timeout-ms)
+                          poll-fn (atom nil)]
+                      (reset! poll-fn
+                              (fn []
+                                (let [result (enqueue! msg)]
+                                  (cond
+                                    ;; Success
+                                    (= result :ok)
+                                    (callback :ok)
+
+                                    ;; Timeout reached
+                                    (>= (.now js/Date) deadline)
+                                    (callback :timeout)
+
+                                    ;; Keep polling
+                                    :else
+                                    (js/setTimeout @poll-fn poll-interval-ms)))))
+                      ;; Start polling
+                      (js/setTimeout @poll-fn poll-interval-ms))))))]
 
       ;; Return queue object as a map with functions
       {:enqueue! enqueue!
+       :enqueue-blocking! enqueue-blocking!
+       :enqueue-async! enqueue-async!
        :start! start!
        :stop! stop!
        :queue-stats queue-stats
@@ -135,3 +172,9 @@
 
 (defn queue-stats [queue]
   ((get queue :queue-stats)))
+
+(defn enqueue-blocking! [queue msg timeout-ms]
+  ((get queue :enqueue-blocking!) msg timeout-ms))
+
+(defn enqueue-async! [queue msg opts]
+  ((get queue :enqueue-async!) msg opts))

@@ -42,8 +42,8 @@
 
 (let [sent (atom [])
       queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
-                                   :max-depth 10
-                                   :flush-interval-ms 5})]
+                                  :max-depth 10
+                                  :flush-interval-ms 5})]
 
   ;; Enqueue before start should still work
   (test= :ok (q/enqueue! queue {:msg 1}) "enqueue returns :ok")
@@ -80,8 +80,8 @@
 (let [sent (atom [])
       ;; Small queue, slow flush (to fill it up)
       queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
-                                   :max-depth 3
-                                   :flush-interval-ms 1000})]
+                                  :max-depth 3
+                                  :flush-interval-ms 1000})]
 
   ;; Fill the queue (don't start yet)
   (test= :ok (q/enqueue! queue {:msg 1}) "enqueue 1 ok")
@@ -118,8 +118,8 @@
 (let [sent (atom [])
       ;; Slow flush so messages stay in queue
       queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
-                                   :max-depth 100
-                                   :flush-interval-ms 10000})]
+                                  :max-depth 100
+                                  :flush-interval-ms 10000})]
 
   ;; Enqueue without starting
   (q/enqueue! queue {:msg "a"})
@@ -148,8 +148,8 @@
 
 (let [sent (atom 0)
       queue (qbb/make-send-queue {:on-send (fn [_] (swap! sent inc))
-                                   :max-depth 10000
-                                   :flush-interval-ms 1})]
+                                  :max-depth 10000
+                                  :flush-interval-ms 1})]
 
   (q/start! queue)
 
@@ -205,6 +205,151 @@
     (test= 2 (count @errors) "2 errors captured")
     (test= 2 (:errors stats) "stats: 2 errors")
     (test= 3 (:sent stats) "stats: 3 sent (successful only)")))
+
+(println)
+
+;; ============================================================================
+;; Test 6: enqueue-blocking! success
+;; ============================================================================
+
+(println "Test 6: enqueue-blocking! success")
+
+(let [sent (atom [])
+      queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
+                                  :max-depth 10
+                                  :flush-interval-ms 5})]
+  (q/start! queue)
+
+  ;; Blocking enqueue should succeed immediately when queue has space
+  (test= :ok (q/enqueue-blocking! queue {:msg 1} 1000) "blocking enqueue returns :ok")
+  (test= :ok (q/enqueue-blocking! queue {:msg 2} 1000) "blocking enqueue 2 returns :ok")
+
+  ;; Wait for flush
+  (Thread/sleep 50)
+
+  (test= 2 (count @sent) "2 messages sent via blocking enqueue")
+
+  (q/stop! queue))
+
+(println)
+
+;; ============================================================================
+;; Test 7: enqueue-blocking! timeout
+;; ============================================================================
+
+(println "Test 7: enqueue-blocking! timeout")
+
+(let [sent (atom [])
+      ;; Small queue, very slow flush
+      queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
+                                  :max-depth 2
+                                  :flush-interval-ms 10000})]
+  ;; Don't start - queue won't drain
+  ;; Fill the queue
+  (q/enqueue! queue {:msg 1})
+  (q/enqueue! queue {:msg 2})
+
+  ;; Blocking enqueue should timeout
+  (let [start (System/currentTimeMillis)
+        result (q/enqueue-blocking! queue {:msg 3} 100)
+        elapsed (- (System/currentTimeMillis) start)]
+    (test= :timeout result "blocking enqueue returns :timeout when full")
+    (test-true (>= elapsed 100) (str "waited at least 100ms (got " elapsed "ms)")))
+
+  (q/stop! queue))
+
+(println)
+
+;; ============================================================================
+;; Test 8: enqueue-async! immediate success
+;; ============================================================================
+
+(println "Test 8: enqueue-async! immediate success")
+
+(let [sent (atom [])
+      result (atom nil)
+      queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
+                                  :max-depth 10
+                                  :flush-interval-ms 5})]
+  (q/start! queue)
+
+  ;; Async enqueue with callback - should succeed immediately
+  (q/enqueue-async! queue {:msg 1} {:timeout-ms 1000
+                                    :callback #(reset! result %)})
+
+  ;; Callback should be called synchronously on success
+  (Thread/sleep 10)
+  (test= :ok @result "async callback called with :ok")
+
+  ;; Wait for flush
+  (Thread/sleep 50)
+  (test= 1 (count @sent) "message sent")
+
+  (q/stop! queue))
+
+(println)
+
+;; ============================================================================
+;; Test 9: enqueue-async! delayed success (waits for space)
+;; ============================================================================
+
+(println "Test 9: enqueue-async! delayed success")
+
+(let [sent (atom [])
+      result (atom nil)
+      ;; Small queue, fast flush
+      queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
+                                  :max-depth 2
+                                  :flush-interval-ms 20})]
+  ;; Fill the queue before starting
+  (q/enqueue! queue {:msg 1})
+  (q/enqueue! queue {:msg 2})
+
+  ;; Start the queue - it will flush
+  (q/start! queue)
+
+  ;; Async enqueue should wait and succeed after flush creates space
+  (q/enqueue-async! queue {:msg 3} {:timeout-ms 500
+                                    :callback #(reset! result %)})
+
+  ;; Wait for poll to succeed
+  (Thread/sleep 100)
+  (test= :ok @result "async callback called with :ok after space freed")
+
+  (q/stop! queue))
+
+(println)
+
+;; ============================================================================
+;; Test 10: enqueue-async! timeout
+;; ============================================================================
+
+(println "Test 10: enqueue-async! timeout")
+
+(let [sent (atom [])
+      result (atom nil)
+      ;; Small queue, very slow flush (won't drain)
+      queue (qbb/make-send-queue {:on-send #(swap! sent conj %)
+                                  :max-depth 2
+                                  :flush-interval-ms 10000})]
+  ;; Fill the queue
+  (q/enqueue! queue {:msg 1})
+  (q/enqueue! queue {:msg 2})
+
+  ;; Don't start - queue won't drain
+
+  ;; Async enqueue should timeout
+  (let [start (System/currentTimeMillis)]
+    (q/enqueue-async! queue {:msg 3} {:timeout-ms 100
+                                      :callback #(reset! result %)})
+
+    ;; Wait for timeout
+    (Thread/sleep 150)
+    (let [elapsed (- (System/currentTimeMillis) start)]
+      (test= :timeout @result "async callback called with :timeout")
+      (test-true (>= elapsed 100) (str "waited at least 100ms (got " elapsed "ms)"))))
+
+  (q/stop! queue))
 
 (println)
 
