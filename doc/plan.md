@@ -602,6 +602,62 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 
 ---
 
+## Current Focus (2025-12-20)
+
+### Modules & Registry MVP
+1. **FQN-based atom-sync prototype** - Apply verified `ensure-atom!` pattern
+2. **Module use cases** - Expand log-routing and atom-sync examples
+3. **Cross-runtime module testing** - Verify modules work BB↔Scittle↔nbb
+
+---
+
+## Backlog (From External Reviews)
+
+Items identified from Cascade AI reviews (process-registry, project-SWE, stress-backpressure).
+**Not urgent** - captured here for future consideration.
+
+### Technical Debt (Medium Priority)
+- [ ] Remove `src_legacy/` directory
+- [ ] Remove deprecated wire format v1
+- [ ] Consolidate multiple state atoms in clients
+- [ ] Externalize vendored Trove (or keep if stable)
+
+### Server-Side Improvements (Medium Priority)
+- [ ] **Outbound backpressure** - Per-connection queuing for slow clients
+- [ ] **Broadcast throttling** - Limit CPU/network during spikes
+- [ ] **Rate limiting** - Prevent message flooding
+
+### Client-Side Improvements (Low Priority)
+- [ ] **Rate limiting** - Configurable send rate limits
+- [ ] **Message prioritization** - Control messages over data
+- [ ] **Queue rejection callback** - Notify app layer on rejection
+
+### Security Hardening (Low Priority - trusted world)
+- [ ] Authentication hooks (JWT, token-based)
+- [ ] Connection rate limiting
+- [ ] Input validation/sanitization
+- [ ] Message encryption option
+
+### Performance (Low Priority)
+- [ ] Message batching for high-throughput
+- [ ] Compression for large payloads
+- [ ] Performance benchmarking suite
+- [ ] Memory leak detection for long-running processes
+
+### Testing Gaps (Low Priority)
+- [ ] Chaos testing (network failures, partial outages)
+- [ ] Stress testing beyond 20 clients
+- [ ] Slow client simulation
+- [ ] Malformed message handling tests
+
+### Monitoring (Low Priority)
+- [ ] Queue depth metrics
+- [ ] Rejection rate metrics
+- [ ] Send failure metrics
+- [ ] Health check endpoints
+
+---
+
 ## Archive Reference
 
 For detailed historical planning content, see:
