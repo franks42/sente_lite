@@ -164,10 +164,19 @@ Decouple message sending from network I/O. Buffer messages when sending faster t
 ```
 
 ### Backpressure
+
+**Scenario:** WebSocket can't send (slow network, connection issue) → queue stops draining → buffer fills up.
+
 When queue is full, `enqueue!` returns `:rejected`. Application decides:
 - Drop the message
 - Retry later
 - Apply backpressure upstream
+
+**Current implementation:** Only non-blocking `:rejected` return.
+
+**Potential Phase 2 additions:**
+- `enqueue-blocking!` - Wait synchronously until space available
+- `enqueue-async!` - Return promise/callback, timeout if no space in N ms
 
 ### On Disconnect
 **Fixed (2025-12-20):** `send-raw!` now throws on failure instead of returning false.
@@ -221,10 +230,41 @@ Route incoming messages to appropriate handlers. Support two patterns:
 ```
 
 ### Message Routing
-1. Check subscriptions by channel-id
-2. Check waiters by predicate (FIFO - first matching waiter wins)
-3. Buffer if no match (up to max-depth)
-4. Drop or call fallback if buffer full
+1. Check waiters by predicate (FIFO - first matching waiter wins)
+2. Call `:on-message` callback (subscriptions see ALL messages)
+3. Buffer unmatched messages (up to max-depth)
+4. Drop or call `on-unmatched` if buffer full
+
+### Burst Tolerance (not backpressure)
+
+The buffer acts as a **shock absorber** for bursty traffic:
+
+```
+Without buffer:              With buffer:
+─────────────────           ─────────────────
+Messages arrive             Messages arrive
+     ↓                           ↓
+No waiter ready?            No waiter ready?
+     ↓                           ↓
+   LOST                     Buffer it (up to max-depth)
+                                 ↓
+                            Waiter registers later
+                                 ↓
+                            Match from buffer → delivered
+```
+
+**Scenarios it handles:**
+- **Race condition** - Response arrives slightly before waiter registers
+- **Burst of messages** - Multiple messages arrive faster than app can process
+- **Slow predicate matching** - Complex predicates take time to evaluate
+
+**What it doesn't do:**
+- Tell the server to slow down (true backpressure)
+- Guarantee delivery if buffer overflows
+- Handle sustained overload (buffer fills, messages drop)
+
+For most RPC patterns (nREPL, request/response), the buffer rarely fills because
+waiters are registered before requests are sent. It's a safety net for timing edge cases.
 
 ### Waiter Lifecycle
 ```clojure
