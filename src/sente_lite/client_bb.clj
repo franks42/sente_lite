@@ -298,7 +298,8 @@
 ;;; Public API
 
 (defn- send-raw!
-  "Internal: Send serialized message directly over WebSocket (bypassing queue)."
+  "Internal: Send serialized message directly over WebSocket (bypassing queue).
+   Throws on failure so queue can track as error (not silent loss)."
   [client-id serialized message]
   (if-let [client-state (get @clients client-id)]
     (let [ws (:ws client-state)]
@@ -318,8 +319,10 @@
                        :data {:client-id client-id
                               :status (:status client-state)
                               :has-ws (some? ws)}})
-          false)))
-    false))
+          (throw (ex-info "WebSocket not connected"
+                          {:client-id client-id
+                           :status (:status client-state)})))))
+    (throw (ex-info "Client not found" {:client-id client-id}))))
 
 (defn make-client!
   "Create and connect a WebSocket client with auto-reconnect and telemetry.

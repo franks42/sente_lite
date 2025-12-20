@@ -120,7 +120,8 @@
 
 (defn- send-raw!
   "Internal: Send serialized message directly over WebSocket (bypassing queue).
-   Used by queue flush. Takes [serialized message] tuple."
+   Used by queue flush. Takes [serialized message] tuple.
+   Throws on failure so queue can track as error (not silent loss)."
   [client-id serialized message]
   (if-let [client-state (get @clients client-id)]
     (let [ws (get client-state :ws)
@@ -141,8 +142,8 @@
                  :data {:client-id client-id
                         :status (get client-state :status)
                         :ready-state ready-state}})
-          false)))
-    false))
+          (throw (js/Error. (str "WebSocket not open (state=" ready-state ")"))))))
+    (throw (js/Error. "Client not found"))))
 
 (defn- handle-handshake
   "Handle :chsk/handshake event - extract uid and store it"

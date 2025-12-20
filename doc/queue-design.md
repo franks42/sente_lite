@@ -170,11 +170,18 @@ When queue is full, `enqueue!` returns `:rejected`. Application decides:
 - Apply backpressure upstream
 
 ### On Disconnect
-**Current behavior (bug):** Messages silently lost - `on-send` returns false but queue counts as "sent"
+**Fixed (2025-12-20):** `send-raw!` now throws on failure instead of returning false.
+Queue catches exception and counts as `:errors` (not `:sent`).
 
-**Correct behavior:**
-- Stop flush loop
-- Return unsent messages to application via callback
+**Behavior:**
+- `send-raw!` throws when WebSocket not open
+- Queue's error handler catches and increments `:errors` stat
+- Queue's `:on-error` callback notified with exception and message
+- Application can handle via `:on-error` callback
+
+**Remaining work:**
+- Stop flush loop on disconnect (pause, don't drain to errors)
+- Return unsent messages to application via disconnect callback
 - Application decides: persist locally, retry on reconnect, or drop
 
 ### Files
