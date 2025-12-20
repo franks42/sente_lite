@@ -361,6 +361,20 @@ Test helper provides simulated time:
 - ✅ `take!` API for RPC-style request/response
 - ✅ Fresh recv-queue on each reconnect
 
+**Client Feature Parity:**
+
+| Feature | client_bb.clj | client_scittle.cljs |
+|---------|---------------|---------------------|
+| `recv-queue` require | ✅ | ✅ |
+| `:recv-queue` in state | ✅ | ✅ |
+| `create-recv-queue!` helper | ✅ | ✅ |
+| `put!` on user messages | ✅ | ✅ |
+| `close!` on disconnect | ✅ | ✅ |
+| Fresh queue on reconnect | ✅ | ✅ |
+| `:on-channel-ready` hook | ✅ | ✅ |
+| `take!` API | ✅ | ✅ |
+| `recv-queue-stats` API | ✅ | ✅ |
+
 **Files:**
 - `src/sente_lite/recv_queue.cljc` - Receive queue implementation
 - `src/sente_lite/test_helpers.cljc` - Injectable time system
