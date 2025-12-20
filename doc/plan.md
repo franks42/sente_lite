@@ -3,11 +3,80 @@
 **Version:** 2.3
 **Created:** 2025-10-24
 **Last Updated:** 2025-12-20
-**Status:** v2.4.0 - Queue System COMPLETE ✅ (Send + Receive)
+**Status:** v2.7.0 - Unified on!/off! Handler API COMPLETE ✅
 
 ---
 
 ## Updates Log
+
+### 2025-12-20: Unified on!/off! Handler API - COMPLETE ✅
+
+**Milestone:** v2.7.0-on-off-api
+
+**What Was Built:**
+
+1. **Handler Registry System:**
+   - Atom-based `{:handlers (atom {})}` in client state
+   - Handler-id based registration and removal
+   - Thread-safe dispatch to all matching handlers
+
+2. **on! Function - Register Handlers:**
+   ```clojure
+   (on! client-id {:event-id :my/event    ;; Match specific event (or :* for all)
+                   :pred (fn [msg] ...)   ;; Custom predicate matching
+                   :once? true            ;; Auto-remove after first match
+                   :timeout-ms 5000       ;; Timeout with {:error :timeout}
+                   :callback (fn [msg] ...)})
+   ;; Returns handler-id string
+   ```
+
+3. **off! Function - Remove Handlers:**
+   ```clojure
+   (off! client-id handler-id)           ;; Remove by handler-id
+   (off! client-id {:event-id :my/event}) ;; Remove by event-id
+   (off! client-id :all)                  ;; Remove all handlers
+   ```
+
+4. **handler-count Function:**
+   ```clojure
+   (handler-count client-id) ;; => number of registered handlers
+   ```
+
+5. **Dispatch Order:**
+   - on!/off! handlers → recv-queue (take!) → on-message callback
+   - All matching handlers receive the message
+   - :once? handlers auto-removed after match
+   - Timeout handlers callback with `{:error :timeout :handler-id "..."}`
+
+6. **Platform Implementations:**
+
+   | Feature | client_bb.clj | client_scittle.cljs |
+   |---------|---------------|---------------------|
+   | Handler registry | ✅ atom | ✅ atom |
+   | Timeout mechanism | ✅ future/Thread/sleep | ✅ js/setTimeout |
+   | Cancel timeout | ✅ future-cancel | ✅ js/clearTimeout |
+   | SCI-compatible | N/A | ✅ no destructuring |
+
+**Test Results:**
+```
+on!/off! API Tests: 30 tests ✅ (8 test groups)
+Full Test Suite: All 4 categories passing ✅
+```
+
+**Use Cases:**
+- Replace on-message for event-specific handlers
+- RPC-style request/response with timeout
+- One-shot handlers for expected responses
+- Predicate-based routing for complex matching
+- Catch-all handlers with :event-id :*
+
+**Files:**
+- `src/sente_lite/client_bb.clj` - BB implementation (+203 lines)
+- `src/sente_lite/client_scittle.cljs` - Scittle implementation (+212 lines)
+- `test/scripts/test_on_off_api.bb` - Comprehensive test suite
+- `doc/api-design.md` - API design documentation
+
+---
 
 ### 2025-12-20: Receive Queue + Client Integration - COMPLETE ✅
 
@@ -459,7 +528,11 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
   - Scittle: Waiter list + `process-waiters!` hook in `flush!`
   - No polling - callbacks invoked immediately when space freed
   - See `doc/queue-design.md` "Phase 2: Event-Driven Async" for full design
-- **Subscription API unification**: Merge recv_queue waiters with on-message subscriptions
+- ✅ **Unified on!/off! handler API**: Merge recv_queue waiters with on-message subscriptions (v2.7.0-on-off-api)
+  - `on!` registers handlers with event-id, pred, once?, timeout-ms, callback
+  - `off!` removes by handler-id, event-id, or :all
+  - Dispatch order: on!/off! → recv-queue → on-message
+  - See `doc/api-design.md` for full API design
 - **Message batching**: Batch multiple messages for efficiency
 
 ### Infrastructure Improvements

@@ -1,7 +1,8 @@
 # sente-lite API Design
 
 **Created:** 2025-12-19
-**Status:** Draft - Unified Subscription API Design
+**Updated:** 2025-12-20
+**Status:** IMPLEMENTED - v2.7.0-on-off-api
 
 ## Overview
 
@@ -536,22 +537,29 @@ The key insight: **Sente's `ch-recv` loop with `case` routing is equivalent to m
 
 ---
 
-## Part 5: Migration Path
+## Part 5: Implementation Status
 
-### Phase 1: Add `on!`/`off!` (Additive)
+### Phase 1: Add `on!`/`off!` (Additive) ✅ COMPLETE
 
-- Implement unified handler registry
-- Add `on!` and `off!` functions
-- Keep `:on-message` and `take!` working
-- Document as preferred API going forward
+- ✅ Implemented unified handler registry (atom-based)
+- ✅ Added `on!` and `off!` functions (both BB and Scittle)
+- ✅ Added `handler-count` function
+- ✅ Keep `:on-message` and `take!` working (backward compatible)
+- ✅ Documented as preferred API going forward
 
-### Phase 2: Internal Unification
+**Implementation Details (v2.7.0-on-off-api):**
+- Handler registry: `{:handlers (atom {})}` in client state
+- Dispatch order: on!/off! handlers → recv-queue (take!) → on-message
+- Timeout: BB uses `future`/`future-cancel`, Scittle uses `js/setTimeout`/`js/clearTimeout`
+- 30 tests passing in `test/scripts/test_on_off_api.bb`
+
+### Phase 2: Internal Unification (Future)
 
 - Refactor `:on-message` to use handler registry internally
 - Refactor `take!` to use handler registry internally
 - Single code path for all message routing
 
-### Phase 3: Documentation Update
+### Phase 3: Documentation Update (Future)
 
 - Update all examples to use `on!`/`off!`
 - Document `:on-message` as "legacy convenience"
