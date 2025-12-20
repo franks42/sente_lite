@@ -1,7 +1,7 @@
 # sente-lite Queue Design
 
 **Created:** 2025-12-20
-**Status:** Implementation in progress
+**Status:** Phase 1 Complete (recv-queue + client integration)
 
 ## Overview
 
@@ -309,9 +309,30 @@ Test helper provides simulated time:
 
 ---
 
+## Implementation Status (2025-12-20)
+
+**Completed:**
+- ✅ Receive queue with waiters, timeouts, buffer
+- ✅ Injectable time system for testable async code
+- ✅ 39 unit tests passing
+- ✅ Send queue fix: throws on failure (not silent loss)
+- ✅ Client integration (both BB and Scittle)
+- ✅ `:on-channel-ready` hook after every handshake
+- ✅ `take!` API for RPC-style request/response
+- ✅ Fresh recv-queue on each reconnect
+
+**Files:**
+- `src/sente_lite/recv_queue.cljc` - Receive queue implementation
+- `src/sente_lite/test_helpers.cljc` - Injectable time system
+- `src/sente_lite/client_bb.clj` - BB client with recv-queue
+- `src/sente_lite/client_scittle.cljs` - Browser client with recv-queue
+- `test/scripts/recv_queue/test_recv_queue_bb.bb` - Unit tests
+
+---
+
 ## Open Questions
 
-1. **Subscription API:** Should subscriptions be part of recv_queue or separate?
-2. **Buffer on close:** Return buffered messages or drop them?
-3. **Send queue fix:** Throw on send failure vs return false and check?
+1. **Subscription API:** Currently separate from recv_queue. Subscriptions use `:on-message` callback, waiters use `take!`. Could unify in Phase 2.
+2. ~~**Buffer on close:** Return buffered messages or drop them?~~ **Resolved:** Returns buffered messages in close result.
+3. ~~**Send queue fix:** Throw on send failure vs return false and check?~~ **Resolved:** Throws on failure.
 4. **Batching (Phase 2):** How does batching interact with ordering?

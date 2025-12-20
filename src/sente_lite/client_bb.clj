@@ -23,6 +23,7 @@
             [sente-lite.packer :as packer]
             [sente-lite.queue :as q]
             [sente-lite.queue-bb :as qbb]
+            [sente-lite.recv-queue :as rq]
             [taoensso.trove :as trove]))
 
 ;; Event IDs (Sente-compatible)
@@ -73,7 +74,8 @@
    :last-connect-attempt nil
    :message-count-sent 0
    :message-count-received 0
-   :send-queue nil})
+   :send-queue nil
+   :recv-queue nil})
 
 ;;; Message Parsing
 ;; IMPORTANT: Babashka's babashka.http-client.websocket passes a java.nio.HeapCharBuffer
@@ -99,6 +101,7 @@
 
 ;;; Forward declarations
 (declare attempt-reconnect!)
+(declare create-recv-queue!)
 
 ;;; WebSocket Lifecycle Handlers
 
@@ -133,7 +136,6 @@
   (fn [ws raw-data _last?]
     (let [client-state (get @clients client-id)
           config (:config client-state)
-          ws (:ws client-state)
           parsed (parse-message raw-data)]
 
       (swap! clients update-in [client-id :message-count-received] inc)
@@ -166,27 +168,41 @@
                   (trove/log! {:level :trace
                                :id :sente-lite.client/callback-on-open
                                :data {:client-id client-id :uid uid}})
-                  (on-open uid))))
+                  (on-open uid)))
+              ;; Call :on-channel-ready on EVERY connection (initial + reconnect)
+              (when-let [on-channel-ready (:on-channel-ready config)]
+                (trove/log! {:level :trace
+                             :id :sente-lite.client/callback-on-channel-ready
+                             :data {:client-id client-id :uid uid :is-reconnect? is-reconnect?}})
+                (on-channel-ready client-id)))
 
             ;; Handle server ping -> respond with pong
             (= event-id event-ws-ping)
-            (do
+            (let [current-ws (:ws (get @clients client-id))]
               (trove/log! {:level :trace
                            :id :sente-lite.client/auto-pong
                            :data {:client-id client-id}})
-              (ws/send! ws (packer/pack [event-ws-pong])))
+              (ws/send! current-ws (packer/pack [event-ws-pong])))
 
-            ;; Pass all other events to user handler
+            ;; User messages: put to recv-queue (for waiters) and call on-message (for subscriptions)
             :else
-            (when-let [on-message (:on-message config)]
-              (on-message event-id data))))))))
+            (let [current-state (get @clients client-id)
+                  recv-queue (get current-state :recv-queue)
+                  msg {:event-id event-id :data data}]
+              ;; Put to recv-queue for waiter matching
+              (when recv-queue
+                (rq/put! recv-queue msg))
+              ;; Call on-message for subscription-style handlers
+              (when-let [on-message (:on-message config)]
+                (on-message event-id data)))))))))
 
 (defn- make-on-close [client-id]
-  (fn [ws code reason]
+  (fn [_ws code reason]
     ;; Only process if client still exists (not removed by close!)
     (when-let [client-state (get @clients client-id)]
       (let [config (:config client-state)
-            reconnect-enabled? (:reconnect-enabled? client-state)]
+            reconnect-enabled? (:reconnect-enabled? client-state)
+            recv-queue (get client-state :recv-queue)]
         (swap! clients assoc-in [client-id :status] :disconnected)
         (swap! clients assoc-in [client-id :ws] nil)
         (trove/log! {:level :debug
@@ -195,6 +211,16 @@
                             :code code
                             :reason reason
                             :will-reconnect? reconnect-enabled?}})
+
+        ;; Close recv-queue to notify all waiters
+        (when recv-queue
+          (let [close-result (rq/close! recv-queue :disconnected)]
+            (trove/log! {:level :debug
+                         :id :sente-lite.client/recv-queue-closed
+                         :data {:client-id client-id
+                                :stats (get close-result :stats)
+                                :buffered-count (count (get close-result :buffered-messages))}})))
+
         (when-let [on-close (:on-close config)]
           (on-close code reason))
 
@@ -244,6 +270,7 @@
     (when (:reconnect-enabled? client-state)
       (let [config (:config client-state)
             url (:url config)
+            recv-queue-config (get config :recv-queue)
             reconnect-count (:reconnect-count client-state)
             new-reconnect-count (inc reconnect-count)]
 
@@ -262,6 +289,9 @@
                 max-delay (:max-reconnect-delay client-state)
                 next-delay (min (* base-delay (Math/pow 2 new-reconnect-count)) max-delay)]
             (swap! clients assoc-in [client-id :reconnect-delay] next-delay))
+
+          ;; Create new recv-queue for fresh connection (old one was closed in make-on-close)
+          (create-recv-queue! client-id recv-queue-config)
 
           ;; Create new WebSocket - if it fails (returns nil), schedule retry
           (let [result (connect-internal! client-id)]
@@ -324,6 +354,17 @@
                            :status (:status client-state)})))))
     (throw (ex-info "Client not found" {:client-id client-id}))))
 
+(defn- create-recv-queue!
+  "Create a new recv-queue for a client. Used on initial connect and reconnect."
+  [client-id recv-queue-config]
+  (let [queue (rq/make-recv-queue (or recv-queue-config {}))]
+    (swap! clients assoc-in [client-id :recv-queue] queue)
+    (trove/log! {:level :debug
+                 :id :sente-lite.client/recv-queue-created
+                 :data {:client-id client-id
+                        :max-depth (get recv-queue-config :max-depth 100)}})
+    queue))
+
 (defn make-client!
   "Create and connect a WebSocket client with auto-reconnect and telemetry.
 
@@ -331,6 +372,8 @@
     :url                  - WebSocket URL (required, e.g. \"ws://localhost:3000/ws\")
     :on-open              - Called on initial connection with uid (fn [uid])
     :on-reconnect         - Called after reconnection (fn [])
+    :on-channel-ready     - Called on EVERY connection (initial + reconnect) after handshake.
+                            Use this to register waiters fresh each time. (fn [client-id])
     :on-message           - Called with parsed message (fn [event-id data])
     :on-close             - Called when connection closes (fn [code reason])
     :on-error             - Called on error (fn [error])
@@ -340,27 +383,34 @@
     :send-queue           - Send queue config map (optional):
                             {:max-depth 1000          ; max queued messages
                              :flush-interval-ms 10}   ; flush interval
+    :recv-queue           - Receive queue config map (optional):
+                            {:max-depth 100}          ; max buffered messages
 
-  Returns client-id handle for send!/close!/set-reconnect! operations."
+  Returns client-id handle for send!/close!/set-reconnect!/take! operations."
   [config]
   (let [client-state (make-client-state config)
         client-id (:id client-state)
         url (:url config)
-        queue-config (:send-queue config)]
+        send-queue-config (:send-queue config)
+        recv-queue-config (:recv-queue config)]
 
     (trove/log! {:level :debug
                  :id :sente-lite.client/creating
                  :data {:client-id client-id
                         :url url
-                        :send-queue (some? queue-config)}})
+                        :send-queue (some? send-queue-config)
+                        :recv-queue (some? recv-queue-config)}})
 
     ;; Store client state
     (swap! clients assoc client-id client-state)
 
+    ;; Create recv-queue (always created, config optional)
+    (create-recv-queue! client-id recv-queue-config)
+
     ;; Create and start send queue if configured
-    (when queue-config
+    (when send-queue-config
       (let [queue (qbb/make-send-queue
-                   (merge queue-config
+                   (merge send-queue-config
                           {:on-send (fn [[serialized message]]
                                       (send-raw! client-id serialized message))
                            :on-error (fn [e [_ message]]
@@ -374,8 +424,8 @@
         (trove/log! {:level :debug
                      :id :sente-lite.client/queue-started
                      :data {:client-id client-id
-                            :max-depth (:max-depth queue-config 1000)
-                            :flush-interval-ms (:flush-interval-ms queue-config 10)}})))
+                            :max-depth (:max-depth send-queue-config 1000)
+                            :flush-interval-ms (:flush-interval-ms send-queue-config 10)}})))
 
     ;; Connect - if it fails and auto-reconnect is enabled, schedule retry
     (let [result (connect-internal! client-id)]
@@ -557,3 +607,69 @@
   (send! client-id [event-publish {:channel-id channel-id
                                    :data data
                                    :exclude-sender? exclude-sender?}]))
+
+;;; Receive Queue / RPC API
+
+(defn take!
+  "Register a waiter for a message matching the predicate.
+
+  Options:
+    :pred        - Predicate function (fn [msg] -> bool). msg is {:event-id :data}
+    :callback    - Called when message matches or timeout/close occurs
+    :timeout-ms  - Optional timeout in milliseconds
+
+  Returns cancel function, or nil if matched immediately or queue closed.
+
+  The callback receives either:
+  - The matching message: {:event-id :some/event :data {...}}
+  - On timeout: {:error :timeout}
+  - On disconnect: {:error :closed :reason :disconnected}
+
+  Example:
+    (take! client {:pred #(= (:event-id %) :my/response)
+                   :timeout-ms 5000
+                   :callback (fn [msg]
+                               (if (:error msg)
+                                 (println \"Error:\" msg)
+                                 (println \"Got:\" msg)))})"
+  [client-id opts]
+  (if-let [client-state (get @clients client-id)]
+    (if-let [recv-queue (get client-state :recv-queue)]
+      (rq/take! recv-queue opts)
+      (do
+        (trove/log! {:level :warn
+                     :id :sente-lite.client/take-no-queue
+                     :data {:client-id client-id}})
+        (when-let [callback (get opts :callback)]
+          (callback {:error :no-queue}))
+        nil))
+    (do
+      (trove/log! {:level :error
+                   :id :sente-lite.client/take-invalid-client
+                   :data {:client-id client-id}})
+      (when-let [callback (get opts :callback)]
+        (callback {:error :invalid-client}))
+      nil)))
+
+(defn rpc-waiter
+  "Create waiter options for RPC-style request/response matching by request-id.
+
+  Usage:
+    (take! client (rpc-waiter \"req-123\" 5000
+                              (fn [response]
+                                (if (:error response)
+                                  (handle-error response)
+                                  (handle-success response)))))"
+  [request-id timeout-ms callback]
+  {:pred (fn [msg]
+           (= (get-in msg [:data :request-id]) request-id))
+   :timeout-ms timeout-ms
+   :callback callback})
+
+(defn recv-queue-stats
+  "Get receive queue statistics.
+  Stats include: :received :matched :buffered :dropped :timeouts :waiter-count :buffer-depth"
+  [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (when-let [recv-queue (get client-state :recv-queue)]
+      (rq/stats recv-queue))))
