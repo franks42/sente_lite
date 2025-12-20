@@ -172,11 +172,34 @@ When queue is full, `enqueue!` returns `:rejected`. Application decides:
 - Retry later
 - Apply backpressure upstream
 
-**Current implementation:** Only non-blocking `:rejected` return.
+**Enqueue options (implemented 2025-12-20):**
 
-**Potential Phase 2 additions:**
-- `enqueue-blocking!` - Wait synchronously until space available
-- `enqueue-async!` - Return promise/callback, timeout if no space in N ms
+| Function | Behavior | Platform |
+|----------|----------|----------|
+| `enqueue!` | Non-blocking, returns `:ok` or `:rejected` | BB + Browser |
+| `enqueue-blocking!` | Blocks until space or timeout, returns `:ok` or `:timeout` | BB only |
+| `enqueue-async!` | Async with callback, calls back with `:ok` or `:timeout` | BB + Browser |
+
+```clojure
+;; Non-blocking (current behavior)
+(case (enqueue! queue msg)
+  :ok      (println "queued")
+  :rejected (println "queue full"))
+
+;; Blocking with timeout (BB only - JVM can block, JS cannot)
+(case (enqueue-blocking! queue msg 5000)
+  :ok      (println "queued after waiting")
+  :timeout (println "gave up after 5s"))
+
+;; Async with callback (both platforms)
+(enqueue-async! queue msg {:timeout-ms 5000
+                           :callback (fn [result]
+                                       (case result
+                                         :ok      (println "queued")
+                                         :timeout (println "timed out")))})
+```
+
+**Implementation note:** Current async uses polling (10ms interval). Future improvement could use condition signaling (BB) or promise resolution hooks (Scittle) for true event-driven behavior.
 
 ### On Disconnect
 **Fixed (2025-12-20):** `send-raw!` now throws on failure instead of returning false.
