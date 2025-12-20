@@ -11,7 +11,8 @@
 ;; BB Send Queue Implementation
 ;; ============================================================================
 
-(defrecord BBSendQueue [queue stats running? flush-thread config on-send on-error]
+(defrecord BBSendQueue [queue stats running? flush-thread config on-send on-error
+                        waiters]
   q/ISendQueue
 
   (enqueue! [_this msg]
@@ -32,37 +33,52 @@
 
   (enqueue-async! [this msg opts]
     (let [timeout-ms (get opts :timeout-ms 30000)
-          callback (get opts :callback)
-          poll-interval-ms 10]
+          callback (get opts :callback)]
       (assert callback ":callback is required for enqueue-async!")
       ;; Try immediate enqueue first
       (let [result (q/enqueue! this msg)]
         (if (= result :ok)
           ;; Immediate success
           (callback :ok)
-          ;; Start async polling in background thread
-          (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+          ;; Register waiter (event-driven, no polling)
+          (let [deadline (+ (System/currentTimeMillis) timeout-ms)
+                waiter-id (Object.)  ;; Unique identity
+                waiter {:id waiter-id
+                        :msg msg
+                        :callback callback
+                        :deadline deadline
+                        :timed-out? (atom false)}]
+            ;; Add to waiter list
+            (swap! waiters conj waiter)
+            ;; Start timeout thread
             (future
-              (loop []
-                (let [result (q/enqueue! this msg)]
-                  (cond
-                    ;; Success
-                    (= result :ok)
-                    (callback :ok)
-
-                    ;; Timeout reached
-                    (>= (System/currentTimeMillis) deadline)
-                    (callback :timeout)
-
-                    ;; Keep polling
-                    :else
-                    (do
-                      (Thread/sleep poll-interval-ms)
-                      (recur)))))))))))
+              (Thread/sleep timeout-ms)
+              ;; Check if still waiting (not already processed)
+              (when (compare-and-set! (:timed-out? waiter) false true)
+                ;; Remove from waiter list and callback
+                (swap! waiters (fn [ws] (remove #(= (:id %) waiter-id) ws)))
+                (callback :timeout))))))))
 
   (start! [this]
     (reset! running? true)
     (let [interval-ms (:flush-interval-ms config)
+          process-waiters! (fn []
+                             ;; Process waiting async enqueue requests when space available
+                             (loop []
+                               (let [ws @waiters
+                                     queue-size (.size ^ArrayBlockingQueue queue)
+                                     max-depth (:max-depth config)]
+                                 (when (and (< queue-size max-depth)
+                                            (seq ws))
+                                   (let [waiter (first ws)]
+                                     ;; Try to claim this waiter (atomically mark as processed)
+                                     (when (compare-and-set! (:timed-out? waiter) false true)
+                                       ;; Remove from waiter list
+                                       (swap! waiters (fn [wss] (remove #(= (:id %) (:id waiter)) wss)))
+                                       ;; Enqueue and callback
+                                       (let [result (q/enqueue! this (:msg waiter))]
+                                         ((:callback waiter) (if (= result :ok) :ok :rejected))))
+                                     (recur))))))
           thread (Thread.
                   (fn []
                     (while @running?
@@ -77,7 +93,9 @@
                                 (catch Exception e
                                   (q/update-stats stats :error)
                                   (when on-error
-                                    (on-error e msg)))))))
+                                    (on-error e msg)))))
+                            ;; After flush, process any waiters (space now available)
+                            (process-waiters!)))
                         ;; Sleep before next flush
                         (Thread/sleep interval-ms)
                         (catch InterruptedException _
@@ -111,6 +129,11 @@
             (q/update-stats stats :error)
             (when on-error
               (on-error e msg))))))
+    ;; Cancel all pending waiters with :timeout
+    (doseq [waiter @waiters]
+      (when (compare-and-set! (:timed-out? waiter) false true)
+        ((:callback waiter) :timeout)))
+    (reset! waiters [])
     @stats)
 
   (queue-stats [_this]
@@ -138,4 +161,5 @@
                    (atom nil)
                    config
                    on-send
-                   on-error)))
+                   on-error
+                   (atom []))))

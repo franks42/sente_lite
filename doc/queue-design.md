@@ -1,7 +1,7 @@
 # sente-lite Queue Design
 
 **Created:** 2025-12-20
-**Status:** Phase 1 Complete (recv-queue + client integration)
+**Status:** Phase 2 Complete (event-driven async enqueue)
 
 ## Overview
 
@@ -202,6 +202,15 @@ When queue is full, `enqueue!` returns `:rejected`. Application decides:
 ---
 
 ### Phase 2: Event-Driven Async (Refactoring)
+
+**Status:** ✅ COMPLETE (2025-12-19)
+**Tag:** v2.6.0-event-driven-async
+
+**Implementation Notes:**
+- BB uses waiter list + `compare-and-set!` for atomic claim (works with Babashka's limited Java interop)
+- Scittle uses waiter list + `process-waiters!` hook called after flush
+- Both use `setTimeout`/`future` for timeout handling
+- No polling - callbacks invoked immediately when space freed by flush
 
 **Problem with polling:**
 - Wastes CPU cycles checking every 10ms

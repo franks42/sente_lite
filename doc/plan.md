@@ -452,11 +452,12 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 
 ## What's Next (Potential Enhancements)
 
-### Queue System Phase 2
-- ✅ **Send-side async backpressure**: `enqueue-blocking!` and `enqueue-async!` (implemented 2025-12-20)
-- 🔜 **Event-driven async refactor**: Replace polling with true event-driven (NEXT)
-  - BB: `ReentrantLock` + `Condition.await()` + `signalAll()` after flush
+### Queue System Phase 2  ✅ COMPLETE
+- ✅ **Send-side async backpressure**: `enqueue-blocking!` and `enqueue-async!` (v2.5.0-backpressure)
+- ✅ **Event-driven async refactor**: Replace polling with true event-driven (v2.6.0-event-driven-async)
+  - BB: Waiter list + `compare-and-set!` for atomic claim + `process-waiters!` after flush
   - Scittle: Waiter list + `process-waiters!` hook in `flush!`
+  - No polling - callbacks invoked immediately when space freed
   - See `doc/queue-design.md` "Phase 2: Event-Driven Async" for full design
 - **Subscription API unification**: Merge recv_queue waiters with on-message subscriptions
 - **Message batching**: Batch multiple messages for efficiency

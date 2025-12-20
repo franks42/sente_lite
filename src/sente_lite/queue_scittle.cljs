@@ -45,16 +45,60 @@
         config (merge-config opts)
         max-depth (get config :max-depth)
         flush-interval-ms (get config :flush-interval-ms)
-        ;; State atom holds queue and stats
+        ;; State atom holds queue, stats, and waiters
         state (atom {:queue []
                      :stats (make-stats)
                      :running false
-                     :interval-id nil})]
+                     :interval-id nil
+                     :waiters []})]
 
     (assert on-send ":on-send callback is required")
 
-    ;; Flush function - sends all queued messages
-    (letfn [(flush! []
+    ;; Forward declarations for mutual recursion
+    (letfn [(enqueue! [msg]
+              (let [current-state @state
+                    queue-vec (get current-state :queue)
+                    queue-size (count queue-vec)]
+                (if (>= queue-size max-depth)
+                  (do
+                    (swap! state update-in [:stats :dropped] inc)
+                    :rejected)
+                  (do
+                    (swap! state update :queue conj msg)
+                    (swap! state update-in [:stats :enqueued] inc)
+                    (swap! state update-in [:stats :depth] inc)
+                    :ok))))
+
+            (process-waiters! []
+              ;; Process waiting async enqueue requests when space available
+              (loop []
+                (let [current-state @state
+                      queue-vec (get current-state :queue)
+                      queue-size (count queue-vec)
+                      waiters-vec (get current-state :waiters)]
+                  (when (and (< queue-size max-depth)
+                             (pos? (count waiters-vec)))
+                    ;; Take first waiter
+                    (let [waiter (first waiters-vec)
+                          msg (get waiter :msg)
+                          callback (get waiter :callback)
+                          timeout-id (get waiter :timeout-id)]
+                      ;; Remove waiter from list
+                      (swap! state update :waiters rest)
+                      ;; Clear timeout
+                      (when timeout-id
+                        (js/clearTimeout timeout-id))
+                      ;; Try enqueue
+                      (let [result (enqueue! msg)]
+                        (if (= result :ok)
+                          (do
+                            (callback :ok)
+                            ;; Continue processing if more waiters and space
+                            (recur))
+                          ;; Should not happen (we checked space), but handle gracefully
+                          (callback :rejected))))))))
+
+            (flush! []
               (let [current-state @state
                     queue-vec (get current-state :queue)]
                 (when (pos? (count queue-vec))
@@ -69,27 +113,15 @@
                       (catch :default e
                         (swap! state update-in [:stats :errors] inc)
                         (when on-error
-                          (on-error e msg))))))))
-
-            (enqueue! [msg]
-              (let [current-state @state
-                    queue-vec (get current-state :queue)
-                    queue-size (count queue-vec)]
-                (if (>= queue-size max-depth)
-                  (do
-                    (swap! state update-in [:stats :dropped] inc)
-                    :rejected)
-                  (do
-                    (swap! state update :queue conj msg)
-                    (swap! state update-in [:stats :enqueued] inc)
-                    (swap! state update-in [:stats :depth] inc)
-                    :ok))))
+                          (on-error e msg)))))
+                  ;; After flush, process any waiters (space now available)
+                  (process-waiters!))))
 
             (start! []
               (when-not (get @state :running)
                 ;; Flush immediately on start (like BB does)
                 (flush!)
-                (let [interval-id (js/setInterval #(flush!) flush-interval-ms)]
+                (let [interval-id (js/setInterval (fn [] (flush!)) flush-interval-ms)]
                   (swap! state assoc
                          :running true
                          :interval-id interval-id))))
@@ -103,6 +135,15 @@
                 (swap! state assoc :running false :interval-id nil)
                 ;; Drain remaining messages
                 (flush!)
+                ;; Cancel all pending waiters with :timeout
+                (let [waiters-vec (get @state :waiters)]
+                  (doseq [waiter waiters-vec]
+                    (let [timeout-id (get waiter :timeout-id)
+                          callback (get waiter :callback)]
+                      (when timeout-id
+                        (js/clearTimeout timeout-id))
+                      (callback :timeout)))
+                  (swap! state assoc :waiters []))
                 ;; Return final stats
                 (get @state :stats)))
 
@@ -118,34 +159,30 @@
 
             (enqueue-async! [msg opts]
               (let [timeout-ms (get opts :timeout-ms 30000)
-                    callback (get opts :callback)
-                    poll-interval-ms 10]
+                    callback (get opts :callback)]
                 (assert callback ":callback is required for enqueue-async!")
                 ;; Try immediate enqueue first
                 (let [result (enqueue! msg)]
                   (if (= result :ok)
                     ;; Immediate success
                     (callback :ok)
-                    ;; Start async polling with setTimeout
+                    ;; Register waiter (event-driven, no polling)
                     (let [deadline (+ (.now js/Date) timeout-ms)
-                          poll-fn (atom nil)]
-                      (reset! poll-fn
-                              (fn []
-                                (let [result (enqueue! msg)]
-                                  (cond
-                                    ;; Success
-                                    (= result :ok)
-                                    (callback :ok)
-
-                                    ;; Timeout reached
-                                    (>= (.now js/Date) deadline)
-                                    (callback :timeout)
-
-                                    ;; Keep polling
-                                    :else
-                                    (js/setTimeout @poll-fn poll-interval-ms)))))
-                      ;; Start polling
-                      (js/setTimeout @poll-fn poll-interval-ms))))))]
+                          waiter-atom (atom nil)
+                          timeout-id (js/setTimeout
+                                      (fn []
+                                        ;; Timeout reached - remove waiter and notify
+                                        (swap! state update :waiters
+                                               (fn [waiters]
+                                                 (remove (fn [w] (= w @waiter-atom)) waiters)))
+                                        (callback :timeout))
+                                      timeout-ms)
+                          waiter {:msg msg
+                                  :callback callback
+                                  :deadline deadline
+                                  :timeout-id timeout-id}]
+                      (reset! waiter-atom waiter)
+                      (swap! state update :waiters conj waiter))))))]
 
       ;; Return queue object as a map with functions
       {:enqueue! enqueue!
