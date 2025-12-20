@@ -1,7 +1,8 @@
 # Process Registry Design
 
 **Created:** 2025-12-20
-**Status:** Design Complete - No Implementation Needed
+**Updated:** 2025-12-20 (Added production considerations from external reviews)
+**Status:** Design Complete - Cross-runtime verified - Production guidance added
 **Context:** Emerged from atom-sync and log-routing module implementation
 
 ---
@@ -453,6 +454,125 @@ Functions verified on each runtime:
 - Server: Babashka
 - Browser client: Scittle
 - Node.js client/worker: nbb
+
+---
+
+## Production Considerations
+
+Based on external review feedback, the following areas need attention for production use.
+
+### Error Handling
+
+The basic `ensure-atom!` works but lacks error handling. A production-ready version:
+
+```clojure
+(defn valid-fqn? [s]
+  (and (string? s)
+       (re-matches #"[a-zA-Z][a-zA-Z0-9._-]*/[a-zA-Z][a-zA-Z0-9_-]*" s)))
+
+(defn ensure-atom-safe! [fqn-str]
+  (when-not (valid-fqn? fqn-str)
+    (throw (ex-info "Invalid FQN format" {:fqn fqn-str})))
+  (try
+    (let [sym (symbol fqn-str)
+          ns-sym (symbol (namespace sym))
+          name-sym (symbol (name sym))]
+      (create-ns ns-sym)
+      (or (find-var sym)
+          (intern ns-sym name-sym (atom {}))))
+    (catch #?(:clj Exception :cljs js/Error) e
+      (throw (ex-info "Failed to create atom" {:fqn fqn-str :cause e})))))
+```
+
+**Error scenarios to handle:**
+- Malformed FQN strings (missing namespace, invalid characters)
+- Namespace creation failures (rare, but possible)
+- Var conflicts (existing var with incompatible value)
+
+### Performance Characteristics
+
+| Operation | Relative Cost | Notes |
+|-----------|---------------|-------|
+| Direct var reference | 1x | Baseline (compile-time resolved) |
+| `resolve` lookup | ~10-50x | Symbol interning + ns lookup |
+| `find-var` | ~10-50x | Similar to resolve |
+| `@@` double-deref | 2x deref | Negligible |
+
+**Guidance:**
+- For hot paths: cache the resolved var, don't re-resolve every call
+- For setup/config: `resolve` overhead is negligible
+- Dynamic creation (`intern`) is expensive - do once at startup/connect
+
+```clojure
+;; ❌ Don't re-resolve in hot path
+(defn send-update! [fqn-str value]
+  (reset! @(resolve (symbol fqn-str)) value))  ;; resolve on every call
+
+;; ✅ Cache the var reference
+(defn make-updater [fqn-str]
+  (let [v (resolve (symbol fqn-str))]
+    (fn [value] (reset! @v value))))  ;; resolve once, reuse
+```
+
+### Resource Management
+
+Dynamic namespaces and vars are not garbage collected. For long-running processes:
+
+```clojure
+;; Track dynamically created resources
+(defonce ^:private dynamic-resources (atom #{}))
+
+(defn ensure-atom-tracked! [fqn-str]
+  (let [v (ensure-atom-safe! fqn-str)]
+    (swap! dynamic-resources conj fqn-str)
+    v))
+
+(defn cleanup-resource! [fqn-str]
+  (when-let [v (find-var (symbol fqn-str))]
+    ;; Clear the atom value (can't remove the var itself)
+    (reset! @v nil)
+    (swap! dynamic-resources disj fqn-str)))
+
+(defn list-dynamic-resources []
+  @dynamic-resources)
+```
+
+**Note:** Clojure doesn't support `ns-unmap` for cleaning up vars in all cases.
+The best strategy is to clear atom values rather than try to remove vars.
+
+### Security Considerations
+
+Within sente-lite's trusted world, security is minimal but basic validation helps:
+
+1. **FQN Validation** - prevent namespace pollution via malformed strings
+2. **Namespace Allowlisting** - optionally restrict which namespaces can be created
+3. **Rate Limiting** - prevent DoS via rapid dynamic resource creation
+
+```clojure
+(def ^:private allowed-ns-prefixes
+  #{"app.state" "ui.components" "sync"})
+
+(defn allowed-namespace? [fqn-str]
+  (let [ns-str (namespace (symbol fqn-str))]
+    (some #(str/starts-with? ns-str %) allowed-ns-prefixes)))
+
+(defn ensure-atom-validated! [fqn-str]
+  (when-not (allowed-namespace? fqn-str)
+    (throw (ex-info "Namespace not allowed" {:fqn fqn-str})))
+  (ensure-atom-safe! fqn-str))
+```
+
+### Testing Recommendations
+
+Beyond the basic 8-test verification:
+
+| Test Type | Purpose |
+|-----------|---------|
+| Stress test | Create 1000+ dynamic vars, verify no memory leak |
+| Conflict test | Attempt to intern over existing var |
+| Malformed input | Invalid FQN strings, nil, empty |
+| Concurrent access | Multiple threads/processes creating same FQN |
+| Long-running | Hours of operation, monitor memory |
 
 ---
 
