@@ -7,13 +7,11 @@
    Usage:
      (with-simulated-time
        (let [result (atom nil)
-             queue (make-recv-queue {:now-fn now
-                                     :set-timeout-fn set-timeout})]
-         (take! queue {:timeout-ms 5000 :callback #(reset! result %)})
+             timeout-fn (set-timeout #(reset! result :fired) 5000)]
          (advance-time! 4999)
          (assert (nil? @result))  ; Not yet
          (advance-time! 2)
-         (assert (= :timeout (:error @result)))))  ; Now fired")
+         (assert (= :fired @result))))  ; Now fired")
 
 ;; ============================================================================
 ;; Simulated Time System

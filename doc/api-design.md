@@ -2,7 +2,7 @@
 
 **Created:** 2025-12-19
 **Updated:** 2025-12-20
-**Status:** IMPLEMENTED - v2.7.0-on-off-api
+**Status:** IMPLEMENTED - v2.8.0-internal-unification
 
 ## Overview
 
@@ -108,9 +108,8 @@ Sente uses a **single core.async channel** (`ch-recv`) for all incoming messages
      :on-reconnect    (fn [] ...)
      :on-channel-ready (fn [client-id] ...)  ; Fresh handler registration
 
-     ;; Optional queues
-     :send-queue {:max-depth 1000}
-     :recv-queue {:max-depth 100}}))
+     ;; Optional send queue
+     :send-queue {:max-depth 1000}}))
 ```
 
 **Returns:** `client-id` (string handle)
@@ -547,17 +546,21 @@ The key insight: **Sente's `ch-recv` loop with `case` routing is equivalent to m
 - ✅ Keep `:on-message` and `take!` working (backward compatible)
 - ✅ Documented as preferred API going forward
 
-**Implementation Details (v2.7.0-on-off-api):**
+**Implementation Details (v2.8.0-internal-unification):**
 - Handler registry: `{:handlers (atom {})}` in client state
-- Dispatch order: on!/off! handlers → recv-queue (take!) → on-message
+- Single dispatch path: all messages dispatch to unified handler registry
+- `:on-message` registered as catch-all handler (`:event-id :*`) in `make-client!`
+- `take!` is thin wrapper: `(on! client-id (assoc opts :once? true))`
+- recv-queue removed - no longer part of client architecture
 - Timeout: BB uses `future`/`future-cancel`, Scittle uses `js/setTimeout`/`js/clearTimeout`
 - 30 tests passing in `test/scripts/test_on_off_api.bb`
 
-### Phase 2: Internal Unification (Future)
+### ~~Phase 2: Internal Unification~~ ✅ COMPLETE (v2.8.0)
 
-- Refactor `:on-message` to use handler registry internally
-- Refactor `take!` to use handler registry internally
-- Single code path for all message routing
+- ✅ Refactored `:on-message` to use handler registry internally
+- ✅ Refactored `take!` to use handler registry internally
+- ✅ Single code path for all message routing
+- ✅ Removed recv-queue (obsolete after unification)
 
 ### Phase 3: Documentation Update (Future)
 

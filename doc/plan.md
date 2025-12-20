@@ -1,13 +1,65 @@
 # sente-lite Implementation Plan
 
-**Version:** 2.3
+**Version:** 2.4
 **Created:** 2025-10-24
 **Last Updated:** 2025-12-20
-**Status:** v2.7.0 - Unified on!/off! Handler API COMPLETE ✅
+**Status:** v2.8.0 - Internal Unification (recv-queue removed) COMPLETE ✅
 
 ---
 
 ## Updates Log
+
+### 2025-12-20: Internal Unification - COMPLETE ✅
+
+**Milestone:** v2.8.0-internal-unification
+
+**What Was Changed:**
+
+Phase 2 of the subscription API unification: refactored `:on-message` and `take!` to use the
+unified handler registry internally. This eliminates code duplication and creates a single
+message dispatch path.
+
+**Changes:**
+
+1. **Removed recv-queue from clients:**
+   - Removed `:recv-queue` state from client
+   - Removed `create-recv-queue!` helper
+   - Removed `recv-queue-stats` function
+   - Deleted `src/sente_lite/recv_queue.cljc` source file
+   - Deleted `test/scripts/recv_queue/` test directory
+
+2. **`:on-message` now uses handler registry:**
+   - Registered as catch-all handler (`:event-id :*`) in `make-client!`
+   - Callback adapts message format: `(on-message-fn event-id data)`
+   - No behavioral change for users
+
+3. **`take!` now delegates to `on!`:**
+   - Simple wrapper: `(on! client-id (assoc opts :once? true))`
+   - Returns handler-id (can be cancelled with `off!`)
+   - Same callback behavior: receives `{:event-id _ :data _}` or `{:error :timeout/:closed}`
+
+4. **Added `notify-once-handlers-closed!`:**
+   - Called on disconnect to notify all `:once?` handlers
+   - Replaces recv-queue close notification behavior
+   - Callbacks receive `{:error :closed :reason :disconnected}`
+
+**Pattern Enforcement:**
+
+> **Register handler BEFORE sending request** - This is now the only supported pattern.
+> The previous recv-queue buffering was a workaround for timing issues that encouraged
+> an anti-pattern. With the unified registry, handlers must be registered first.
+
+**Files Modified:**
+- `src/sente_lite/client_bb.clj` - Removed recv-queue, refactored take! and on-message
+- `src/sente_lite/client_scittle.cljs` - Same changes for browser
+
+**Test Results:**
+```
+on!/off! API Tests: 30 tests ✅
+Full Test Suite: All categories passing ✅
+```
+
+---
 
 ### 2025-12-20: Unified on!/off! Handler API - COMPLETE ✅
 
@@ -43,10 +95,10 @@
    ```
 
 5. **Dispatch Order:**
-   - on!/off! handlers → recv-queue (take!) → on-message callback
-   - All matching handlers receive the message
-   - :once? handlers auto-removed after match
+   - All matching handlers in the unified registry receive the message
+   - `:once?` handlers auto-removed after first match
    - Timeout handlers callback with `{:error :timeout :handler-id "..."}`
+   - Note: recv-queue removed in v2.8.0 - all dispatch now via unified registry
 
 6. **Platform Implementations:**
 
@@ -531,9 +583,13 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 - ✅ **Unified on!/off! handler API**: Merge recv_queue waiters with on-message subscriptions (v2.7.0-on-off-api)
   - `on!` registers handlers with event-id, pred, once?, timeout-ms, callback
   - `off!` removes by handler-id, event-id, or :all
-  - Dispatch order: on!/off! → recv-queue → on-message
   - See `doc/api-design.md` for full API design
-- **Message batching**: Batch multiple messages for efficiency
+- ✅ **Internal unification**: Refactor take! and :on-message to use handler registry (v2.8.0-internal-unification)
+  - Single dispatch path: unified handler registry only
+  - recv-queue removed (was obsolete after on!/off! implementation)
+  - `take!` is now thin wrapper around `on!` with `:once? true`
+  - `:on-message` registered as catch-all handler (`:event-id :*`)
+- **Message batching**: Batch multiple messages for efficiency (future)
 
 ### Infrastructure Improvements
 - **UUIDv7 for conn-id**: Better uniqueness and sortability
