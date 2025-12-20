@@ -59,6 +59,9 @@
 (defn- generate-client-id []
   (str "client-" (System/currentTimeMillis) "-" (rand-int 10000)))
 
+(defn- generate-handler-id []
+  (str "h-" (System/currentTimeMillis) "-" (rand-int 10000)))
+
 ;;; Client State
 
 (defn- make-client-state [config]
@@ -75,7 +78,8 @@
    :message-count-sent 0
    :message-count-received 0
    :send-queue nil
-   :recv-queue nil})
+   :recv-queue nil
+   :handlers (atom {})})       ; Handler registry for on!/off!
 
 ;;; Message Parsing
 ;; IMPORTANT: Babashka's babashka.http-client.websocket passes a java.nio.HeapCharBuffer
@@ -102,6 +106,43 @@
 ;;; Forward declarations
 (declare attempt-reconnect!)
 (declare create-recv-queue!)
+
+;;; Handler Registry Dispatch
+
+(defn- handler-matches?
+  "Check if a handler matches a message."
+  [handler msg]
+  (let [pred (:pred handler)
+        event-id (:event-id handler)
+        msg-event-id (:event-id msg)]
+    (cond
+      pred (pred msg)
+      (= event-id :*) true
+      event-id (= event-id msg-event-id)
+      :else false)))
+
+(defn- dispatch-to-handlers!
+  "Dispatch message to all matching handlers. Removes :once? handlers after match."
+  [client-id msg]
+  (when-let [client-state (get @clients client-id)]
+    (let [handlers-atom (:handlers client-state)]
+      (doseq [[handler-id handler] @handlers-atom]
+        (when (handler-matches? handler msg)
+          (try
+            ((:callback handler) msg)
+            ;; Remove once? handlers after match
+            (when (:once? handler)
+              ;; Cancel timeout if present
+              (when-let [timeout-future (:timeout-future handler)]
+                (future-cancel timeout-future))
+              (swap! handlers-atom dissoc handler-id))
+            (catch Exception e
+              (trove/log! {:level :error
+                           :id :sente-lite.client/handler-error
+                           :data {:client-id client-id
+                                  :handler-id handler-id
+                                  :event-id (:event-id msg)
+                                  :error (.getMessage e)}}))))))))
 
 ;;; WebSocket Lifecycle Handlers
 
@@ -184,15 +225,17 @@
                            :data {:client-id client-id}})
               (ws/send! current-ws (packer/pack [event-ws-pong])))
 
-            ;; User messages: put to recv-queue (for waiters) and call on-message (for subscriptions)
+            ;; User messages: dispatch to handlers, recv-queue, and on-message
             :else
             (let [current-state (get @clients client-id)
                   recv-queue (get current-state :recv-queue)
                   msg {:event-id event-id :data data}]
-              ;; Put to recv-queue for waiter matching
+              ;; Dispatch to handler registry (on!/off! handlers)
+              (dispatch-to-handlers! client-id msg)
+              ;; Put to recv-queue for take! waiter matching
               (when recv-queue
                 (rq/put! recv-queue msg))
-              ;; Call on-message for subscription-style handlers
+              ;; Call on-message for backward-compatible subscription handlers
               (when-let [on-message (:on-message config)]
                 (on-message event-id data)))))))))
 
@@ -673,3 +716,155 @@
   (when-let [client-state (get @clients client-id)]
     (when-let [recv-queue (get client-state :recv-queue)]
       (rq/stats recv-queue))))
+
+;;; Unified Handler API (on!/off!)
+
+(defn on!
+  "Register a message handler.
+
+  Options:
+    :event-id   - Event ID to match (keyword), or :* for all events
+    :pred       - Predicate function (fn [msg] -> bool), alternative to :event-id
+    :callback   - Handler function (fn [msg] ...), receives {:event-id :data}
+    :once?      - If true, handler removed after first match (default: false)
+    :timeout-ms - For :once? handlers, timeout in ms. Callback receives {:error :timeout}
+
+  Returns handler-id (for removal with off!)
+
+  Examples:
+    ;; Persistent handler
+    (on! client {:event-id :server/push :callback handle-push})
+
+    ;; One-shot with timeout (RPC)
+    (on! client {:event-id :my/response :once? true :timeout-ms 5000 :callback ...})
+
+    ;; Predicate matching
+    (on! client {:pred #(= (:id (:data %)) req-id) :once? true :callback ...})
+
+    ;; Catch-all
+    (on! client {:event-id :* :callback log-all-events})"
+  [client-id opts]
+  (if-let [client-state (get @clients client-id)]
+    (let [handlers-atom (:handlers client-state)
+          handler-id (generate-handler-id)
+          callback (get opts :callback)
+          once? (get opts :once? false)
+          timeout-ms (get opts :timeout-ms)
+          handler (cond-> {:id handler-id
+                           :callback callback
+                           :once? once?}
+                    (contains? opts :event-id) (assoc :event-id (get opts :event-id))
+                    (contains? opts :pred) (assoc :pred (get opts :pred)))]
+
+      (assert callback ":callback is required for on!")
+
+      ;; Setup timeout for once? handlers if specified
+      (let [handler-with-timeout
+            (if (and once? timeout-ms)
+              (let [timeout-future
+                    (future
+                      (Thread/sleep timeout-ms)
+                      ;; Check if handler still exists (not already matched)
+                      (when (contains? @handlers-atom handler-id)
+                        (swap! handlers-atom dissoc handler-id)
+                        (callback {:error :timeout})))]
+                (assoc handler :timeout-future timeout-future))
+              handler)]
+
+        (swap! handlers-atom assoc handler-id handler-with-timeout)
+
+        (trove/log! {:level :trace
+                     :id :sente-lite.client/handler-registered
+                     :data {:client-id client-id
+                            :handler-id handler-id
+                            :event-id (get opts :event-id)
+                            :once? once?
+                            :timeout-ms timeout-ms}})
+
+        handler-id))
+    (do
+      (trove/log! {:level :error
+                   :id :sente-lite.client/on-invalid-client
+                   :data {:client-id client-id}})
+      nil)))
+
+(defn off!
+  "Remove message handler(s).
+
+  Forms:
+    (off! client handler-id)           ; Remove specific handler
+    (off! client {:event-id :foo})     ; Remove all handlers for event-id
+    (off! client :all)                 ; Remove all handlers
+
+  Returns true if any handlers were removed, false otherwise."
+  [client-id id-or-opts]
+  (if-let [client-state (get @clients client-id)]
+    (let [handlers-atom (:handlers client-state)]
+      (cond
+        ;; Remove all handlers
+        (= id-or-opts :all)
+        (let [had-handlers? (pos? (count @handlers-atom))]
+          ;; Cancel all timeout futures
+          (doseq [[_ handler] @handlers-atom]
+            (when-let [timeout-future (:timeout-future handler)]
+              (future-cancel timeout-future)))
+          (reset! handlers-atom {})
+          (trove/log! {:level :debug
+                       :id :sente-lite.client/handlers-cleared
+                       :data {:client-id client-id}})
+          had-handlers?)
+
+        ;; Remove by event-id
+        (map? id-or-opts)
+        (let [target-event-id (get id-or-opts :event-id)
+              matching-ids (for [[id handler] @handlers-atom
+                                 :when (= (:event-id handler) target-event-id)]
+                             id)
+              count-before (count @handlers-atom)]
+          (doseq [id matching-ids]
+            (when-let [handler (get @handlers-atom id)]
+              (when-let [timeout-future (:timeout-future handler)]
+                (future-cancel timeout-future)))
+            (swap! handlers-atom dissoc id))
+          (let [removed-count (- count-before (count @handlers-atom))]
+            (trove/log! {:level :debug
+                         :id :sente-lite.client/handlers-removed
+                         :data {:client-id client-id
+                                :event-id target-event-id
+                                :removed-count removed-count}})
+            (pos? removed-count)))
+
+        ;; Remove by handler-id
+        (string? id-or-opts)
+        (let [handler-id id-or-opts
+              handler (get @handlers-atom handler-id)]
+          (if handler
+            (do
+              (when-let [timeout-future (:timeout-future handler)]
+                (future-cancel timeout-future))
+              (swap! handlers-atom dissoc handler-id)
+              (trove/log! {:level :trace
+                           :id :sente-lite.client/handler-removed
+                           :data {:client-id client-id
+                                  :handler-id handler-id}})
+              true)
+            false))
+
+        :else
+        (do
+          (trove/log! {:level :warn
+                       :id :sente-lite.client/off-invalid-arg
+                       :data {:client-id client-id
+                              :arg id-or-opts}})
+          false)))
+    (do
+      (trove/log! {:level :error
+                   :id :sente-lite.client/off-invalid-client
+                   :data {:client-id client-id}})
+      false)))
+
+(defn handler-count
+  "Get count of registered handlers for a client."
+  [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (count @(:handlers client-state))))
