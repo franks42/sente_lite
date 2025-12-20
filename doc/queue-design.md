@@ -199,7 +199,111 @@ When queue is full, `enqueue!` returns `:rejected`. Application decides:
                                          :timeout (println "timed out")))})
 ```
 
-**Implementation note:** Current async uses polling (10ms interval). Future improvement could use condition signaling (BB) or promise resolution hooks (Scittle) for true event-driven behavior.
+---
+
+### Phase 2: Event-Driven Async (Refactoring)
+
+**Problem with polling:**
+- Wastes CPU cycles checking every 10ms
+- Adds 0-10ms latency to every async enqueue
+- Not elegant - busy-waiting antipattern
+- Scales poorly with many waiters
+
+**Goal:** True event-driven `enqueue-async!` - waiters notified immediately when space available.
+
+#### BB/JVM Design
+
+Use `java.util.concurrent.locks.Condition`:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    BBSendQueue                               │
+├─────────────────────────────────────────────────────────────┤
+│  queue: ArrayBlockingQueue                                   │
+│  lock: ReentrantLock                                         │
+│  space-available: Condition  ← signaled after flush          │
+│  waiters: atom [{:msg :callback :deadline}]                  │
+└─────────────────────────────────────────────────────────────┘
+
+enqueue-async! flow:
+─────────────────
+1. Try immediate enqueue → success? call callback(:ok), done
+2. Add waiter to list: {:msg msg :callback cb :deadline (+ now timeout)}
+3. Waiter thread: lock.lock(), space-available.await(remaining-time)
+4. On signal: try enqueue, if success → callback(:ok), remove waiter
+5. On timeout: callback(:timeout), remove waiter
+
+flush! flow (after draining):
+──────────────────────────────
+1. lock.lock()
+2. space-available.signalAll()  ← wake all waiting threads
+3. lock.unlock()
+```
+
+**Key insight:** `ArrayBlockingQueue.offer()` + `Condition.await()` gives us:
+- Immediate success when space available
+- Efficient waiting (no CPU burn)
+- Precise timeout handling
+- Immediate wake-up when space freed
+
+#### Scittle/Browser Design
+
+Use waiter list + flush hook:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                   ScittleSendQueue                           │
+├─────────────────────────────────────────────────────────────┤
+│  queue: atom []                                              │
+│  waiters: atom [{:msg :callback :deadline :timeout-id}]      │
+└─────────────────────────────────────────────────────────────┘
+
+enqueue-async! flow:
+─────────────────
+1. Try immediate enqueue → success? callback(:ok), done
+2. Add waiter: {:msg msg :callback cb :deadline (+ now timeout)}
+3. Set timeout: js/setTimeout → callback(:timeout), remove waiter
+4. Return cancel function
+
+flush! flow (after sending):
+──────────────────────────────
+1. Check if space available (count < max-depth)
+2. If space: process-waiters!
+   - Take first waiter
+   - Try enqueue → success?
+     - Clear timeout, callback(:ok), remove waiter
+   - Repeat while space and waiters exist
+```
+
+**Key insight:** No polling loop. Flush naturally creates the "space available" event.
+
+#### Implementation Tasks
+
+1. **BB: Add signaling infrastructure**
+   - Add `ReentrantLock` + `Condition` to BBSendQueue record
+   - Modify flush loop to signal after drain
+   - Rewrite `enqueue-async!` to await on condition
+
+2. **Scittle: Add waiter processing**
+   - Add waiters atom to state
+   - Add `process-waiters!` function
+   - Call `process-waiters!` at end of `flush!`
+   - Rewrite `enqueue-async!` to register waiter
+
+3. **Tests: Verify behavior**
+   - Existing tests should pass (API unchanged)
+   - Add latency test: verify callback within 1-2ms of space available
+   - Add concurrent waiter test: multiple waiters, verify FIFO
+
+#### API (unchanged)
+
+```clojure
+;; Same API, better implementation
+(enqueue-async! queue msg {:timeout-ms 5000
+                           :callback (fn [result] ...)})
+```
+
+---
 
 ### On Disconnect
 **Fixed (2025-12-20):** `send-raw!` now throws on failure instead of returning false.
