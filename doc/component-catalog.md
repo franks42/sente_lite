@@ -376,10 +376,216 @@ Based on patterns observed:
 
 ---
 
+## Archetypal Communication Patterns
+
+Based on use cases from `doc/sente-lite-modules.md`:
+
+### Pattern A: Fire-and-Forget (with optional ack)
+
+**Example**: Remote Logging
+
+```
+Sender → Channel → Receiver
+         (one-way, optional ack)
+```
+
+**Characteristics**:
+- Wraps existing mechanism (Trove log-fn)
+- Filters before sending (level, namespace)
+- Optional batching (batch-size, batch-timeout-ms)
+- Graceful fallback if channel unavailable
+- No request correlation needed
+
+**Config Categories**:
+| Category | Parameters |
+|----------|------------|
+| Filtering | `:levels`, `:exclude-ns-prefixes` |
+| Batching | `:batch-size`, `:batch-timeout-ms` |
+| Buffering | `:max-queue-size`, `:fallback-to-local` |
+| Identity | `:source-id` |
+
+---
+
+### Pattern B: Request/Response with Streaming
+
+**Example**: nREPL-over-Sente
+
+```
+Client                    Server
+  │ request (id=123)        │
+  │───────────────────────→ │
+  │                         │ process
+  │       output chunk 1    │
+  │←─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│
+  │       output chunk 2    │
+  │←─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│
+  │       result + status   │
+  │←───────────────────────│
+```
+
+**Characteristics**:
+- Request/response correlation by ID
+- Multiple responses per request (streaming)
+- Session management (session-id + request-id)
+- **Fully async** - never block waiting
+- Timeout handling with cleanup
+
+**State Required**:
+```clojure
+(def pending-requests (atom {}))
+;; {request-id -> {:callback, :timeout-ms, :responses, :sent-at}}
+```
+
+**Config Categories**:
+| Category | Parameters |
+|----------|------------|
+| Timing | `:timeout-ms` |
+| Session | `:session-id`, `:request-id` |
+| Limits | `:max-pending-requests` |
+
+---
+
+### Pattern C: Directive-based Out-of-Band
+
+**Example**: HTTP Blob Transfer
+
+```
+Server                              Browser
+  │ [:blob/fetch {:url ...}]          │
+  │────────────────────────────────→  │
+  │        (sente directive)          │
+  │                                   │
+  │                                   ├──→ HTTP GET url
+  │                                   │    (browser cache)
+  │                                   │←── blob data
+  │                                   │
+  │       [:blob/complete]            │
+  │←────────────────────────────────  │
+```
+
+**Characteristics**:
+- Control messages via WebSocket (lightweight)
+- Actual data via HTTP (caching, compression, resume)
+- Handler dispatch based on `:handler` field
+- Verification (SHA256), progress tracking
+
+**Config Categories**:
+| Category | Parameters |
+|----------|------------|
+| Transfer | `:url`, `:handler`, `:metadata` |
+| Reliability | `:retry-count`, `:timeout-ms`, `:verify` |
+| Caching | `:cache`, `:sha256` |
+
+---
+
+### Pattern D: Protocol Proxy/Tunnel
+
+**Example**: LSP over Sente
+
+```
+Browser Editor    Sente Channel    LSP Server
+     │                 │                │
+     │  :lsp/request   │                │
+     │────────────────→│  JSON-RPC      │
+     │                 │───────────────→│
+     │                 │    response    │
+     │                 │←───────────────│
+     │  :lsp/response  │                │
+     │←────────────────│                │
+     │                 │                │
+     │                 │  notification  │
+     │  :lsp/notify    │←───────────────│
+     │←────────────────│                │
+```
+
+**Characteristics**:
+- Tunnel existing protocol (LSP, nREPL) over sente
+- Protocol translation layer (JSON-RPC ↔ sente events)
+- Multiple backend servers (clojure-lsp, rust-analyzer)
+- Bidirectional (requests + unsolicited notifications)
+- Session per editor/file
+
+**Config Categories**:
+| Category | Parameters |
+|----------|------------|
+| Servers | `:servers {:lang {:command :args}}` |
+| Session | `:max-sessions`, `:session-timeout-ms` |
+| Methods | Supported LSP methods list |
+
+---
+
+### Pattern E: Reactive State Sync
+
+**Example**: Atom Synchronization
+
+```
+Publisher                        Subscriber
+  │ atom change (watch)            │
+  │───────────────────────────────→│
+  │                                │ reset! atom
+  │                                │ triggers watchers
+  │                                │ UI updates
+```
+
+**Variants**:
+1. **One-way** (Server → Client): Simple push
+2. **Two-way** (Server ↔ Client): Needs conflict resolution
+3. **Multi-master**: Version vectors, CRDTs
+
+**Characteristics**:
+- Uses atom watchers (`add-watch`, `remove-watch`)
+- Version/timestamp for ordering
+- Optional debouncing for rapid changes
+- Conflict resolution for two-way
+
+**Config Categories**:
+| Category | Parameters |
+|----------|------------|
+| Direction | `:one-way`, `:two-way` |
+| Timing | `:debounce-ms`, `:sync-interval-ms` |
+| Conflict | `:conflict-resolution` (`:last-writer-wins`, `:merge`) |
+| Filtering | `:paths` (which keys to sync) |
+
+---
+
+## Cross-Pattern Analysis
+
+### Common Config Categories
+
+| Category | Patterns | Examples |
+|----------|----------|----------|
+| **Timing** | All | timeout-ms, interval-ms, debounce-ms |
+| **Identity** | A, B, D | source-id, session-id, request-id |
+| **Limits** | All | max-*, batch-size, queue-size |
+| **Filtering** | A, E | levels, paths, exclude-prefixes |
+| **Reliability** | B, C | retry-count, fallback, verify |
+
+### State Management by Pattern
+
+| Pattern | State Atom | Contents |
+|---------|------------|----------|
+| A: Fire-forget | Optional buffer | Pending messages to batch |
+| B: Req/Resp | `pending-requests` | {id → callback, timeout, responses} |
+| C: Directive | Stateless | (HTTP layer handles) |
+| D: Proxy | `sessions` | {session-id → server, pending} |
+| E: Sync | External atom | User's data |
+
+### Implementation Complexity
+
+All modules follow 3-phase pattern:
+
+| Phase | LOC | Features |
+|-------|-----|----------|
+| **1: MVP** | 100-300 | Core functionality, development use |
+| **2: Production** | 300-500 | Batching, reliability, config |
+| **3: Enterprise** | 500+ | Pooling, caching, monitoring |
+
+---
+
 ## Summary: Config Parameter Count by Component
 
 | Component | Config Params | Lifecycle Fns | Has State |
-|-----------|--------------|---------------|-----------|
+|-----------|--------------|---------------|----------|
 | Server | 12 | 3 | Yes |
 | Client | 10 | 3 | Yes |
 | Channels | 4 | 6 | Yes |
