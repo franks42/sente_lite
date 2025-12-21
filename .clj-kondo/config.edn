@@ -1,4 +1,7 @@
-{:linters {:unused-binding {:level :off}
+{:config-in-ns
+ {sente-lite.registry
+  {:linters {:unresolved-symbol {:exclude [intern find-var]}}}}
+ :linters {:unused-binding {:level :off}
            :unused-private-var {:level :off}
            :missing-else-branch {:level :off}
            :unresolved-var {:level :off}
