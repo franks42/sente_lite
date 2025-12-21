@@ -6,6 +6,7 @@
                :clj [clojure.data.json :as json])
             #?(:bb [org.httpkit.server :as http])
             [sente-lite.channels :as channels]
+            [sente-lite.registry :as registry]
             [sente-lite.wire-format :as wf])
   (:import [java.lang System Exception]))
 
@@ -50,6 +51,10 @@
                    :message-count 0}]
     (swap! connections assoc channel conn-data)
     (swap! connection-index assoc conn-id channel)
+    ;; Register in registry for module discovery
+    (registry/register! (str "connections/" conn-id)
+                        {:conn-id conn-id
+                         :opened-at (:opened-at conn-data)})
     (trove/log! {:level :debug
                  :id :sente-lite.server/conn-added
                  :data {:conn-id conn-id
@@ -62,6 +67,9 @@
           duration (- (System/currentTimeMillis) (:opened-at conn-data))]
       ;; Unsubscribe from all channels
       (channels/unsubscribe-all! conn-id)
+
+      ;; Unregister from registry
+      (registry/unregister! (str "connections/" conn-id))
 
       ;; Remove connection tracking
       (swap! connections dissoc channel)
@@ -551,6 +559,23 @@
      :channels channel-stats
      :system-health (channels/get-system-health)
      :telemetry {}}))
+
+(defn get-connections
+  "Get list of active connections from registry.
+   Returns seq of {:conn-id ... :opened-at ...} sorted by opened-at (newest first).
+
+   For module discovery of available connections."
+  []
+  (->> (registry/list-registered-prefix "connections/")
+       (map registry/get-value)
+       (filter some?)
+       (sort-by :opened-at >)))
+
+(defn get-latest-connection
+  "Get the most recently connected conn-id.
+   Returns nil if no connections."
+  []
+  (:conn-id (first (get-connections))))
 
 (defn broadcast-message!
   "Send an event to all connected clients"
