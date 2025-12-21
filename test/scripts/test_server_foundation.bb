@@ -4,7 +4,7 @@
 (cp/add-classpath "src")
 
 (require '[sente-lite.server-simple :as server]
-         '[sente-lite.wire-format :as wire]
+         '[sente-lite.serialization :as wire]
          '[cheshire.core :as json])
 
 (println "=== Testing Sente-lite Server Foundation ===")

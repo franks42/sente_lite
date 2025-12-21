@@ -3,7 +3,7 @@
 (require '[babashka.classpath :as cp])
 (cp/add-classpath "src")
 
-(require '[sente-lite.wire-format :as wire]
+(require '[sente-lite.serialization :as wire]
          '[cheshire.core :as json]
          '[clojure.string])
 

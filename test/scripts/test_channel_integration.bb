@@ -5,7 +5,7 @@
 
 (require '[sente-lite.server :as server]
          '[sente-lite.channels :as channels]
-         '[sente-lite.wire-format :as wire])
+         '[sente-lite.serialization :as wire])
 
 (println "=== Testing Sente-lite Channel Integration ===" )
 
@@ -131,9 +131,10 @@
 ;; Test channel broadcast integration
 (println "\n10. Testing channel broadcast integration...")
 (let [broadcast-result (server/broadcast-to-channel! "test-channel"
-                                                   {:type "system-notification"
-                                                    :message "Channel broadcast test"
-                                                    :timestamp (System/currentTimeMillis)})]
+                                                     {:type "system-notification"
+                                                      :message "Channel broadcast test"
+                                                      :timestamp (System/currentTimeMillis)}
+                                                     nil)]  ; from-conn-id (nil = system broadcast)
   (println (format "Broadcast delivered to %d connections" broadcast-result)))
 
 ;; Test cleanup operations
