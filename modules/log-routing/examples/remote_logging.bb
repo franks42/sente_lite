@@ -223,12 +223,12 @@
                            (log! (str \"  - Connected as: \" uid) \"success\")
                            (setup-handlers! @cid-atom))
                 :on-message (fn [event-id data]
-                              ;; Server echoes unknown events as :sente-lite/echo
+                              ;; Server echoes unknown events back as :sente-lite/echo
                               (when (= event-id :sente-lite/echo)
                                 (when (= (:original-event-id data) :log/entry)
                                   (swap! test-results update :received inc)
                                   (export-results!)
-                                  (log! (str \"Server ACK: log received\") \"success\"))))
+                                  (log! \"Server ACK: log received\" \"success\"))))
                 :on-close (fn [_] (log! \"Disconnected\" \"error\"))
                 :auto-reconnect? false})]
       (reset! cid-atom cid)
@@ -245,29 +245,14 @@
 ;; ============================================================================
 
 (defonce ws-port (atom nil))
-(defonce logs-received (atom []))
 
-(defn on-message [client-uid event-id data]
-  (cond
-    ;; Log entry (client sends custom :log/entry event)
-    (= event-id :log/entry)
-    (let [log-data (:log data)]
-      (swap! logs-received conj log-data)
-      (println "  LOG RECEIVED:" (pr-str log-data))
-      ;; Send acknowledgment
-      (server/send-event-to-connection! client-uid
-        [:log/received {:status :ok :count (count @logs-received)}]))
-
-    ;; Regular message (including server echoes)
-    :else
-    (println "  Message:" event-id "from" client-uid)))
+;; Note: sente-lite server echoes unknown events back as :sente-lite/echo.
+;; The server doesn't support user message callbacks yet.
+;; For this demo, the browser uses the echo as acknowledgment.
 
 (defn start-ws-server! []
   (server/start-server!
-   {:port 0  ; Ephemeral!
-    :on-message on-message
-    :on-open (fn [uid] (println "  Client connected:" uid))
-    :on-close (fn [uid] (println "  Client disconnected:" uid))})
+   {:port 0})
   (let [port (server/get-server-port)]
     (reset! ws-port port)
     (println "WebSocket server on ephemeral port:" port)
@@ -279,7 +264,7 @@
 
 (defn render-html [port]
   (str/replace html-template "{{CONFIG_JSON}}"
-    (str "{\"wsHost\": \"localhost\", \"wsPort\": " port ", \"wsPath\": \"/\"}")))
+               (str "{\"wsHost\": \"localhost\", \"wsPort\": " port ", \"wsPath\": \"/\"}")))
 
 (defn serve-file [uri]
   (let [;; Clean up path
@@ -313,11 +298,11 @@
           (str/starts-with? uri "/modules/"))
       (serve-file uri)
 
-      ;; API endpoint to check received logs
-      (= uri "/api/logs")
+      ;; API endpoint (placeholder)
+      (= uri "/api/status")
       {:status 200
        :headers {"Content-Type" "application/json"}
-       :body (pr-str @logs-received)}
+       :body "{\"status\": \"ok\"}"}
 
       :else
       {:status 404 :body "Not found"})))
