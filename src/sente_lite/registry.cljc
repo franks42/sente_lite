@@ -127,6 +127,32 @@
   (when-let [ref (get-ref name)]
     @ref))
 
+(defn resolve-ref
+  "Resolve a registry value with one level of indirection.
+   If the value is a string pointing to another registered name,
+   resolve that reference and return its value.
+
+   Use for configuration patterns where one entry points to another:
+     telemetry/log-fn        -> \"telemetry.impl/console\"
+     telemetry.impl/console  -> (fn [level msg data] ...)
+
+   Example:
+     (register! \"telemetry.impl/console\" console-log-fn)
+     (register! \"telemetry.impl/sente\" sente-log-fn)
+     (register! \"telemetry/log-fn\" \"telemetry.impl/console\")
+
+     (resolve-ref \"telemetry/log-fn\")  => console-log-fn
+     (set-value! \"telemetry/log-fn\" \"telemetry.impl/sente\")
+     (resolve-ref \"telemetry/log-fn\")  => sente-log-fn"
+  [name]
+  (let [v (get-value name)]
+    (if (and (string? v) (valid-name? v))
+      ;; Check if it's a valid reference by trying to resolve it
+      (if-let [resolved (get-value v)]
+        resolved   ;; It's a reference, return resolved value
+        v)         ;; Reference not found, return as-is
+      v)))
+
 ;; -----------------------------------------------------------------------------
 ;; Write
 ;; -----------------------------------------------------------------------------
@@ -236,6 +262,33 @@
   (if-let [ref (get-ref name)]
     (add-watch ref key (fn [k _ old new]
                          (callback k name old new)))
+    (throw (ex-info "Registry name not found" {:name name}))))
+
+(defn watch-resolved!
+  "Add watch that resolves references before calling callback.
+   Use with configuration pointers where value is a reference to another entry.
+
+   When telemetry/log-fn changes from \"telemetry.impl/console\" to
+   \"telemetry.impl/sente\", callback receives the actual functions,
+   not the strings.
+
+   callback: (fn [key name old-resolved new-resolved] ...)
+
+   Example:
+     (watch-resolved! \"telemetry/log-fn\" :switch-logger
+       (fn [k n old-fn new-fn]
+         (println \"Logger switched from\" old-fn \"to\" new-fn)))"
+  [name key callback]
+  (if-let [ref (get-ref name)]
+    (add-watch ref key
+               (fn [k _ old new]
+                 (let [resolve-if-ref (fn [v]
+                                        (if (and (string? v) (valid-name? v))
+                                          (or (get-value v) v)
+                                          v))
+                       old-resolved (resolve-if-ref old)
+                       new-resolved (resolve-if-ref new)]
+                   (callback k name old-resolved new-resolved))))
     (throw (ex-info "Registry name not found" {:name name}))))
 
 (defn unwatch!

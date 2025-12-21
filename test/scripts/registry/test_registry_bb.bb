@@ -149,6 +149,40 @@
 (test-case "get-value on non-existent returns nil"
   #(nil? (reg/get-value "state/doesnotexist")))
 
+;; Test 19: resolve-ref with direct value
+(reg/register! "impl/console" (fn [x] (str "console:" x)))
+(test-case "resolve-ref with direct value returns value"
+  #(fn? (reg/resolve-ref "impl/console")))
+
+;; Test 20: resolve-ref with reference
+(reg/register! "config/log-fn" "impl/console")
+(test-case "resolve-ref with reference resolves to target"
+  #(fn? (reg/resolve-ref "config/log-fn")))
+
+;; Test 21: resolve-ref returns actual function
+(test-case "resolve-ref returns callable function"
+  #(= "console:test" ((reg/resolve-ref "config/log-fn") "test")))
+
+;; Test 22: resolve-ref with non-existent reference returns string
+(reg/register! "config/broken-ref" "impl/nonexistent")
+(test-case "resolve-ref with broken reference returns string"
+  #(= "impl/nonexistent" (reg/resolve-ref "config/broken-ref")))
+
+;; Test 23: watch-resolved! receives resolved values
+(def resolved-old (atom nil))
+(def resolved-new (atom nil))
+(reg/register! "impl/sente" (fn [x] (str "sente:" x)))
+(reg/watch-resolved! "config/log-fn" :test-resolved
+  (fn [k n old new]
+    (reset! resolved-old old)
+    (reset! resolved-new new)))
+(reg/set-value! "config/log-fn" "impl/sente")
+(test-case "watch-resolved! receives old resolved value"
+  #(fn? @resolved-old))
+(test-case "watch-resolved! receives new resolved value"
+  #(= "sente:x" (@resolved-new "x")))
+(reg/unwatch! "config/log-fn" :test-resolved)
+
 ;; Cleanup
 (reg/unregister! "state/user")
 (reg/unregister! "state/counter")

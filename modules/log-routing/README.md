@@ -151,6 +151,85 @@ Channel messages arrive as:
 
 ---
 
+## Registry-Based Handler Configuration (NEW)
+
+Uses the registry indirection pattern for configurable log handlers:
+
+```clojure
+(require '[log-routing.registry-handlers :as rh])
+(require '[sente-lite.registry :as reg])
+
+;; Initialize with built-in handlers
+(rh/init!)
+
+;; Registry layout:
+;;   telemetry.impl/console  ->  (fn [entry] ...)   ; prints to stdout
+;;   telemetry.impl/silent   ->  (fn [entry] nil)   ; discards
+;;   telemetry/log-handler   ->  "telemetry.impl/console"  ; config pointer
+```
+
+### Switching Handlers at Runtime
+
+```clojure
+;; Get current handler
+(let [handler (rh/get-handler)]
+  (handler {:level :info :ns "my.ns" :data {:msg "Hello"}}))
+
+;; Switch to silent (by name, not function!)
+(rh/use-handler! "telemetry.impl/silent")
+
+;; Register custom handler
+(rh/register-impl! "my-handler"
+  (fn [entry] (swap! my-store conj entry)))
+(rh/use-handler! "telemetry.impl/my-handler")
+```
+
+### Reactive Handler Switching
+
+```clojure
+;; Watch for handler changes (receives resolved functions, not strings!)
+(rh/on-handler-change! :my-watch
+  (fn [old-handler new-handler]
+    (println "Handler switched!")))
+
+;; Later...
+(rh/remove-handler-watch! :my-watch)
+```
+
+### Integration with Trove
+
+```clojure
+(require '[taoensso.trove :as trove])
+
+;; Create Trove-compatible log-fn that uses registry handler
+(rh/init!)
+(trove/set-log-fn! (rh/make-trove-log-fn))
+
+;; Now switch handler via registry - Trove automatically uses new handler!
+(rh/use-handler! "telemetry.impl/silent")
+```
+
+### With Sente Routing
+
+```clojure
+;; Initialize with sente handler available
+(rh/init-with-sente!
+  (fn [channel data] (client/publish! client-id channel data))
+  {:source-id "my-client"})
+
+;; Now you can switch between console and sente:
+(rh/use-handler! "telemetry.impl/console")  ; local only
+(rh/use-handler! "telemetry.impl/sente")    ; route to server
+```
+
+**Test:**
+```bash
+bb modules/log-routing/test/test_registry_handlers.bb
+# => 15 passed, 0 failed
+```
+
+---
+
 ## Phase 2: Filtering and Buffering (Future)
 
 **Planned Features:**
