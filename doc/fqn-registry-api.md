@@ -295,6 +295,31 @@ config.env/log-level         ;; :debug, :info, :warn
 
 ### Discovery Handler Examples
 
+#### From JSON Script Tag (Server-Rendered - Recommended for Ephemeral Ports)
+
+```clojure
+;; Server renders HTML with config embedded:
+;; <script type="application/json" id="sente-config">
+;;   {"wsHost": "localhost", "wsPort": 51234, "wsPath": "/"}
+;; </script>
+
+(defn discover-from-json-script! []
+  (when-let [el (.getElementById js/document "sente-config")]
+    (let [config (js->clj (js/JSON.parse (.-textContent el))
+                          :keywordize-keys true)]
+      (when-let [host (:wsHost config)]
+        (reg/register! "config.server/ws-host" host))
+      (when-let [port (:wsPort config)]
+        (reg/register! "config.server/ws-port" port))
+      (when-let [path (:wsPath config)]
+        (reg/register! "config.server/ws-path" path)))))
+
+;; Perfect for ephemeral ports - server knows the actual port
+(discover-from-json-script!)
+```
+
+See `dev/scittle-demo/ephemeral_server.bb` for a complete working example.
+
 #### From HTML Data Attributes (Browser)
 
 ```clojure
