@@ -598,3 +598,288 @@ All modules follow 3-phase pattern:
 | log-routing.receiver | 2 | 2 | No |
 
 **Total: ~40 unique config parameters across all components**
+
+---
+
+## Platform Compatibility Research
+
+### Tested Platforms
+- **Babashka (BB)**: GraalVM native Clojure
+- **nbb**: Node.js ClojureScript via SCI
+- **Scittle**: Browser ClojureScript via SCI
+
+### Feature Compatibility Matrix
+
+| Feature | Babashka | nbb | Scittle | Notes |
+|---------|----------|-----|---------|-------|
+| `defprotocol` | ✅ | ✅ | ✅ | Works on all |
+| `reify` | ✅ | ✅ | ✅ | Works on all |
+| `defrecord` | ✅ | ✅ | ✅ | Works on all |
+| `defrecord` + inline protocol | ✅ | ✅ | ✅ | Works on all |
+| `defmulti/defmethod` | ✅ | ✅ | ✅ | Works on all |
+| `satisfies?` | ✅ | ✅ | ✅ | Works on all |
+| `deftype` | ✅ | ✅ | ❌ | **Fails in Scittle** |
+| `extend-protocol` | ✅ | ✅ | ❌ | **Crashes Scittle** |
+| `extend-type` | ✅ | ✅ | ❌ | **Crashes Scittle** |
+
+### Critical Scittle Limitations
+
+**`extend-protocol` crashes with:**
+```
+No protocol method HasName.getName defined for type null
+```
+
+This is a [known class of SCI bug](https://github.com/babashka/sci/issues/306) where
+protocol methods are called on `nil`. The Scittle-bundled SCI version exhibits this.
+
+**`deftype` fails with:**
+```
+[object Object] is not a constructor
+```
+
+Per [SCI README](https://github.com/babashka/sci): "Currently SCI has limited support
+for `deftype` and does not support `definterface`."
+
+### Sources
+- [SCI GitHub](https://github.com/babashka/sci)
+- [SCI CHANGELOG](https://github.com/babashka/sci/blob/master/CHANGELOG.md)
+- [Issue #279: Implement protocols](https://github.com/babashka/sci/issues/279)
+- [Issue #306: HasName.getName on nil](https://github.com/babashka/sci/issues/306)
+- [Issue #783: extend protocols to JS built-ins](https://github.com/babashka/sci/issues/783)
+
+---
+
+## Implementation Approach Analysis
+
+### ❌ Rejected: defprotocol + extend-protocol
+
+```clojure
+;; Crashes Scittle - DO NOT USE
+(defprotocol IComponent (start! [this]))
+(defrecord Server [config])
+(extend-protocol IComponent
+  Server
+  (start! [this] ...))  ; CRASHES
+```
+
+**Problems:**
+- Crashes Scittle entirely (not caught by try/catch)
+- Brittle - fails silently on some platforms
+- Can't add protocol implementations after defrecord
+
+### ⚠️ Limited: defprotocol + inline defrecord
+
+```clojure
+;; Works but inflexible
+(defprotocol IComponent (start! [this]))
+(defrecord Server [config]
+  IComponent
+  (start! [this] ...))  ; Must be inline
+```
+
+**Problems:**
+- Implementation must be defined with defrecord (not extensible)
+- Can't add new protocol methods to existing record types
+- Can't implement protocols on plain maps
+- Tight coupling between type and behavior
+
+### ✅ Recommended: Multimethods with :type dispatch
+
+```clojure
+;; Works everywhere, extensible, plain data
+(defmulti start! :component/type)
+(defmulti stop! :component/type)
+(defmulti status :component/type)
+(defmulti health :component/type)
+
+;; Components are plain maps
+(defn make-server [config]
+  {:component/type :sente-lite/server
+   :config config
+   :state (atom {:status :stopped})})
+
+;; Implementations - can be in separate namespaces
+(defmethod start! :sente-lite/server [{:keys [state config]}]
+  (swap! state assoc :status :running)
+  :ok)
+
+(defmethod stop! :sente-lite/server [{:keys [state]}]
+  (swap! state assoc :status :stopped)
+  :ok)
+
+(defmethod status :sente-lite/server [{:keys [state]}]
+  (:status @state))
+
+(defmethod health :sente-lite/server [{:keys [state]}]
+  {:healthy? (= :running (:status @state))})
+```
+
+**Advantages:**
+- ✅ Works on all platforms (BB, nbb, Scittle)
+- ✅ Components are plain maps (inspectable, serializable config)
+- ✅ Extensible - add implementations anywhere, anytime
+- ✅ Open system - new component types without modifying core
+- ✅ Namespaced keywords prevent collisions
+- ✅ No crashes, no brittle protocol machinery
+- ✅ Familiar Clojure pattern
+
+**Considerations:**
+- No compile-time method checking (runtime error if method missing)
+- Must remember to implement all methods for new types
+- Dispatch adds minor overhead (negligible)
+
+---
+
+## Recommended Component System Design
+
+### Core Multimethods
+
+```clojure
+(ns sente-lite.component)
+
+;; Lifecycle
+(defmulti start!
+  "Initialize component. Returns :ok or throws."
+  :component/type)
+
+(defmulti stop!
+  "Shutdown component. Returns :ok or throws."
+  :component/type)
+
+;; Introspection
+(defmulti status
+  "Returns :stopped | :starting | :running | :stopping | :error"
+  :component/type)
+
+(defmulti health
+  "Returns {:healthy? bool :details map}"
+  :component/type)
+
+;; Optional
+(defmulti stats
+  "Returns runtime metrics map"
+  :component/type)
+
+;; Default implementations
+(defmethod start! :default [c]
+  (throw (ex-info "No start! implementation" {:type (:component/type c)})))
+
+(defmethod stop! :default [_] :ok)
+
+(defmethod status :default [{:keys [state]}]
+  (if state (:status @state) :unknown))
+
+(defmethod health :default [c]
+  {:healthy? (= :running (status c))
+   :type (:component/type c)})
+
+(defmethod stats :default [_] {})
+```
+
+### Component Factory Pattern
+
+```clojure
+(defn make-component
+  "Create a component map with standard structure."
+  [component-type config]
+  {:component/type component-type
+   :config config
+   :state (atom {:status :stopped
+                 :started-at nil
+                 :error nil})})
+
+;; Convenience
+(defn running? [c] (= :running (status c)))
+(defn stopped? [c] (= :stopped (status c)))
+```
+
+### Example: Server Component
+
+```clojure
+(ns sente-lite.component.server
+  (:require [sente-lite.component :as c]))
+
+(defn make-server [config]
+  (c/make-component :sente-lite/server config))
+
+(defmethod c/start! :sente-lite/server
+  [{:keys [config state] :as component}]
+  (when (c/stopped? component)
+    (let [port (:port config 3000)]
+      ;; ... actual server startup ...
+      (swap! state assoc
+             :status :running
+             :started-at (System/currentTimeMillis)
+             :port port)))
+  :ok)
+
+(defmethod c/stop! :sente-lite/server
+  [{:keys [state] :as component}]
+  (when (c/running? component)
+    ;; ... actual server shutdown ...
+    (swap! state assoc :status :stopped))
+  :ok)
+
+(defmethod c/health :sente-lite/server
+  [{:keys [state config]}]
+  (let [{:keys [status started-at port]} @state]
+    {:healthy? (= :running status)
+     :status status
+     :port port
+     :uptime-ms (when started-at
+                  (- (System/currentTimeMillis) started-at))
+     :config-port (:port config)}))
+```
+
+### Usage
+
+```clojure
+(require '[sente-lite.component :as c]
+         '[sente-lite.component.server :as server])
+
+(def my-server (server/make-server {:port 8080}))
+
+(c/start! my-server)
+(c/status my-server)   ; => :running
+(c/health my-server)   ; => {:healthy? true :status :running :port 8080 ...}
+(c/stop! my-server)
+```
+
+### Alternative: Maps with Function Values
+
+For simpler cases where extensibility isn't needed:
+
+```clojure
+(defn make-simple-component [config init-fn cleanup-fn]
+  (let [state (atom {:status :stopped})]
+    {:config config
+     :state state
+     :start! (fn []
+               (init-fn config)
+               (swap! state assoc :status :running))
+     :stop! (fn []
+              (cleanup-fn)
+              (swap! state assoc :status :stopped))
+     :status (fn [] (:status @state))}))
+
+;; Usage - call functions directly
+((:start! my-component))
+((:status my-component))
+```
+
+**Trade-off**: Simpler but not extensible, functions not serializable.
+
+---
+
+## Summary: Recommended Approach
+
+| Aspect | Recommendation |
+|--------|----------------|
+| **Dispatch** | Multimethods on `:component/type` |
+| **Components** | Plain maps with atom for mutable state |
+| **Type keys** | Namespaced keywords (`:sente-lite/server`) |
+| **Extensions** | Add `defmethod` in any namespace |
+| **Factory** | `make-*` functions returning component maps |
+| **Protocols** | Avoid - use multimethods instead |
+| **deftype** | Avoid - doesn't work in Scittle |
+| **extend-protocol** | Avoid - crashes Scittle |
