@@ -47,6 +47,7 @@
 (println "🌐 === Phase 2: Server Foundation Tests ===")
 (run-test "WebSocket Foundation" "test_websocket_foundation.bb")
 (run-test "Server Foundation" "test_server_foundation.bb")
+(run-test "Server on-message Callback" "test_on_message_callback.bb")
 
 ;; Phase 3: Channel integration
 (println " === Phase 3: Channel Integration Tests ===")
