@@ -214,12 +214,16 @@
         (broadcast-to-channel! channel-id message-data conn-id))
       nil)
 
-    ;; Echo for testing - respond with same data wrapped in :sente-lite/echo
+    ;; User callback or echo
     :else
-    [:sente-lite/echo {:original-event-id event-id
-                       :original-data data
-                       :conn-id conn-id
-                       :timestamp (System/currentTimeMillis)}]))
+    (if-let [on-message (:on-message config)]
+      ;; Call user callback - it can return an event to send back, or nil
+      (on-message conn-id event-id data)
+      ;; Default: echo for testing
+      [:sente-lite/echo {:original-event-id event-id
+                         :original-data data
+                         :conn-id conn-id
+                         :timestamp (System/currentTimeMillis)}])))
 
 (defn- send-to-connection!
   "Send an event to a specific connection by conn-id"

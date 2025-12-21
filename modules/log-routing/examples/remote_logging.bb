@@ -26,8 +26,11 @@
 (load-file "src/sente_lite/wire_format.cljc")
 (load-file "src/sente_lite/channels.cljc")
 (load-file "src/sente_lite/server.cljc")
+(load-file "src/sente_lite/registry.cljc")
+(load-file "modules/log-routing/src/log_routing/registry_handlers.cljc")
 
-(require '[sente-lite.server :as server])
+(require '[sente-lite.server :as server]
+         '[log-routing.registry-handlers :as rh])
 
 ;; ============================================================================
 ;; HTML Template - Browser reuses both modules
@@ -223,12 +226,11 @@
                            (log! (str \"  - Connected as: \" uid) \"success\")
                            (setup-handlers! @cid-atom))
                 :on-message (fn [event-id data]
-                              ;; Server echoes unknown events back as :sente-lite/echo
-                              (when (= event-id :sente-lite/echo)
-                                (when (= (:original-event-id data) :log/entry)
-                                  (swap! test-results update :received inc)
-                                  (export-results!)
-                                  (log! \"Server ACK: log received\" \"success\"))))
+                              ;; Server sends :log/received after routing log through handler
+                              (when (= event-id :log/received)
+                                (swap! test-results update :received inc)
+                                (export-results!)
+                                (log! (str \"Server ACK: log received (count: \" (:count data) \")\") \"success\")))
                 :on-close (fn [_] (log! \"Disconnected\" \"error\"))
                 :auto-reconnect? false})]
       (reset! cid-atom cid)
@@ -245,14 +247,26 @@
 ;; ============================================================================
 
 (defonce ws-port (atom nil))
+(defonce logs-received (atom 0))
 
-;; Note: sente-lite server echoes unknown events back as :sente-lite/echo.
-;; The server doesn't support user message callbacks yet.
-;; For this demo, the browser uses the echo as acknowledgment.
+;; Server message handler - routes logs through configured handler
+(defn on-message [conn-id event-id data]
+  (when (= event-id :log/entry)
+    (let [log-data (:log data)]
+      (swap! logs-received inc)
+      ;; Route through the configured log handler!
+      (when-let [handler (rh/get-handler)]
+        (handler log-data))
+      ;; Return acknowledgment event
+      [:log/received {:status :ok :count @logs-received}])))
 
 (defn start-ws-server! []
+  ;; Initialize server-side log handlers (same pattern as browser!)
+  (rh/init!)
+  (println "Server log handler: console (default)")
   (server/start-server!
-   {:port 0})
+   {:port 0
+    :on-message on-message})
   (let [port (server/get-server-port)]
     (reset! ws-port port)
     (println "WebSocket server on ephemeral port:" port)
