@@ -4,13 +4,27 @@
    Works on both Babashka (using load-string) and Scittle (using eval_string).
    Receives EDN messages via sente, evaluates, returns EDN responses.
 
+   Namespace state is persisted across requests (session-based):
+   - BB/CLJ: Uses atom to track last namespace with binding [*ns* ...]
+   - Scittle/CLJS: Uses scittle.core/eval_string which has built-in !last-ns
+
    Usage:
      ;; Create handler for sente on-message
      (def handler (make-nrepl-handler send-fn))
 
      ;; In sente on-message callback
      (handler conn-id event)"
-  (:require [nrepl-sente.protocol :as proto]))
+  (:require [nrepl-sente.protocol :as proto]
+            #?(:clj [clojure.tools.reader :as reader])
+            #?(:clj [clojure.tools.reader.reader-types :as rt])))
+
+;;; ============================================================
+;;; Namespace State (CLJ only - Scittle handles this internally)
+;;; ============================================================
+
+;; Atom tracking the last namespace for persistence across requests.
+;; Initialized to 'user namespace. Changes persist within the server session.
+#?(:clj (defonce !last-ns (atom (find-ns 'user))))
 
 ;;; ============================================================
 ;;; Platform-specific eval
@@ -18,18 +32,30 @@
 
 #?(:clj
    (defn eval-code
-     "Evaluate code string on Babashka/JVM using load-string."
+     "Evaluate code string on Babashka/JVM using reader + eval.
+      Namespace changes persist across requests via !last-ns atom.
+      Uses binding [*ns* ...] to ensure namespace context is maintained."
      [code-string]
      (try
-       (let [result (load-string code-string)]
-         {:success true
-          :value (pr-str result)
-          :ns (str *ns*)})
+       ;; Evaluate in the context of last saved namespace
+       (binding [*ns* @!last-ns]
+         (let [rdr (rt/string-push-back-reader code-string)
+               result (loop [last-result nil]
+                        (let [form (reader/read rdr false ::eof)]
+                          (if (= form ::eof)
+                            last-result
+                            (recur (eval form)))))
+               final-ns *ns*]
+           ;; Save current namespace for next request
+           (reset! !last-ns final-ns)
+           {:success true
+            :value (pr-str result)
+            :ns (str (ns-name final-ns))}))
        (catch Exception e
          {:success false
           :error (.getMessage e)
           :ex (str (type e))
-          :ns (str *ns*)})))
+          :ns (str (ns-name @!last-ns))})))
 
    :cljs
    (defn eval-code
