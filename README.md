@@ -12,6 +12,9 @@ A lightweight WebSocket library for Clojure environments where Sente can't run: 
 - **Auto-reconnect** - Exponential backoff on disconnect
 - **Heartbeat/keepalive** - Automatic ping/pong
 - **Browser-tested** - Automated Playwright tests for Scittle client
+- **FQN Registry** - Named resources across processes with reactive updates
+- **Server callbacks** - Custom `:on-message` handlers for user-defined events
+- **Reusable modules** - config-discovery, log-routing, atom-sync
 
 ## Supported Platforms
 
@@ -169,6 +172,15 @@ nbb --classpath path/to/sente-lite/src your-script.cljs
 (get-server-port)  ; useful with :port 0 (ephemeral)
 (get-server-stats)
 
+;; Custom message handling (NEW in v2.11.0)
+(start-server!
+  {:port 3000
+   :on-message (fn [conn-id event-id data]
+                 (case event-id
+                   :api/ping [:api/pong {:ts (System/currentTimeMillis)}]
+                   :log/entry (do (process-log data) [:log/received {:ok true}])
+                   nil))})  ; nil = no response, falls back to echo
+
 ;; Broadcasting
 (broadcast-message! [:event/name {:data "to all"}])
 (broadcast-to-channel! "channel-id" {:msg "to subscribers"} from-conn-id)
@@ -227,6 +239,35 @@ node playwright-client-test.mjs
 | BB Server ↔ Scittle Client | Browser (Playwright) | ✅ |
 | Sente Server ↔ BB Client | JVM interop | ✅ |
 
+## Modules
+
+sente-lite includes reusable modules for common patterns:
+
+| Module | Purpose | Status |
+|--------|---------|--------|
+| **config-discovery** | Ephemeral port discovery, HTML/JSON config | ✅ Complete |
+| **log-routing** | Registry-based log handlers, remote logging | ✅ Complete |
+| **atom-sync** | One-way atom synchronization across processes | ✅ Phase 1 |
+
+### Module Composition
+
+Modules can import from each other - no code copying:
+
+```clojure
+;; log-routing demo imports from config-discovery
+(require '[config-discovery.handlers :as discovery]
+         '[log-routing.registry-handlers :as rh])
+
+;; Use config-discovery for ephemeral port
+(discovery/discover-from-json-script!)
+
+;; Use log-routing for handler switching
+(rh/init!)
+(rh/use-handler! "telemetry.impl/console")
+```
+
+See `modules/log-routing/examples/remote_logging.bb` for a complete working demo.
+
 ## Known Limitations
 
 ### SCI/Scittle
@@ -245,6 +286,10 @@ node playwright-client-test.mjs
 
 ## Version History
 
+- **v2.11.0** - Server `:on-message` callback, module composition pattern (Dec 2025)
+- **v2.10.0** - FQN-based registry for named resources (Dec 2025)
+- **v2.9.0** - Modules Phase 1: log-routing, atom-sync, config-discovery (Dec 2025)
+- **v2.7.0** - Unified `on!/off!` handler API (Dec 2025)
 - **v2.1.0** - Scittle browser client tested with Playwright (Dec 2025)
 - **v2.0.0** - Full Sente-compatible wire format, nbb support, cross-platform tests (Dec 2025)
 

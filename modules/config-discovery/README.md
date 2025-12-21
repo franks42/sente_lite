@@ -111,6 +111,22 @@ Client (Scittle):
 
 See `examples/ephemeral_port.bb` for a complete working demo.
 
+## Module Composition
+
+This module is designed to be imported by other modules. See the **log-routing** module's `remote_logging.bb` demo for an example:
+
+```clojure
+;; In log-routing demo, imports from config-discovery
+(require '[config-discovery.handlers :as discovery])
+
+;; Uses discovery handlers to find ephemeral port
+(discovery/discover-from-json-script!)
+(let [url (discovery/build-ws-url)]
+  (connect-to-server url))
+```
+
+**Key pattern**: Modules import from each other via standard `require` - no code copying needed.
+
 ## Files
 
 ```

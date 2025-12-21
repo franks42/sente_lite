@@ -230,6 +230,44 @@ bb modules/log-routing/test/test_registry_handlers.bb
 
 ---
 
+## Remote Logging Demo (Module Composition)
+
+Demonstrates composing modules together:
+- **config-discovery**: Ephemeral port discovery via JSON script tag
+- **log-routing**: Registry-based handlers for log routing
+
+```bash
+# Terminal 1: Start server (ephemeral port)
+bb modules/log-routing/examples/remote_logging.bb
+
+# Terminal 2: Run Playwright tests
+node modules/log-routing/examples/test_remote_logging.mjs
+# => 9/9 tests pass
+```
+
+**Key pattern**: Server uses `:on-message` callback to handle custom events:
+
+```clojure
+(server/start-server!
+  {:port 0  ; ephemeral port
+   :on-message (fn [conn-id event-id data]
+                 (when (= event-id :log/entry)
+                   ;; Route through registry handler
+                   (when-let [handler (rh/get-handler)]
+                     (handler (:log data)))
+                   [:log/received {:status :ok}]))})
+```
+
+**Browser imports from both modules:**
+```clojure
+(discovery/discover-from-json-script!)  ; from config-discovery
+(rh/init!)                              ; from log-routing
+(let [handler (rh/get-handler)]         ; switch at runtime
+  (handler {:level :info :msg "test"}))
+```
+
+---
+
 ## Phase 2: Filtering and Buffering (Future)
 
 **Planned Features:**
@@ -265,3 +303,7 @@ bb modules/log-routing/test/test_registry_handlers.bb
 - Defined architecture and API
 - Researched Trove handler API (`*log-fn*` signature)
 - Extracted design from doc/sente-lite-modules.md
+- **Registry-based handlers** (registry_handlers.cljc)
+- **Remote logging demo** with module composition (examples/remote_logging.bb)
+- Uses **config-discovery module** for ephemeral port discovery
+- Server **:on-message callback** for custom event handling
