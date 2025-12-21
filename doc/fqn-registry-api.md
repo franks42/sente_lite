@@ -224,6 +224,210 @@ Each process translates to its own internal namespace. The relative name is the 
 
 ---
 
+## Pattern: Configuration Discovery
+
+### The Problem
+
+When starting a server, clients need to discover connection info (host, port, endpoints). There are many discovery mechanisms:
+
+| Mechanism | Example | When Available |
+|-----------|---------|----------------|
+| Hardcoded | `ws://localhost:8080` | Always (not ideal) |
+| File | `.nrepl-port`, `config.edn` | Process startup |
+| HTML embed | `<script data-ws-port="8080">` | Browser load |
+| HTTP endpoint | `GET /config` returns JSON | After HTTP available |
+| Synced atom | Push config over sente | After WebSocket connected |
+| nREPL eval | `(reset! config {...})` | After nREPL connected |
+
+**Without standardization:** App code becomes tightly coupled to specific discovery mechanisms. Changing deployment strategy requires changing app code.
+
+### The Solution: Registry as Indirection Layer
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    DISCOVERY SOURCES                        │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐ │
+│  │Hardcode │ │ File    │ │ HTML    │ │Endpoint │ │ nREPL │ │
+│  │         │ │.nrepl-  │ │<script> │ │/config  │ │ eval  │ │
+│  │         │ │port     │ │data-*   │ │         │ │       │ │
+│  └────┬────┘ └────┬────┘ └────┬────┘ └────┬────┘ └───┬───┘ │
+│       │           │           │           │          │      │
+│       └───────────┴─────┬─────┴───────────┴──────────┘      │
+│                         ▼                                    │
+│              ┌──────────────────────┐                       │
+│              │  Discovery Handler   │  (many-to-one)        │
+│              └──────────┬───────────┘                       │
+│                         ▼                                    │
+│     ┌───────────────────────────────────────────────────┐   │
+│     │              FQN REGISTRY                          │   │
+│     │  "config/server/host"        → "localhost"        │   │
+│     │  "config/server/ws-port"     → 8080               │   │
+│     │  "config/server/nrepl-port"  → 1339               │   │
+│     │  "config/server/api-base"    → "/api/v1"          │   │
+│     └───────────────────────────────────────────────────┘   │
+│                         ▲                                    │
+│                         │                                    │
+│              ┌──────────┴───────────┐                       │
+│              │      APP CODE        │  (reads only)         │
+│              │ (get-value "config/  │                       │
+│              │  server/ws-port")    │                       │
+│              └──────────────────────┘                       │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Result:** Many discovery mechanisms → one registry interface → app code decoupled.
+
+### Standard Config Names
+
+Suggested naming convention for configuration:
+
+```
+config/server/host           ;; Server hostname
+config/server/ws-port        ;; WebSocket port
+config/server/http-port      ;; HTTP port
+config/server/nrepl-port     ;; nREPL port
+config/server/api-base       ;; API base path
+config/client/id             ;; Client identifier
+config/client/token          ;; Auth token
+config/env/mode              ;; :dev, :prod, :test
+config/env/log-level         ;; :debug, :info, :warn
+```
+
+### Discovery Handler Examples
+
+#### From HTML Data Attributes (Browser)
+
+```clojure
+;; HTML: <body data-ws-port="8080" data-api-base="/api/v1">
+
+(defn discover-from-html! []
+  (let [body js/document.body
+        ds (.-dataset body)]
+    (when-let [port (.-wsPort ds)]
+      (reg/register! "config/server/ws-port" (js/parseInt port)))
+    (when-let [api (.-apiBase ds)]
+      (reg/register! "config/server/api-base" api))))
+
+;; Call at startup
+(discover-from-html!)
+```
+
+#### From File (Babashka/nbb)
+
+```clojure
+;; .nrepl-port file contains just the port number
+
+(defn discover-from-nrepl-port-file! []
+  (when (.exists (io/file ".nrepl-port"))
+    (let [port (Integer/parseInt (slurp ".nrepl-port"))]
+      (reg/register! "config/server/nrepl-port" port))))
+
+;; config.edn: {:ws-port 8080 :api-base "/api"}
+
+(defn discover-from-config-edn! []
+  (when (.exists (io/file "config.edn"))
+    (let [config (edn/read-string (slurp "config.edn"))]
+      (doseq [[k v] config]
+        (reg/register! (str "config/server/" (name k)) v)))))
+```
+
+#### From HTTP Endpoint
+
+```clojure
+;; GET /config returns: {"ws-port": 8080, "api-base": "/api"}
+
+(defn discover-from-endpoint! [base-url callback]
+  (-> (js/fetch (str base-url "/config"))
+      (.then #(.json %))
+      (.then (fn [config]
+               (doseq [[k v] (js->clj config)]
+                 (reg/register! (str "config/server/" k) v))
+               (callback)))))
+```
+
+#### From nREPL (Live Update)
+
+```clojure
+;; Evaluate remotely to update config at runtime
+(reg/set-value! "config/env/log-level" :debug)
+```
+
+### App Code Pattern
+
+App code **never knows** how config was discovered:
+
+```clojure
+(ns my-app.core
+  (:require [sente-lite.registry :as reg]
+            [sente-lite.client :as client]))
+
+(defn connect! []
+  (let [host (or (reg/get-value "config/server/host") "localhost")
+        port (reg/get-value "config/server/ws-port")]
+    (when port
+      (client/make-client
+        {:url (str "ws://" host ":" port "/ws")}))))
+
+;; Reactive: reconnect when config changes
+(reg/watch! "config/server/ws-port" :reconnect-watch
+  (fn [_ _ old-port new-port]
+    (when (and old-port (not= old-port new-port))
+      (println "Port changed, reconnecting...")
+      (reconnect!))))
+```
+
+### Startup Sequence Example
+
+```clojure
+;; Browser startup with fallback chain
+
+(defn init! []
+  ;; 1. Try HTML data attributes (fastest, no network)
+  (discover-from-html!)
+
+  ;; 2. If missing, try config endpoint
+  (when-not (reg/registered? "config/server/ws-port")
+    (discover-from-endpoint!
+      js/window.location.origin
+      #(when (reg/registered? "config/server/ws-port")
+         (connect!))))
+
+  ;; 3. If HTML had config, connect immediately
+  (when (reg/registered? "config/server/ws-port")
+    (connect!)))
+```
+
+### Benefits
+
+1. **Decoupled** - App code doesn't know/care how config arrived
+2. **Pluggable** - Swap discovery mechanism without touching app code
+3. **Layered** - Chain multiple discovery mechanisms with fallbacks
+4. **Reactive** - `watch!` enables app to react to config changes
+5. **Debuggable** - `(list-registered-prefix "config/")` shows all config
+6. **Testable** - Just populate registry with test values, no mocking
+
+### Testing Pattern
+
+```clojure
+(defn with-test-config [test-fn]
+  ;; Setup
+  (reg/register! "config/server/ws-port" 9999)
+  (reg/register! "config/server/host" "test-host")
+
+  ;; Run test
+  (test-fn)
+
+  ;; Cleanup
+  (reg/unregister-prefix! "config/"))
+
+(deftest connects-to-configured-port
+  (with-test-config
+    #(let [client (connect!)]
+       (is (= "ws://test-host:9999/ws" (:url client))))))
+```
+
+---
+
 ## Implementation Notes
 
 ### Code Location
