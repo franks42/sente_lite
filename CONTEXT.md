@@ -1,13 +1,13 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-12-20 (Process Registry doc trimmed)
+**Last Updated**: 2025-12-20 (FQN Registry implemented)
 
 ## CURRENT STATUS
 
-**Last Commit**: `v2.8.0-internal-unification` - Unified handler registry refactor
+**Last Commit**: `v2.10.0-fqn-registry` - FQN-based registry implementation
 **Branch**: `main`
-**Status**: ✅ Modules Phase 1 complete, Process Registry design in progress
+**Status**: ✅ Modules Phase 1 complete, ✅ FQN Registry implemented (19/19 tests)
 
 ---
 
@@ -27,9 +27,39 @@ Created `modules/` directory with two working modules:
    - `modules/atom-sync/src/atom_sync/subscriber.cljc`
    - Test: `bb modules/atom-sync/test/test_one_way.bb` ✅ 3 changes synced
 
-### In Progress: Process Registry Design
+### Completed: FQN Registry Implementation
 
-Created `doc/process-registry.md` (1422 lines - needs trimming)
+Implemented `src/sente_lite/registry.cljc` with full API:
+
+```clojure
+;; Registration
+(register! "state/user-prefs" {:theme "dark"})
+(ensure! "state/counter")
+
+;; Read/Write
+(get-value "state/user-prefs")
+(set-value! "state/user-prefs" new-value)
+(swap-value! "state/counter" inc)
+
+;; Hot paths (cached ref)
+(let [ref (get-ref "state/counter")]
+  (swap-ref! ref inc))
+
+;; Discovery & Cleanup
+(registered? "state/user-prefs")
+(list-registered)
+(unregister! "state/user-prefs")
+(unregister-prefix! "sync/")
+
+;; Reactive
+(watch! "state/counter" :my-watch callback)
+(unwatch! "state/counter" :my-watch)
+```
+
+**Tested on all runtimes:**
+- Babashka: 19/19 ✓
+- Scittle: 19/19 ✓
+- nbb: 19/19 ✓
 
 **KEY CONCLUSIONS:**
 
@@ -68,18 +98,18 @@ Created `doc/process-registry.md` (1422 lines - needs trimming)
 
 1. ~~Trim `doc/process-registry.md` to be concise~~ ✅ Done (1423→430 lines)
 2. ~~Verify `intern`/`resolve` work across all runtimes~~ ✅ Done (2025-12-20)
-   - **Babashka**: 8/8 tests pass (SCI/Clojure/GraalVM)
-   - **Scittle**: 8/8 tests pass (SCI/ClojureScript/Browser) - Playwright verified
-   - **nbb**: 8/8 tests pass (SCI/ClojureScript/Node.js)
-   - `ensure-atom!` pattern works identically on all three
-3. Prototype FQN-based atom-sync (all runtimes support it!)
-4. atom-sync Phase 2: Two-way sync with conflict resolution
+3. ~~Implement FQN Registry~~ ✅ Done (v2.10.0-fqn-registry)
+4. Update atom-sync module to use registry API
+5. atom-sync Phase 2: Two-way sync with conflict resolution
 
 ---
 
 ## KEY FILES
 
 ```
+src/sente_lite/
+└── registry.cljc                      # FQN Registry ✅ (v2.10.0)
+
 modules/
 ├── modules-plan.md                    # Overview
 ├── log-routing/                       # Phase 1 Complete ✅
@@ -94,8 +124,15 @@ modules/
     └── test/test_one_way.bb
 
 doc/
-├── process-registry.md                # Design discussion (needs trimming)
+├── fqn-registry-api.md                # Registry API design
+├── process-registry.md                # Design discussion
 └── plan.md                            # Main project plan
+
+test/scripts/registry/
+├── test_registry_bb.bb                # Babashka tests (19/19)
+├── test_registry_scittle.html         # Scittle tests (19/19)
+├── test_registry_nbb.cljs             # nbb tests (19/19)
+└── test_registry_playwright.mjs       # Playwright runner
 ```
 
 ---
@@ -103,6 +140,11 @@ doc/
 ## COMMANDS
 
 ```bash
+# Run registry tests
+bb test/scripts/registry/test_registry_bb.bb
+nbb test/scripts/registry/test_registry_nbb.cljs
+node test/scripts/registry/test_registry_playwright.mjs
+
 # Run module tests
 bb modules/log-routing/test/test_bb_to_bb.bb
 bb modules/atom-sync/test/test_one_way.bb
@@ -125,14 +167,16 @@ bb run_tests.bb
       data (second msg)] ...)
 ```
 
-### Process Registry Insight
+### FQN Registry API
 ```clojure
-;; The "registry" is just Clojure:
-(defonce my-resource (atom nil))        ;; stable identity (FQN)
-(reset! my-resource new-instance)       ;; swap ephemeral instance
-@my-resource                            ;; get current instance
-(resolve 'ns/my-resource)               ;; lookup by FQN string
-(intern 'ns 'name (atom {}))            ;; dynamic creation
+(require '[sente-lite.registry :as reg])
+
+(reg/register! "state/user" {:name "Alice"})   ;; create with value
+(reg/get-value "state/user")                    ;; read value
+(reg/set-value! "state/user" {:name "Bob"})    ;; update value
+(reg/swap-value! "state/counter" inc)          ;; atomic update
+(reg/watch! "state/user" :key callback)        ;; reactive
+(reg/unregister-prefix! "sync/")               ;; cleanup
 ```
 
-No framework needed. Just Clojure.
+Names are relative (`state/user`), internal FQNs hidden.
