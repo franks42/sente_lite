@@ -279,18 +279,18 @@ When starting a server, clients need to discover connection info (host, port, en
 
 ### Standard Config Names
 
-Suggested naming convention for configuration:
+Suggested naming convention for configuration (dots for hierarchy):
 
 ```
-config/server/host           ;; Server hostname
-config/server/ws-port        ;; WebSocket port
-config/server/http-port      ;; HTTP port
-config/server/nrepl-port     ;; nREPL port
-config/server/api-base       ;; API base path
-config/client/id             ;; Client identifier
-config/client/token          ;; Auth token
-config/env/mode              ;; :dev, :prod, :test
-config/env/log-level         ;; :debug, :info, :warn
+config.server/host           ;; Server hostname
+config.server/ws-port        ;; WebSocket port
+config.server/http-port      ;; HTTP port
+config.server/nrepl-port     ;; nREPL port
+config.server/api-base       ;; API base path
+config.client/id             ;; Client identifier
+config.client/token          ;; Auth token
+config.env/mode              ;; :dev, :prod, :test
+config.env/log-level         ;; :debug, :info, :warn
 ```
 
 ### Discovery Handler Examples
@@ -304,9 +304,9 @@ config/env/log-level         ;; :debug, :info, :warn
   (let [body js/document.body
         ds (.-dataset body)]
     (when-let [port (.-wsPort ds)]
-      (reg/register! "config/server/ws-port" (js/parseInt port)))
+      (reg/register! "config.server/ws-port" (js/parseInt port)))
     (when-let [api (.-apiBase ds)]
-      (reg/register! "config/server/api-base" api))))
+      (reg/register! "config.server/api-base" api))))
 
 ;; Call at startup
 (discover-from-html!)
@@ -320,7 +320,7 @@ config/env/log-level         ;; :debug, :info, :warn
 (defn discover-from-nrepl-port-file! []
   (when (.exists (io/file ".nrepl-port"))
     (let [port (Integer/parseInt (slurp ".nrepl-port"))]
-      (reg/register! "config/server/nrepl-port" port))))
+      (reg/register! "config.server/nrepl-port" port))))
 
 ;; config.edn: {:ws-port 8080 :api-base "/api"}
 
@@ -328,7 +328,7 @@ config/env/log-level         ;; :debug, :info, :warn
   (when (.exists (io/file "config.edn"))
     (let [config (edn/read-string (slurp "config.edn"))]
       (doseq [[k v] config]
-        (reg/register! (str "config/server/" (name k)) v)))))
+        (reg/register! (str "config.server/" (name k)) v)))))
 ```
 
 #### From HTTP Endpoint
@@ -341,7 +341,7 @@ config/env/log-level         ;; :debug, :info, :warn
       (.then #(.json %))
       (.then (fn [config]
                (doseq [[k v] (js->clj config)]
-                 (reg/register! (str "config/server/" k) v))
+                 (reg/register! (str "config.server/" k) v))
                (callback)))))
 ```
 
@@ -349,7 +349,7 @@ config/env/log-level         ;; :debug, :info, :warn
 
 ```clojure
 ;; Evaluate remotely to update config at runtime
-(reg/set-value! "config/env/log-level" :debug)
+(reg/set-value! "config.env/log-level" :debug)
 ```
 
 ### App Code Pattern
@@ -362,14 +362,14 @@ App code **never knows** how config was discovered:
             [sente-lite.client :as client]))
 
 (defn connect! []
-  (let [host (or (reg/get-value "config/server/host") "localhost")
-        port (reg/get-value "config/server/ws-port")]
+  (let [host (or (reg/get-value "config.server/host") "localhost")
+        port (reg/get-value "config.server/ws-port")]
     (when port
       (client/make-client
         {:url (str "ws://" host ":" port "/ws")}))))
 
 ;; Reactive: reconnect when config changes
-(reg/watch! "config/server/ws-port" :reconnect-watch
+(reg/watch! "config.server/ws-port" :reconnect-watch
   (fn [_ _ old-port new-port]
     (when (and old-port (not= old-port new-port))
       (println "Port changed, reconnecting...")
@@ -386,14 +386,14 @@ App code **never knows** how config was discovered:
   (discover-from-html!)
 
   ;; 2. If missing, try config endpoint
-  (when-not (reg/registered? "config/server/ws-port")
+  (when-not (reg/registered? "config.server/ws-port")
     (discover-from-endpoint!
       js/window.location.origin
-      #(when (reg/registered? "config/server/ws-port")
+      #(when (reg/registered? "config.server/ws-port")
          (connect!))))
 
   ;; 3. If HTML had config, connect immediately
-  (when (reg/registered? "config/server/ws-port")
+  (when (reg/registered? "config.server/ws-port")
     (connect!)))
 ```
 

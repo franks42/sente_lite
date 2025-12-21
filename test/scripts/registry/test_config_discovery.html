@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Config Discovery Pattern Test (Standalone)</title>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.6.19/dist/scittle.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; max-width: 800px; margin: 0 auto; }
+    .pass { color: green; }
+    .fail { color: red; }
+    .info { color: blue; }
+    pre { background: #f4f4f4; padding: 10px; }
+  </style>
+</head>
+<!--
+  Standalone test for Configuration Discovery Pattern
+  No server required - just tests the registry-based config discovery
+-->
+<body data-ws-port="8080" data-ws-host="test-server.local" data-api-base="/api/v2">
+  <h1>Config Discovery Pattern Test</h1>
+  <pre id="output"></pre>
+
+  <!-- Inline registry -->
+  <script type="application/x-scittle">
+(ns sente-lite.registry)
+
+(defonce ^:private reg-root (atom "sente-lite.registry"))
+(defn get-reg-root [] @reg-root)
+
+(def ^:private valid-name-pattern #"[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*/[a-z][a-z0-9-]*")
+(defn- valid-name? [name] (and (string? name) (re-matches valid-name-pattern name)))
+(defn- validate-name! [name]
+  (when-not (valid-name? name)
+    (throw (ex-info "Invalid registry name format" {:name name}))))
+
+(defn- absolute-fqn [name]
+  (let [slash-idx (.indexOf name "/")
+        category (subs name 0 slash-idx)
+        var-name (subs name (inc slash-idx))]
+    (str @reg-root "." category "/" var-name)))
+
+(defn- name->symbols [name]
+  (let [fqn (absolute-fqn name)
+        sym (symbol fqn)]
+    [(symbol (namespace sym)) (symbol (clojure.core/name sym))]))
+
+(defonce ^:private registered-names (atom #{}))
+
+(defn register! [name initial-value]
+  (validate-name! name)
+  (let [syms (name->symbols name)
+        ns-sym (first syms)
+        name-sym (second syms)]
+    (create-ns ns-sym)
+    (let [a (atom initial-value)]
+      (intern ns-sym name-sym a)
+      (swap! registered-names conj name)
+      a)))
+
+(defn get-ref [name]
+  (validate-name! name)
+  (when-let [v (find-var (symbol (absolute-fqn name)))]
+    @v))
+
+(defn get-value [name]
+  (when-let [ref (get-ref name)] @ref))
+
+(defn set-value! [name new-value]
+  (if-let [ref (get-ref name)]
+    (reset! ref new-value)
+    (throw (ex-info "Registry name not found" {:name name}))))
+
+(defn registered? [name]
+  (validate-name! name)
+  (contains? @registered-names name))
+
+(defn list-registered [] @registered-names)
+
+(defn list-registered-prefix [prefix]
+  (into #{} (filter #(.startsWith % prefix) @registered-names)))
+
+(defn watch! [name key callback]
+  (if-let [ref (get-ref name)]
+    (add-watch ref key (fn [k _ old new] (callback k name old new)))
+    (throw (ex-info "Registry name not found" {:name name}))))
+  </script>
+
+  <script type="application/x-scittle">
+(ns test-config-discovery
+  (:require [sente-lite.registry :as reg]))
+
+(def output-el (js/document.getElementById "output"))
+(def tests-passed (atom 0))
+(def tests-failed (atom 0))
+(def results (atom []))
+
+(defn log [s] (swap! results conj s))
+
+(defn test-case [name test-fn]
+  (log (str "  " name "... "))
+  (try
+    (if (test-fn)
+      (do (log "✓\n") (swap! tests-passed inc))
+      (do (log "✗ FAILED\n") (swap! tests-failed inc)))
+    (catch js/Error e
+      (log (str "✗ ERROR: " (.-message e) "\n"))
+      (swap! tests-failed inc))))
+
+(log "=== Config Discovery Pattern Tests ===\n\n")
+
+;; ============================================================================
+;; DISCOVERY HANDLERS
+;; ============================================================================
+
+(log "--- Phase 1: Discovery Handlers ---\n")
+
+;; Handler 1: Hardcoded defaults
+;; Note: naming convention is category.subcategory/name (dots for hierarchy)
+(defn discover-from-hardcoded! []
+  (reg/register! "config.server/ws-host" "default-host")
+  (reg/register! "config.server/ws-port" 9999)
+  (reg/register! "config.server/api-base" "/api/v1"))
+
+(log "Running hardcoded discovery...\n")
+(discover-from-hardcoded!)
+
+(test-case "Hardcoded: ws-host registered"
+  #(= "default-host" (reg/get-value "config.server/ws-host")))
+
+(test-case "Hardcoded: ws-port registered"
+  #(= 9999 (reg/get-value "config.server/ws-port")))
+
+(test-case "Hardcoded: api-base registered"
+  #(= "/api/v1" (reg/get-value "config.server/api-base")))
+
+;; Handler 2: HTML data attributes (overrides hardcoded)
+(defn discover-from-html! []
+  (let [body js/document.body
+        ds (.-dataset body)]
+    (when-let [port (.-wsPort ds)]
+      (reg/set-value! "config.server/ws-port" (js/parseInt port)))
+    (when-let [host (.-wsHost ds)]
+      (reg/set-value! "config.server/ws-host" host))
+    (when-let [api (.-apiBase ds)]
+      (reg/set-value! "config.server/api-base" api))))
+
+(log "\nRunning HTML discovery (should override hardcoded)...\n")
+(discover-from-html!)
+
+(test-case "HTML override: ws-host from data-ws-host"
+  #(= "test-server.local" (reg/get-value "config.server/ws-host")))
+
+(test-case "HTML override: ws-port from data-ws-port"
+  #(= 8080 (reg/get-value "config.server/ws-port")))
+
+(test-case "HTML override: api-base from data-api-base"
+  #(= "/api/v2" (reg/get-value "config.server/api-base")))
+
+;; ============================================================================
+;; APP CODE PATTERN
+;; ============================================================================
+
+(log "\n--- Phase 2: App Code (source-agnostic) ---\n")
+
+;; App code that reads from registry only
+(defn build-ws-url []
+  (let [host (reg/get-value "config.server/ws-host")
+        port (reg/get-value "config.server/ws-port")]
+    (str "ws://" host ":" port "/")))
+
+(defn build-api-url [endpoint]
+  (let [base (reg/get-value "config.server/api-base")]
+    (str base endpoint)))
+
+(test-case "App: build-ws-url uses registry"
+  #(= "ws://test-server.local:8080/" (build-ws-url)))
+
+(test-case "App: build-api-url uses registry"
+  #(= "/api/v2/users" (build-api-url "/users")))
+
+;; ============================================================================
+;; REACTIVE PATTERN
+;; ============================================================================
+
+(log "\n--- Phase 3: Reactive Updates ---\n")
+
+(def watch-triggered (atom false))
+(def watch-values (atom nil))
+
+;; Set up watcher BEFORE config changes
+(reg/watch! "config.server/ws-port" :test-watch
+  (fn [k name old-val new-val]
+    (reset! watch-triggered true)
+    (reset! watch-values {:old old-val :new new-val})))
+
+;; Simulate config update (e.g., from nREPL or sync)
+(reg/set-value! "config.server/ws-port" 9000)
+
+(test-case "Watch: triggered on config change"
+  #(true? @watch-triggered))
+
+(test-case "Watch: received old value"
+  #(= 8080 (:old @watch-values)))
+
+(test-case "Watch: received new value"
+  #(= 9000 (:new @watch-values)))
+
+(test-case "App: URL reflects new port"
+  #(= "ws://test-server.local:9000/" (build-ws-url)))
+
+;; ============================================================================
+;; DISCOVERY LIST
+;; ============================================================================
+
+(log "\n--- Phase 4: Inspection ---\n")
+
+(test-case "list-registered-prefix finds all config"
+  #(= 3 (count (reg/list-registered-prefix "config."))))
+
+(test-case "All config keys present"
+  #(let [configs (reg/list-registered-prefix "config.")]
+     (and (contains? configs "config.server/ws-host")
+          (contains? configs "config.server/ws-port")
+          (contains? configs "config.server/api-base"))))
+
+;; ============================================================================
+;; SUMMARY
+;; ============================================================================
+
+(log (str "\n=== Results: " @tests-passed " passed, " @tests-failed " failed ===\n"))
+
+(when (zero? @tests-failed)
+  (log "\n✓ PATTERN VERIFIED: App code is fully decoupled from discovery!\n"))
+
+(set! (.-textContent output-el) (apply str @results))
+(aset js/window "testResults" #js {:passed @tests-passed :failed @tests-failed})
+(js/console.log "Tests complete:" @tests-passed "passed," @tests-failed "failed")
+  </script>
+</body>
+</html>

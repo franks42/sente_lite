@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Config Discovery Pattern Test</title>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+  <style>
+    body { font-family: monospace; padding: 20px; max-width: 900px; margin: 0 auto; }
+    .pass { color: green; font-weight: bold; }
+    .fail { color: red; font-weight: bold; }
+    .info { color: blue; }
+    pre { background: #f5f5f5; padding: 10px; overflow-x: auto; font-size: 12px; }
+    #results { margin-top: 20px; }
+    .test-item { margin: 5px 0; padding: 8px; border-left: 3px solid #ccc; background: #fafafa; }
+    .test-item.pass { border-left-color: green; }
+    .test-item.fail { border-left-color: red; }
+    .test-item.info { border-left-color: blue; background: #f0f8ff; }
+    .summary { margin-top: 20px; padding: 15px; background: #eee; }
+    h2 { color: #333; border-bottom: 2px solid #333; padding-bottom: 5px; }
+    .diagram { background: #1a1a1a; color: #0f0; padding: 15px; font-size: 11px; line-height: 1.3; }
+  </style>
+</head>
+<!--
+  Configuration Discovery Pattern Demo
+
+  This HTML file demonstrates the many-to-one config discovery pattern:
+  1. Discovery handlers populate the registry from various sources
+  2. App code ONLY reads from registry (never knows the source)
+  3. Watcher on config triggers connection when config is available
+
+  The WS port is "hardcoded" here, but app code doesn't know that!
+-->
+<body data-ws-port="1345" data-ws-host="localhost">
+  <h1>Configuration Discovery Pattern</h1>
+
+  <h2>Pattern Diagram</h2>
+  <pre class="diagram">
+┌─────────────────────────────────────────────────────────────┐
+│                    DISCOVERY SOURCES                        │
+│  ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌─────────┐ ┌───────┐ │
+│  │Hardcode │ │ File    │ │ HTML    │ │Endpoint │ │ nREPL │ │
+│  │  ****   │ │         │ │ ****    │ │         │ │       │ │
+│  └────┬────┘ └─────────┘ └────┬────┘ └─────────┘ └───────┘ │
+│       │                       │                             │
+│       └───────────┬───────────┘   (this demo uses these)   │
+│                   ▼                                         │
+│        ┌──────────────────────┐                            │
+│        │  Discovery Handler   │  (many-to-one)             │
+│        └──────────┬───────────┘                            │
+│                   ▼                                         │
+│   ┌───────────────────────────────────────────────┐        │
+│   │              FQN REGISTRY                      │        │
+│   │  "config.server/ws-host"  → "localhost"       │        │
+│   │  "config.server/ws-port"  → 1345              │        │
+│   └───────────────────────────────────────────────┘        │
+│                   ▲                                         │
+│        ┌──────────┴───────────┐                            │
+│        │      APP CODE        │  (reads only)              │
+│        │  connect-when-ready! │                            │
+│        └──────────────────────┘                            │
+└─────────────────────────────────────────────────────────────┘
+  </pre>
+
+  <h2>Test Results</h2>
+  <div id="status">Initializing...</div>
+  <div id="results"></div>
+
+  <!-- Load Trove (for logging) -->
+  <script type="application/x-scittle" src="taoensso/trove.cljs"></script>
+
+  <!-- Load sente-lite client dependencies -->
+  <script type="application/x-scittle" src="../../src/sente_lite/packer.cljc"></script>
+  <script type="application/x-scittle" src="../../src/sente_lite/wire_format.cljc"></script>
+  <script type="application/x-scittle" src="../../src/sente_lite/client_scittle.cljs"></script>
+
+  <!-- Inline Registry (to avoid CORS issues) -->
+  <script type="application/x-scittle">
+(ns sente-lite.registry
+  "FQN-based registry for managing named resources across processes.")
+
+(defonce ^:private reg-root (atom "sente-lite.registry"))
+(defn get-reg-root [] @reg-root)
+(defn set-reg-root! [root] (reset! reg-root root))
+
+(def ^:private valid-name-pattern #"[a-z][a-z0-9]*(\.[a-z][a-z0-9]*)*/[a-z][a-z0-9-]*")
+(defn- valid-name? [name] (and (string? name) (re-matches valid-name-pattern name)))
+(defn- validate-name! [name]
+  (when-not (valid-name? name)
+    (throw (ex-info "Invalid registry name format" {:name name}))))
+
+(defn- absolute-fqn [name]
+  (let [slash-idx (.indexOf name "/")
+        category (subs name 0 slash-idx)
+        var-name (subs name (inc slash-idx))]
+    (str @reg-root "." category "/" var-name)))
+
+(defn- name->symbols [name]
+  (let [fqn (absolute-fqn name)
+        sym (symbol fqn)]
+    [(symbol (namespace sym)) (symbol (clojure.core/name sym))]))
+
+(defonce ^:private registered-names (atom #{}))
+
+(defn register! [name initial-value]
+  (validate-name! name)
+  (let [syms (name->symbols name)
+        ns-sym (first syms)
+        name-sym (second syms)]
+    (create-ns ns-sym)
+    (let [a (atom initial-value)]
+      (intern ns-sym name-sym a)
+      (swap! registered-names conj name)
+      a)))
+
+(defn get-ref [name]
+  (validate-name! name)
+  (when-let [v (find-var (symbol (absolute-fqn name)))]
+    @v))
+
+(defn get-value [name]
+  (when-let [ref (get-ref name)] @ref))
+
+(defn set-value! [name new-value]
+  (if-let [ref (get-ref name)]
+    (reset! ref new-value)
+    (throw (ex-info "Registry name not found" {:name name}))))
+
+(defn registered? [name]
+  (validate-name! name)
+  (contains? @registered-names name))
+
+(defn list-registered [] @registered-names)
+
+(defn list-registered-prefix [prefix]
+  (into #{} (filter #(.startsWith % prefix) @registered-names)))
+
+(defn watch! [name key callback]
+  (if-let [ref (get-ref name)]
+    (add-watch ref key (fn [k _ old new] (callback k name old new)))
+    (throw (ex-info "Registry name not found" {:name name}))))
+
+(defn unwatch! [name key]
+  (if-let [ref (get-ref name)]
+    (remove-watch ref key)
+    (throw (ex-info "Registry name not found" {:name name}))))
+
+(defn unregister! [name]
+  (validate-name! name)
+  (when-let [ref (get-ref name)]
+    (reset! ref nil)
+    (swap! registered-names disj name)
+    true))
+  </script>
+
+  <!-- Test Script: Config Discovery Pattern -->
+  <script type="application/x-scittle">
+(ns test-config-discovery
+  (:require [sente-lite.registry :as reg]
+            [sente-lite.client-scittle :as client]))
+
+;; ============================================================================
+;; UI Helpers
+;; ============================================================================
+
+(def test-results (atom []))
+
+(defn set-status! [msg]
+  (set! (.-innerHTML (.getElementById js/document "status"))
+        (str "<strong>Status:</strong> " msg)))
+
+(defn log-result! [name pass? detail & [info?]]
+  (swap! test-results conj {:name name :pass pass? :detail detail})
+  (let [el (.createElement js/document "div")
+        class (cond info? "info" pass? "pass" :else "fail")
+        icon (cond info? "→" pass? "✓" :else "✗")]
+    (set! (.-className el) (str "test-item " class))
+    (set! (.-innerHTML el) (str "<span class='" class "'>" icon "</span> " name ": " detail))
+    (.appendChild (.getElementById js/document "results") el)))
+
+(defn show-summary! []
+  (let [results @test-results
+        passed (count (filter :pass results))
+        failed (count (filter #(not (:pass %)) results))
+        total (count results)
+        el (.createElement js/document "div")]
+    (set! (.-className el) "summary")
+    (set! (.-innerHTML el)
+          (str "<h3>Summary</h3>"
+               "<p>Total: " total " | "
+               "<span class='pass'>Passed: " passed "</span> | "
+               "<span class='fail'>Failed: " failed "</span></p>"
+               (if (zero? failed)
+                 "<p class='pass'>✓ PATTERN WORKS - App code decoupled from discovery!</p>"
+                 "<p class='fail'>✗ SOME TESTS FAILED</p>")))
+    (.appendChild (.getElementById js/document "results") el)
+    (aset js/window "testsPassed" (zero? failed))
+    (aset js/window "testsComplete" true)))
+
+;; ============================================================================
+;; DISCOVERY HANDLERS (many sources → one registry)
+;; ============================================================================
+
+(defn discover-from-hardcoded!
+  "Discovery handler #1: Hardcoded defaults (fallback)"
+  []
+  (log-result! "Discovery: Hardcoded" true
+               "Registering fallback defaults..." true)
+  (reg/register! "config.server/ws-host" "localhost")
+  (reg/register! "config.server/ws-port" 8080))
+
+(defn discover-from-html!
+  "Discovery handler #2: HTML data attributes (overrides hardcoded)"
+  []
+  (log-result! "Discovery: HTML" true
+               "Checking <body> data attributes..." true)
+  (let [body js/document.body
+        ds (.-dataset body)]
+    ;; Check for ws-port in HTML
+    (when-let [port (.-wsPort ds)]
+      (let [port-num (js/parseInt port)]
+        (reg/set-value! "config.server/ws-port" port-num)
+        (log-result! "Discovery: HTML ws-port" true
+                     (str "Found data-ws-port=\"" port "\" → updated registry") true)))
+    ;; Check for ws-host in HTML
+    (when-let [host (.-wsHost ds)]
+      (reg/set-value! "config.server/ws-host" host)
+      (log-result! "Discovery: HTML ws-host" true
+                   (str "Found data-ws-host=\"" host "\" → updated registry") true))))
+
+;; ============================================================================
+;; APP CODE (only reads from registry - doesn't know discovery source!)
+;; ============================================================================
+
+(def client-atom (atom nil))
+
+(defn build-ws-url
+  "App code builds URL from registry - doesn't know where values came from!"
+  []
+  (let [host (reg/get-value "config.server/ws-host")
+        port (reg/get-value "config.server/ws-port")]
+    (str "ws://" host ":" port "/")))
+
+(defn connect!
+  "App code connects using registry values - source-agnostic!"
+  []
+  (let [url (build-ws-url)]
+    (log-result! "App: Building URL" true
+                 (str "Built from registry: " url))
+
+    (log-result! "App: Connecting" true
+                 "App code only reads from registry, never knows discovery source!" true)
+
+    (let [cid (client/make-client!
+               {:url url
+                :on-open (fn [uid]
+                           (log-result! "Connection Established" true
+                                        (str "Connected with UID: " uid))
+                           ;; Send a test message
+                           (client/send! cid [:test/ping {:from "config-discovery-test"}])
+                           ;; Close after brief test
+                           (js/setTimeout
+                            (fn []
+                              (client/close! cid)
+                              (log-result! "Connection Closed" true "Clean disconnect")
+                              (set-status! "Test complete!")
+                              (show-summary!))
+                            1000))
+                :on-message (fn [event-id data]
+                              (when (= event-id :sente-lite/echo)
+                                (log-result! "Echo Received" true
+                                             (str "Server echoed: " (pr-str data)))))
+                :on-close (fn [_] nil)
+                :auto-reconnect? false})]
+      (reset! client-atom cid))))
+
+;; ============================================================================
+;; MAIN: Run the pattern
+;; ============================================================================
+
+(defn run-pattern! []
+  (set-status! "Running Configuration Discovery Pattern...")
+
+  (log-result! "=== PHASE 1: Discovery ===" true
+               "Multiple handlers populate registry" true)
+
+  ;; Step 1: Run hardcoded discovery first (fallback defaults)
+  (discover-from-hardcoded!)
+
+  ;; Step 2: Run HTML discovery (overrides hardcoded if present)
+  (discover-from-html!)
+
+  ;; Show what's in the registry now
+  (log-result! "Registry Contents" true
+               (str "config/* = " (pr-str (reg/list-registered-prefix "config/"))))
+
+  (log-result! "=== PHASE 2: App Code ===" true
+               "App reads from registry only" true)
+
+  ;; Verify app code sees correct values
+  (let [host (reg/get-value "config.server/ws-host")
+        port (reg/get-value "config.server/ws-port")]
+    (log-result! "App: Read config.server/ws-host" (= host "localhost")
+                 (str "Got: \"" host "\""))
+    (log-result! "App: Read config.server/ws-port" (= port 1345)
+                 (str "Got: " port " (from HTML, not hardcoded 8080!)")))
+
+  (log-result! "=== PHASE 3: Connect ===" true
+               "App connects using registry config" true)
+
+  ;; Connect using registry values
+  (connect!))
+
+;; Start after page load
+(js/setTimeout run-pattern! 300)
+  </script>
+</body>
+</html>
