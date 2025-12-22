@@ -631,7 +631,7 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 
 ### Next Steps
 1. **CSRF Token Support** - Foundation for future Ajax/HTTP features
-2. **Module Phase 2** - Two-way atom-sync
+2. **datascript-sync module** - One-way tx-log replication (see below)
 3. **Cross-runtime testing** - Verify modules work BB↔Scittle↔nbb
 4. **Component system** - 108 tests, multimethod-based lifecycle
 
@@ -689,6 +689,75 @@ This is intentionally crude - real filtering happens server-side with Timbre.
 - OpenTelemetry JS SDK - Too heavy, needs bundling, overkill for our use
 - Lightweight JS loggers - Just console wrappers, no real routing
 - **Conclusion:** Current approach (Trove + sente routing) is pragmatic
+
+---
+
+## datascript-sync Module (Planned)
+
+**Concept:** One-way DataScript replication via tx-log over sente-lite.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     SERVER (single writer)                       │
+│                                                                  │
+│   (d/transact! conn [{:user/name "Alice"}])                     │
+│         │                                                        │
+│         ↓                                                        │
+│   tx-report: {:tx-data [{:e 1 :a :user/name :v "Alice" ...}]}   │
+│         │                                                        │
+│         └──────── sente publish ─────────────────────────────────┤
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                        [sente-lite channel]
+                              │
+┌─────────────────────────────────────────────────────────────────┐
+│                     CLIENT (read replica)                        │
+│                                                                  │
+│   receive tx-data → (d/db-with local-db tx-data)                │
+│   local queries always consistent with server                   │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why this pattern:**
+- **Single master** - Server writes, clients read (no conflicts, like Datomic)
+- **Incremental** - Only tx-data sent, not full DB dumps
+- **Deterministic** - Same tx-data → same DB state
+- **Event sourcing** - tx-log IS the source of truth
+- **Already serializable** - datascript-transit handles it
+
+**Wire format:**
+```clojure
+{:event-id :datascript/tx
+ :data {:tx-data [{:e 1 :a :user/name :v "Alice" :tx 536870913 :added true}]
+        :tx-id 536870913}}
+```
+
+**Implementation scope:**
+1. Server: Listen to DataScript conn, publish tx-data on change
+2. Client: Subscribe to channel, apply tx-data with `d/db-with`
+3. Use datascript-transit for serialization
+4. Optional: tx-id tracking for reconnection/catchup
+
+**Dependencies:** datascript, datascript-transit
+
+---
+
+## Two-Way Sync (Research Notes)
+
+**Status:** Deprioritized - hard problem, no good existing solution to port.
+
+**Research (2025-12-22):**
+- [Datsync](https://github.com/metasoarous/datsync) - Unmaintained since 2021
+- [Electric Clojure](https://github.com/hyperfiddle/electric) - Compiler-level solution, paradigm shift
+- [DataScript](https://github.com/tonsky/datascript) - Intentionally omits sync ("keep library lightweight")
+- CRDTs (Automerge, Yjs, Schism) - Complex, specific data structures
+
+**Conclusion:** Two-way sync is essentially distributed consensus. There's a reason Datomic has a single transaction point. Options if needed:
+1. Single-master pattern (one writer, readers get tx-log)
+2. Electric Clojure adoption (if paradigm fits)
+3. CRDTs for specific collaborative editing
+
+**atom-sync module:** Keep Phase 1 (one-way) as-is. Two-way deferred indefinitely.
 
 ---
 
