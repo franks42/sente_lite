@@ -22,8 +22,6 @@
                       com.taoensso/timbre {:mvn/version "6.6.1"}}
          :main-opts ["-m" "cognitect.test-runner"]}
 
-  :legacy {:extra-paths ["src_legacy"]}
-
   :bb {:replace-deps {}
        :replace-paths ["src"]}
 

@@ -642,8 +642,8 @@ Items identified from Cascade AI reviews (process-registry, project-SWE, stress-
 **Not urgent** - captured here for future consideration.
 
 ### Technical Debt (Medium Priority)
-- [ ] Remove `src_legacy/` directory
-- [ ] Remove deprecated wire format v1
+- [x] ~~Remove `src_legacy/` directory~~ - Removed 2025-12-22 (wire_multiplexer.cljc, transit_multiplexer.cljc)
+- [x] ~~Remove deprecated wire format v1~~ - Already done: v1 is detection+rejection only (helpful error messages), no actual v1 support exists
 - [ ] Consolidate multiple state atoms in clients
 - [ ] Externalize vendored Trove (or keep if stable)
 
