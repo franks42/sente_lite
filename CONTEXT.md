@@ -1,17 +1,91 @@
 # Context for Next Claude Instance
 
 **Date Created**: 2025-10-29
-**Last Updated**: 2025-12-20 (FQN Registry implemented)
+**Last Updated**: 2025-12-22 (Pure CLJS browser adapter - Phase 4 complete)
 
 ## CURRENT STATUS
 
-**Last Commit**: `v2.10.0-fqn-registry` - FQN-based registry implementation
+**Last Commit**: `2365866` - feat: add pure CLJS browser adapter for nREPL-over-sente (Phase 4)
+**Tag**: `v0.4.0-browser-adapter`
 **Branch**: `main`
-**Status**: ✅ Modules Phase 1 complete, ✅ FQN Registry implemented (19/19 tests)
+**Status**: ✅ nREPL-over-sente module Phases 1-4 complete
 
 ---
 
-## TODAY'S SESSION (2025-12-20)
+## TODAY'S SESSION (2025-12-22)
+
+### Completed: Pure CLJS Browser Adapter (Phase 4)
+
+**Major milestone**: Converted JavaScript FakeWebSocket to pure ClojureScript!
+
+**The Challenge**: Scittle CLJS scripts are queued and evaluated AFTER all synchronous scripts load. This meant our CLJS FakeWebSocket was created AFTER `scittle.nrepl.js` - too late!
+
+**Solution Found**: Use `scittle.core.eval_script_tags()` to force immediate evaluation:
+
+```html
+<script src="scittle.js"></script>
+<script type="application/x-scittle">
+  ;; FakeWebSocket code INLINE here (not external file!)
+</script>
+<script>scittle.core.eval_script_tags();</script>  <!-- Force eval NOW! -->
+<script src="scittle.nrepl.js"></script>           <!-- Finds ws_nrepl ready -->
+```
+
+**Key insight**: External files (with `src` attribute) use async XHR even with `eval_script_tags()`. Only INLINE scripts execute synchronously.
+
+**Files created**:
+- `modules/nrepl/src/nrepl_sente/browser_adapter.cljs` - Scittle integration
+- `modules/nrepl/src/nrepl_sente/fake_websocket.cljs` - Reference (use inline)
+- `modules/nrepl/src/nrepl_sente/browser_adapter.js` - Deprecated JS version
+- `modules/nrepl/test/test_browser_adapter.bb` - Playwright integration test
+- `modules/nrepl/test/test_browser_adapter.html` - Working example
+
+**Test results** (all pass with state persistence):
+- `(+ 1 2 3)` → `"6"` ✓
+- `(def x 42)` → `"#'user/x"` ✓
+- `(* x 2)` → `"84"` ✓ (x=42 persisted!)
+- `(+ x y)` → `"52"` ✓
+
+**Benefits**:
+1. **100% Clojure/Script** - No JavaScript files needed
+2. **Zero changes to scittle.nrepl.js** - No forking upstream
+3. **Reuses proven code** - sci.nrepl is battle-tested
+4. **Clean separation** - FakeWebSocket and adapter are pure CLJS
+
+---
+
+## PREVIOUS SESSION (2025-12-21)
+
+### Completed: nREPL Module (Phases 1-3)
+
+Location: `modules/nrepl/`
+
+**Layer 1 - Protocol & Server** (`src/nrepl_sente/server.cljc`):
+- EDN message format for nREPL ops (eval, load-file, describe, clone)
+- Platform-specific eval: BB uses `binding [*ns* ...] + reader + eval`, Scittle uses `scittle.core/eval_string`
+- Namespace persistence fixed using `!last-ns` atom pattern
+- 22 tests passing
+
+**Layer 2 - Client API** (`src/nrepl_sente/client.clj`):
+- Registry-based connection discovery
+- eval!, load-file!, eval-latest!, load-file-latest! API
+- 24 tests passing
+
+**Layer 3 - Bencode Proxy** (`src/nrepl_sente/proxy.clj`):
+- Bridges editors/nREPL-MCP to sente-lite peers
+- 19 tests passing
+
+**Namespace Persistence Tests**: 9 tests passing
+
+**Total: 74+ tests**
+
+### Investigated: sci.nrepl Cannot Load in Scittle via CDN
+
+sci.nrepl uses internal SCI APIs (`sci/eval-string*`, `sci/binding`, etc.) that Scittle doesn't expose. Our implementation correctly uses `scittle.core/eval_string`.
+
+---
+
+## PREVIOUS SESSION (2025-12-20)
 
 ### Completed: Modules Phase 1
 
@@ -112,6 +186,22 @@ src/sente_lite/
 
 modules/
 ├── modules-plan.md                    # Overview
+├── nrepl/                             # nREPL-over-sente ✅ (v0.4.0)
+│   ├── nrepl-sente-design.md          # Architecture & decisions
+│   ├── src/nrepl_sente/
+│   │   ├── server.cljc                # Layer 1: Protocol & Server (22 tests)
+│   │   ├── client.clj                 # Layer 2: Client API (24 tests)
+│   │   ├── proxy.clj                  # Layer 3: Bencode Proxy (19 tests)
+│   │   ├── browser_adapter.cljs       # Layer 4: Scittle integration
+│   │   ├── fake_websocket.cljs        # Reference (use INLINE in HTML!)
+│   │   └── browser_adapter.js         # DEPRECATED - use CLJS instead
+│   └── test/
+│       ├── test_browser_adapter.html  # Working example with inline CLJS
+│       ├── test_browser_adapter.bb    # Playwright integration test
+│       ├── test_nrepl_bb_to_bb.bb     # Server tests
+│       ├── test_nrepl_client_api.bb   # Client API tests
+│       ├── test_nrepl_proxy.bb        # Proxy tests
+│       └── test_nrepl_ns_persistence.bb # Namespace persistence tests
 ├── log-routing/                       # Phase 1 Complete ✅
 │   ├── README.md
 │   ├── src/log_routing/sender.cljc
@@ -145,7 +235,14 @@ bb test/scripts/registry/test_registry_bb.bb
 nbb test/scripts/registry/test_registry_nbb.cljs
 node test/scripts/registry/test_registry_playwright.mjs
 
-# Run module tests
+# Run nREPL module tests
+bb modules/nrepl/test/test_nrepl_bb_to_bb.bb
+bb modules/nrepl/test/test_nrepl_client_api.bb
+bb modules/nrepl/test/test_nrepl_proxy.bb
+bb modules/nrepl/test/test_nrepl_ns_persistence.bb
+bb modules/nrepl/test/test_browser_adapter.bb  # Requires server + Playwright
+
+# Run other module tests
 bb modules/log-routing/test/test_bb_to_bb.bb
 bb modules/atom-sync/test/test_one_way.bb
 
@@ -165,6 +262,20 @@ bb run_tests.bb
 ;; ✅ WORKS in SCI
 (let [event-id (first msg)
       data (second msg)] ...)
+```
+
+### Scittle Script Loading Order (eval_script_tags)
+External x-scittle files use async XHR - order not guaranteed!
+Use INLINE scripts + `eval_script_tags()` for synchronous execution:
+
+```html
+<script src="scittle.js"></script>
+<script type="application/x-scittle">
+  ;; Code that MUST run first - INLINE only!
+  (aset js/window "my_thing" (create-thing))
+</script>
+<script>scittle.core.eval_script_tags();</script>  <!-- Force NOW -->
+<script src="lib-that-expects-my_thing.js"></script>
 ```
 
 ### FQN Registry API
