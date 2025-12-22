@@ -630,9 +630,65 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 4. **12-test suite** - Wire format, server, channels, nREPL, bundle
 
 ### Next Steps
-1. **Module Phase 2** - Two-way atom-sync, log filtering
-2. **Cross-runtime testing** - Verify modules work BB↔Scittle↔nbb
-3. **Component system** - 108 tests, multimethod-based lifecycle
+1. **CSRF Token Support** - Foundation for future Ajax/HTTP features
+2. **Module Phase 2** - Two-way atom-sync
+3. **Cross-runtime testing** - Verify modules work BB↔Scittle↔nbb
+4. **Component system** - 108 tests, multimethod-based lifecycle
+
+---
+
+## CSRF Token Support (Planned)
+
+**Current state:** Wire format supports CSRF (Sente-compatible), but server sends `nil`.
+
+**Why implement:**
+- Foundation for future Ajax fallback (HTTP requests need CSRF protection)
+- Foundation for HTTP blob transfer (out-of-band large file uploads)
+- Makes sente-lite a more complete Sente replacement
+- Security best practice
+
+**Implementation scope:**
+1. Server accepts `:csrf-token` in config (or auto-generates UUID if not provided)
+2. Token sent in handshake: `[:chsk/handshake [uid csrf-token handshake-data first?]]`
+3. Clients store token in state, expose via `(get-csrf-token client-id)`
+4. Future: validation helper/middleware for HTTP endpoints
+
+**Use case - HTTP blob transfer:**
+```
+[Browser] ──WebSocket──→ [Server]: "upload 50MB file"
+[Server]  ──WebSocket──→ [Browser]: {:upload-url "/api/upload"}
+[Browser] ──HTTP POST──→ [Server]: multipart + X-CSRF-Token header
+```
+
+---
+
+## Telemetry Strategy (Clarification)
+
+**Current approach - keep it simple:**
+
+| Platform | Library | Filtering | Routing |
+|----------|---------|-----------|---------|
+| BB/JVM | Timbre (built-in) | ✅ Full (level, ns, appenders) | ✅ Full |
+| Browser/Scittle | Trove | ⚠️ Level only | ❌ None (sente routing) |
+
+**Philosophy:** Don't build custom log filtering in sente-lite. Rely on:
+- **Server-side:** Timbre handles all filtering/routing (powerful, mature)
+- **Browser:** Trove for minimal logging, route interesting events to server via sente
+- **Server does heavy lifting:** Filter/aggregate/store logs received from browsers
+
+**Log-routing module:** Current implementation routes browser logs to server via sente channel.
+This is intentionally crude - real filtering happens server-side with Timbre.
+
+**Future: Telemere**
+- Peter Taoensso's next-gen telemetry (structured, OpenTelemetry-inspired)
+- Currently requires ClojureScript compilation (not Scittle/SCI compatible)
+- **Watch for:** Telemere Scittle compatibility or Trove improvements
+- If Telemere becomes SCI-compatible, adopt it across all platforms
+
+**Browser telemetry alternatives (researched):**
+- OpenTelemetry JS SDK - Too heavy, needs bundling, overkill for our use
+- Lightweight JS loggers - Just console wrappers, no real routing
+- **Conclusion:** Current approach (Trove + sente routing) is pragmatic
 
 ---
 
