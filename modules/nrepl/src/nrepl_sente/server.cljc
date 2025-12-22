@@ -5,8 +5,8 @@
    Receives EDN messages via sente, evaluates, returns EDN responses.
 
    Namespace state is persisted across requests (session-based):
-   - BB/CLJ: Uses atom to track last namespace with binding [*ns* ...]
-   - Scittle/CLJS: Uses scittle.core/eval_string which has built-in !last-ns
+   - BB/CLJ: Uses atoms to track namespace per session
+   - Scittle/CLJS: Uses scittle.core/eval_string which has built-in persistence
 
    Usage:
      ;; Create handler for sente on-message
@@ -22,9 +22,22 @@
 ;;; Namespace State (CLJ only - Scittle handles this internally)
 ;;; ============================================================
 
-;; Atom tracking the last namespace for persistence across requests.
-;; Initialized to 'user namespace. Changes persist within the server session.
-#?(:clj (defonce !last-ns (atom (find-ns 'user))))
+;; Atom tracking sessions for persistence across requests.
+;; Map of session-id -> {:ns <namespace object>}
+#?(:clj (defonce !sessions (atom {})))
+
+#?(:clj
+   (defn- get-session-ns
+     [session-id]
+     (if session-id
+       (get-in @!sessions [session-id :ns] (find-ns 'user))
+       (find-ns 'user))))
+
+#?(:clj
+   (defn- update-session-ns!
+     [session-id new-ns]
+     (when session-id
+       (swap! !sessions assoc-in [session-id :ns] new-ns))))
 
 ;;; ============================================================
 ;;; Platform-specific eval
@@ -33,12 +46,12 @@
 #?(:clj
    (defn eval-code
      "Evaluate code string on Babashka/JVM using reader + eval.
-      Namespace changes persist across requests via !last-ns atom.
+      Namespace changes persist across requests via !sessions atom.
       Uses binding [*ns* ...] to ensure namespace context is maintained."
-     [code-string]
+     [code-string session-id]
      (try
-       ;; Evaluate in the context of last saved namespace
-       (binding [*ns* @!last-ns]
+       ;; Evaluate in the context of session's namespace
+       (binding [*ns* (get-session-ns session-id)]
          (let [rdr (rt/string-push-back-reader code-string)
                result (loop [last-result nil]
                         (let [form (reader/read rdr false ::eof)]
@@ -47,7 +60,7 @@
                             (recur (eval form)))))
                final-ns *ns*]
            ;; Save current namespace for next request
-           (reset! !last-ns final-ns)
+           (update-session-ns! session-id final-ns)
            {:success true
             :value (pr-str result)
             :ns (str (ns-name final-ns))}))
@@ -55,22 +68,92 @@
          {:success false
           :error (.getMessage e)
           :ex (str (type e))
-          :ns (str (ns-name @!last-ns))})))
+          :ns (str (ns-name (get-session-ns session-id)))}))))
 
-   :cljs
-   (defn eval-code
+#?(:cljs
+   (defn- scittle-eval
      "Evaluate code string on Scittle using eval_string."
      [code-string]
+     (let [eval-fn (.-eval_string (.-core js/window.scittle))]
+       (try
+         (let [result (eval-fn code-string)
+               current-ns (eval-fn "(str *ns*)")]
+           {:success true
+            :value (pr-str result)
+            :ns current-ns})
+         (catch :default e
+           (let [current-ns (try (eval-fn "(str *ns*)") (catch :default _ "user"))]
+             {:success false
+              :error (.-message e)
+              :ex (str (type e))
+              :ns current-ns}))))))
+
+#?(:cljs
+   (defn- nbb-eval
+     "Evaluate code string on nbb using nbb.core/load-string.
+      Returns a Promise that resolves to the result map.
+      State persists across calls in nbb's global context."
+     [code-string]
+     ;; Require at runtime to avoid issues when running in Scittle
+     ;; Wrapped in try-catch for safety if nbb.core isn't available
      (try
-       (let [result (.eval_string (.-core js/window.scittle) code-string)]
-         {:success true
-          :value (pr-str result)
-          :ns (str *ns*)})
+       (let [nbb-core (js/require "nbb.core")
+             load-string (.-load_string nbb-core)]
+         (-> (load-string code-string)
+             (.then (fn [result]
+                      ;; Get current namespace
+                      (-> (load-string "(str *ns*)")
+                          (.then (fn [ns-str]
+                                   {:success true
+                                    :value (pr-str result)
+                                    :ns ns-str})))))
+             (.catch (fn [e]
+                       ;; Return error result
+                       (js/Promise.resolve
+                        {:success false
+                         :error (.-message e)
+                         :ex (str (type e))
+                         :ns "user"})))))
        (catch :default e
+         ;; Return synchronous error if require fails
          {:success false
-          :error (.-message e)
-          :ex (str (type e))
-          :ns (str *ns*)}))))
+          :error (str "nbb.core not available: " (.-message e))
+          :ex "RequireError"
+          :ns "user"}))))
+
+#?(:cljs
+   (defn- detect-runtime
+     "Detect if we're running in Scittle (browser) or nbb (Node.js)."
+     []
+     (cond
+       ;; Browser with Scittle
+       (and (exists? js/window)
+            (exists? js/window.scittle))
+       :scittle
+
+       ;; Node.js (nbb)
+       (exists? js/process)
+       :nbb
+
+       :else
+       :unknown)))
+
+#?(:cljs
+   (def ^:private runtime (detect-runtime)))
+
+#?(:cljs
+   (defn eval-code
+     "Evaluate code string on Scittle or nbb.
+      Automatically detects the runtime environment.
+      session-id arg is ignored for CLJS (runtime manages logic)."
+     [code-string session-id]
+     (case runtime
+       :scittle (scittle-eval code-string)
+       :nbb (nbb-eval code-string)
+       {:success false
+        :error "Unknown runtime - neither Scittle nor nbb detected"
+        :ex "RuntimeError"
+        :ns "user"})))
 
 ;;; ============================================================
 ;;; Operation Handlers
@@ -79,7 +162,7 @@
 (defn handle-eval
   "Handle :eval operation."
   [{:keys [code id session ns]}]
-  (let [result (eval-code code)
+  (let [result (eval-code code session)
         opts {:id id :session session :ns (:ns result)}]
     (if (:success result)
       (proto/value-response (:value result) opts)
@@ -149,7 +232,11 @@
   [send-fn]
   (fn [conn-id event-id data]
     (when (= event-id proto/request-event-id)
-      (let [response (dispatch-request data)]
+      ;; Inject conn-id as default session if missing to ensure state persistence
+      (let [request (if (:session data)
+                      data
+                      (assoc data :session conn-id))
+            response (dispatch-request request)]
         (send-fn conn-id (proto/wrap-response response))))))
 
 (defn make-simple-handler

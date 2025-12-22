@@ -36,6 +36,7 @@
 (println "  Phase 1: Wire Format Tests")
 (println "  Phase 2: Server Foundation Tests")
 (println "  Phase 3: Channel Integration Tests")
+(println "  Phase 4: nREPL Module Tests")
 (println)
 
 ;; Phase 1: Wire format tests
@@ -52,6 +53,14 @@
 ;; Phase 3: Channel integration
 (println " === Phase 3: Channel Integration Tests ===")
 (run-test "Channel Integration" "test_channel_integration.bb")
+
+;; Phase 4: nREPL module
+(println "🔌 === Phase 4: nREPL Module Tests ===")
+(run-test "nREPL BB-to-BB" "../../modules/nrepl/test/test_nrepl_bb_to_bb.bb")
+(run-test "nREPL NS Persistence" "../../modules/nrepl/test/test_nrepl_ns_persistence.bb")
+(run-test "nREPL NS Isolation" "../../modules/nrepl/test/test_nrepl_ns_isolation.bb")
+(run-test "nREPL Client API" "../../modules/nrepl/test/test_nrepl_client_api.bb")
+(run-test "nREPL Proxy" "../../modules/nrepl/test/test_nrepl_proxy.bb")
 
 ;; Summary
 (println " === Test Summary ===")
