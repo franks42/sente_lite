@@ -759,6 +759,43 @@ This is intentionally crude - real filtering happens server-side with Timbre.
 
 **atom-sync module:** Keep Phase 1 (one-way) as-is. Two-way deferred indefinitely.
 
+### Enhancement: Transactional Atom Wrapper (Optimization Path)
+
+**Problem:** One-way atom sync currently sends full state on every change. For large atoms, this is wasteful.
+
+**Solution:** Transactional wrapper that records operations explicitly (like DataScript tx-log):
+
+```clojure
+;; Instead of swap! which requires full-state diff
+(swap! state assoc :count 42)
+
+;; Use explicit transactional wrapper
+(defn tx! [atom & ops]
+  (let [tx-id (inc @tx-counter)]
+    (swap! atom #(reduce apply-op % ops))
+    (publish! {:tx-id tx-id :ops ops})))
+
+;; Usage - operations are data, easily serialized
+(tx! state
+  [:assoc :count 42]
+  [:update-in [:users 0 :name] str " Jr."])
+```
+
+**Benefits:**
+- **No diffing required** - operations are already the delta
+- **Smaller payloads** - send ops, not full state
+- **Same pattern as datascript-sync** - tx-log replication
+- **Idempotent replay** - tx-id enables exactly-once semantics
+
+**Trade-off:** Requires discipline to use `tx!` instead of direct `swap!`. Options to enforce:
+1. Wrap atom in protocol that only exposes `tx!`
+2. Use add-watch to detect unauthorized mutations
+3. Document as convention (simplest)
+
+**Related:** [editscript](https://github.com/juji-io/editscript) by Juji (same author as datalevin) could be used for computing diffs if full swap! compatibility needed, but explicit ops are simpler.
+
+**Status:** Future enhancement - not blocking Phase 1 one-way sync.
+
 ---
 
 ## Backlog (From External Reviews)
