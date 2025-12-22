@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>sente-lite-nrepl Bundle Test</title>
+
+  <!-- 1. Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+
+  <!-- 2. FakeWebSocket - use eval_string to avoid double-execution -->
+  <script>
+    scittle.core.eval_string(`
+      ;; FakeWebSocket - MUST be before scittle.nrepl.js
+      (defonce !fake-ws-state
+        (atom {:ready-state 1 :onmessage nil :onerror nil :onclose nil
+               :onopen nil :pending-inbound [] :send-fn nil}))
+
+      (defn- create-fake-ws []
+        (let [obj (js-obj)]
+          (js/Object.defineProperty obj "readyState"
+            #js {:get (fn [] (:ready-state @!fake-ws-state)) :configurable true})
+          (js/Object.defineProperty obj "onmessage"
+            #js {:get (fn [] (:onmessage @!fake-ws-state))
+                 :set (fn [f] (swap! !fake-ws-state assoc :onmessage f)) :configurable true})
+          (js/Object.defineProperty obj "onerror"
+            #js {:get (fn [] (:onerror @!fake-ws-state))
+                 :set (fn [f] (swap! !fake-ws-state assoc :onerror f)) :configurable true})
+          (js/Object.defineProperty obj "onclose"
+            #js {:get (fn [] (:onclose @!fake-ws-state))
+                 :set (fn [f] (swap! !fake-ws-state assoc :onclose f)) :configurable true})
+          (js/Object.defineProperty obj "onopen"
+            #js {:get (fn [] (:onopen @!fake-ws-state))
+                 :set (fn [f] (swap! !fake-ws-state assoc :onopen f)) :configurable true})
+          (aset obj "send" (fn [data]
+            (if-let [f (:send-fn @!fake-ws-state)] (f data)
+              (js/console.warn "[fake-ws] send called but no send-fn"))))
+          (aset obj "injectMessage" (fn [data]
+            (if-let [f (:onmessage @!fake-ws-state)] (f #js {:data data})
+              (swap! !fake-ws-state update :pending-inbound conj data))))
+          (aset obj "flushPending" (fn []
+            (let [pending (:pending-inbound @!fake-ws-state)]
+              (swap! !fake-ws-state assoc :pending-inbound [])
+              (when-let [f (:onmessage @!fake-ws-state)]
+                (doseq [d pending] (f #js {:data d}))))))
+          (aset obj "setSendFn" (fn [f]
+            (swap! !fake-ws-state assoc :send-fn f)))
+          (aset obj "close" (fn []
+            (swap! !fake-ws-state assoc :ready-state 3)
+            (when-let [f (:onclose @!fake-ws-state)] (f #js {:code 1000}))))
+          obj))
+
+      (when-not (aget js/window "ws_nrepl")
+        (aset js/window "ws_nrepl" (create-fake-ws))
+        (js/console.log "[fake-ws] window.ws_nrepl INSTALLED"))
+    `);
+  </script>
+
+  <!-- 3. Scittle nREPL (finds our FakeWebSocket) -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.nrepl.js"></script>
+
+  <!-- 4. Trove (logging) -->
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc" type="application/x-scittle"></script>
+
+  <!-- 5. sente-lite-nrepl bundle -->
+  <script src="sente-lite-nrepl.cljs" type="application/x-scittle"></script>
+</head>
+<body>
+  <h1>sente-lite-nrepl Bundle Test</h1>
+  <div id="status">Loading...</div>
+  <pre id="log"></pre>
+
+  <script type="application/x-scittle">
+    (ns test.bundle
+      (:require [sente-lite.client-scittle :as client]
+                [sente-lite.registry :as reg]
+                [nrepl-sente.browser-adapter :as adapter]
+                [nrepl-sente.protocol :as proto]))
+
+    (defn log! [& args]
+      (let [el (js/document.getElementById "log")
+            msg (apply str (interpose " " (map pr-str args)))]
+        (set! (.-textContent el) (str (.-textContent el) msg "\n"))
+        (js/console.log msg)))
+
+    (defn set-status! [s]
+      (set! (.-textContent (js/document.getElementById "status")) s))
+
+    (log! "=== Bundle Test Started ===")
+
+    ;; Test 1: Registry
+    (log! "Testing registry...")
+    (reg/register! "test/value" {:hello "world"})
+    (log! "  Registered: test/value =" (reg/get-value "test/value"))
+    (reg/unregister! "test/value")
+    (log! "  Unregistered OK")
+
+    ;; Test 2: Protocol
+    (log! "Testing nrepl-sente.protocol...")
+    (log! "  request-event-id:" proto/request-event-id)
+    (log! "  response-event-id:" proto/response-event-id)
+
+    ;; Test 3: Adapter status
+    (log! "Testing browser-adapter...")
+    (log! "  Adapter status:" (adapter/status))
+
+    (set-status! "All modules loaded successfully!")
+    (log! "")
+    (log! "=== All Tests Passed ===")
+    (log! "")
+    (log! "Available namespaces:")
+    (log! "  - sente-lite.client-scittle")
+    (log! "  - sente-lite.registry")
+    (log! "  - nrepl-sente.browser-adapter")
+    (log! "  - nrepl-sente.protocol")
+
+    ;; Mark ready for testing
+    (set! (.-BUNDLE_TEST_PASSED js/window) true)
+  </script>
+
+  <script>
+    // Eval all script tags (Trove, bundle, test)
+    scittle.core.eval_script_tags();
+  </script>
+</body>
+</html>

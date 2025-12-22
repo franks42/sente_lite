@@ -28,4 +28,8 @@
        :replace-paths ["src"]}
 
   ;; Extract CLJS-only code from CLJC files
-  :extract {:extra-deps {org.clojure/tools.reader {:mvn/version "1.5.2"}}}}}
+  :extract {:extra-deps {org.clojure/tools.reader {:mvn/version "1.5.2"}}}
+
+  ;; Build JAR and install locally
+  :build {:deps {io.github.clojure/tools.build {:mvn/version "0.10.6"}}
+          :ns-default build}}}

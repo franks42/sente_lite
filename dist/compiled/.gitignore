@@ -1,0 +1,8 @@
+# Shadow-cljs build artifacts
+.shadow-cljs/
+js/
+target/
+
+# npm
+node_modules/
+package-lock.json

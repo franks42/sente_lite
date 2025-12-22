@@ -37,6 +37,7 @@
 (println "  Phase 2: Server Foundation Tests")
 (println "  Phase 3: Channel Integration Tests")
 (println "  Phase 4: nREPL Module Tests")
+(println "  Phase 5: Browser Bundle Tests")
 (println)
 
 ;; Phase 1: Wire format tests
@@ -61,6 +62,49 @@
 (run-test "nREPL NS Isolation" "../../modules/nrepl/test/test_nrepl_ns_isolation.bb")
 (run-test "nREPL Client API" "../../modules/nrepl/test/test_nrepl_client_api.bb")
 (run-test "nREPL Proxy" "../../modules/nrepl/test/test_nrepl_proxy.bb")
+
+;; Phase 5: Browser bundle
+(println "📦 === Phase 5: Browser Bundle Tests ===")
+
+;; Get project root (two levels up from script-dir)
+(def project-root (-> script-dir fs/parent fs/parent str))
+(def dist-dir (str project-root "/dist"))
+
+;; Regenerate bundle
+(println "🔄 Regenerating browser bundle...")
+(let [result (babashka.process/shell {:out :string :err :string :dir dist-dir}
+                                     "bb" "build-bundle.bb")]
+  (if (zero? (:exit result))
+    (println "✅ Bundle regenerated")
+    (println "⚠️  Bundle regeneration had issues:" (:err result))))
+(println)
+
+;; Run bundle test (starts server, runs Playwright, stops server)
+(println "🔄 Running Browser Bundle Test...")
+(swap! test-results update :total inc)
+(try
+  (let [;; Start server
+        server (babashka.process/process {:out :inherit :err :inherit :dir dist-dir}
+                                         "bb" "serve-bundle.bb")
+        _ (Thread/sleep 2000)  ; Wait for server to start
+        ;; Run Playwright test
+        result (babashka.process/shell {:out :string :err :string :dir dist-dir}
+                                       "node" "test-bundle.mjs")]
+    ;; Stop server
+    (.destroy (:proc server))
+
+    (if (zero? (:exit result))
+      (do
+        (println "✅ Browser Bundle Test PASSED")
+        (swap! test-results update :passed inc))
+      (do
+        (println "❌ Browser Bundle Test FAILED")
+        (println (:out result))
+        (swap! test-results update :failed inc))))
+  (catch Exception e
+    (println (format "❌ Browser Bundle Test ERROR: %s" (str e)))
+    (swap! test-results update :failed inc)))
+(println)
 
 ;; Summary
 (println " === Test Summary ===")

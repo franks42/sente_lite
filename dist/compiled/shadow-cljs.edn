@@ -1,0 +1,42 @@
+;; shadow-cljs configuration for building Scittle plugin
+;;
+;; Usage:
+;;   npm install              # Install shadow-cljs
+;;   npm run build            # Production build
+;;   npm run watch            # Dev build with hot-reload
+;;
+;; Output: js/scittle.sente-lite.js
+;;
+;; In HTML:
+;;   <script src="scittle.js"></script>
+;;   <script src="scittle.sente-lite.js"></script>
+;;   <script>scittle.core.eval_script_tags();</script>
+
+{:deps true  ; Use deps.edn for dependencies
+
+ :builds
+ {:plugin
+  {:target :browser
+
+   ;; Module configuration
+   :modules
+   {:scittle.sente-lite
+    {:entries [scittle.sente-lite]}}
+
+   ;; Compiler options - use simple to avoid bundling everything
+   :compiler-options
+   {:optimizations :simple
+    :pretty-print false
+    :source-map true
+    :externs ["scittle_externs.js"]
+    :infer-externs :auto}
+
+   ;; JS options - SCI comes from scittle.js global
+   :js-options
+   {:resolve {"sci" {:target :global :global "sci"}}}
+
+   ;; Output directory
+   :output-dir "js"
+
+   :devtools
+   {:repl-pprint true}}}}
