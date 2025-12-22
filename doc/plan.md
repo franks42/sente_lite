@@ -630,16 +630,16 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 4. **12-test suite** - Wire format, server, channels, nREPL, bundle
 
 ### Next Steps
-1. **CSRF Token Support** - Foundation for future Ajax/HTTP features
+1. ~~**CSRF Token Support**~~ - ✅ DONE (2025-12-22)
 2. **datascript-sync module** - One-way tx-log replication (see below)
 3. **Cross-runtime testing** - Verify modules work BB↔Scittle↔nbb
 4. **Component system** - 108 tests, multimethod-based lifecycle
 
 ---
 
-## CSRF Token Support (Planned)
+## CSRF Token Support ✅ COMPLETE
 
-**Current state:** Wire format supports CSRF (Sente-compatible), but server sends `nil`.
+**Status:** Implemented 2025-12-22
 
 **Why implement:**
 - Foundation for future Ajax fallback (HTTP requests need CSRF protection)
@@ -647,11 +647,12 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 - Makes sente-lite a more complete Sente replacement
 - Security best practice
 
-**Implementation scope:**
-1. Server accepts `:csrf-token` in config (or auto-generates UUID if not provided)
-2. Token sent in handshake: `[:chsk/handshake [uid csrf-token handshake-data first?]]`
-3. Clients store token in state, expose via `(get-csrf-token client-id)`
-4. Future: validation helper/middleware for HTTP endpoints
+**Implementation (completed):**
+1. ✅ Server accepts `:csrf-token` in config (or auto-generates UUID if not provided)
+2. ✅ Token sent in handshake: `[:chsk/handshake [uid csrf-token handshake-data first?]]`
+3. ✅ Clients store token in state, expose via `(get-csrf-token client-id)`
+4. ✅ Server exposes `(get-csrf-token)` for validation in HTTP handlers
+5. 🔜 Future: validation helper/middleware for HTTP endpoints
 
 **Use case - HTTP blob transfer:**
 ```

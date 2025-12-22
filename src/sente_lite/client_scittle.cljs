@@ -190,11 +190,12 @@
                               :error (.-message e)}})))))))))
 
 (defn- handle-handshake
-  "Handle :chsk/handshake event - extract uid and store it"
+  "Handle :chsk/handshake event - extract uid and csrf-token, store both"
   [client-id data ws]
   (let [uid (first data)
         csrf-token (second data)]
     (swap! clients assoc-in [client-id :uid] uid)
+    (swap! clients assoc-in [client-id :csrf-token] csrf-token)
     (log! {:level :info
            :id :sente-lite.client/handshake-received
            :data {:client-id client-id
@@ -645,6 +646,16 @@
   [client-id]
   (when-let [client-state (get @clients client-id)]
     (get client-state :uid)))
+
+(defn get-csrf-token
+  "Get the CSRF token received from the server during handshake.
+  Returns nil if not yet connected or handshake not received.
+
+  Use this token in HTTP requests (e.g., file uploads) by including
+  it in the X-CSRF-Token header."
+  [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (get client-state :csrf-token)))
 
 (defn queue-stats
   "Get send queue statistics. Returns nil if no queue configured.

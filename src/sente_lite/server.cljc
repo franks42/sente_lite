@@ -329,7 +329,7 @@
             format-spec (get-format-spec config)
             ;; Use conn-id as uid for Sente compatibility
             uid conn-id
-            csrf-token nil
+            csrf-token (:csrf-token config)
             handshake-data {:sente-lite-version wf/version}
             first? true
             handshake-event (wf/make-handshake uid csrf-token handshake-data first?)]
@@ -463,10 +463,20 @@
        :body "Not found"})))
 
 ;; Public API
+(defn- generate-csrf-token
+  "Generate a random CSRF token (UUID format)"
+  []
+  (str (java.util.UUID/randomUUID)))
+
 (defn start-server!
-  "Start WebSocket server with configuration"
+  "Start WebSocket server with configuration.
+   Options include:
+   - :csrf-token - CSRF token for handshake (auto-generated if not provided)"
   ([config]
-   (let [merged-config (merge default-config config)]
+   (let [;; Generate CSRF token if not provided
+         csrf-token (or (:csrf-token config) (generate-csrf-token))
+         merged-config (-> (merge default-config config)
+                           (assoc :csrf-token csrf-token))]
 
      (trove/log! {:level :info
                   :id :sente-lite.server/starting
@@ -539,6 +549,23 @@
   []
   (when-let [state @server-state]
     (:actual-port state)))
+
+(defn get-csrf-token
+  "Get the CSRF token for this server.
+   Returns nil if server is not running.
+
+   The CSRF token is sent to clients in the handshake and should be
+   included in HTTP requests (e.g., file uploads) for validation.
+
+   Example:
+     (start-server! {:port 8080})
+     (get-csrf-token)  ; => \"550e8400-e29b-41d4-a716-446655440000\"
+
+     ;; Or provide your own token:
+     (start-server! {:port 8080 :csrf-token \"my-secret-token\"})"
+  []
+  (when-let [state @server-state]
+    (get-in state [:config :csrf-token])))
 
 (defn get-server-stats
   "Get comprehensive server statistics including channel information"
