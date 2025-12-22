@@ -671,10 +671,240 @@ End-to-end test using Claude's nREPL-MCP tools:
 
 **Test server script**: `modules/nrepl/test/run_proxy_server.bb`
 
-### Next Phases (TODO)
+### Phase 4: Scittle Browser Adapter - COMPLETE
 
-- [ ] Phase 4: Port to Scittle (browser nREPL server)
-- [ ] Phase 5: Full integration test (BB ↔ Browser)
+**The Problem**: `scittle.nrepl.js` is a fantastic ready-made nREPL server that uses SCI to evaluate code. But it expects a direct WebSocket connection (`window.ws_nrepl`). We want to reuse this code but route messages through sente-lite instead.
+
+**The Solution**: **FakeWebSocket Hijack Pattern**
+
+Create a fake WebSocket object at `window.ws_nrepl` BEFORE loading `scittle.nrepl.js`. The nREPL server attaches to it, thinking it's a real WebSocket. We intercept both directions:
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│                     FAKESOCKET HIJACK PATTERN                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+                          BROWSER
+┌───────────────────────────────────────────────────────────────────────────┐
+│                                                                           │
+│  ┌─────────────────┐         ┌─────────────────────────────────────────┐ │
+│  │ scittle.nrepl.js│         │          FakeWebSocket                  │ │
+│  │                 │◄───────►│  (window.ws_nrepl)                      │ │
+│  │ - sci.nrepl     │ attach  │                                         │ │
+│  │ - server code   │ onmessage│  .send(data)    → sendFn → sente      │ │
+│  │                 │         │  .injectMessage(data) ← from sente     │ │
+│  └─────────────────┘         └─────────────────────────────────────────┘ │
+│                                          │                                │
+│                              ┌───────────┴───────────┐                   │
+│                              │   browser_adapter.cljs │                   │
+│                              │                        │                   │
+│                              │  - connect!            │                   │
+│                              │  - handle-nrepl-request│                   │
+│                              │  - send-nrepl-response!│                   │
+│                              └───────────┬────────────┘                   │
+│                                          │                                │
+│                              ┌───────────┴───────────┐                   │
+│                              │  sente-lite client    │                   │
+│                              │  (client_scittle.cljs) │                   │
+│                              └───────────┬────────────┘                   │
+│                                          │                                │
+└──────────────────────────────────────────┼────────────────────────────────┘
+                                           │
+                                     [WebSocket]
+                                           │
+┌──────────────────────────────────────────┼────────────────────────────────┐
+│                                          │                    BB SERVER   │
+│                              ┌───────────┴───────────┐                   │
+│                              │   sente-lite server   │                   │
+│                              └───────────────────────┘                   │
+└───────────────────────────────────────────────────────────────────────────┘
+```
+
+**Files created**:
+- `modules/nrepl/src/nrepl_sente/fake_websocket.cljs` - FakeWebSocket (inline version in HTML)
+- `modules/nrepl/src/nrepl_sente/browser_adapter.cljs` - Scittle integration
+
+**Key insight**: `scittle.nrepl.js` checks for `window.ws_nrepl` at load time. If it exists and has `readyState === 1` (OPEN), it attaches its `onmessage` handler to receive eval requests.
+
+**FakeWebSocket (CLJS)**:
+```clojure
+(defonce !fake-ws-state
+  (atom {:ready-state 1 :onmessage nil :send-fn nil :pending-inbound []}))
+
+(defn create-fake-ws []
+  (let [obj (js-obj)]
+    ;; readyState property (scittle.nrepl checks this)
+    (js/Object.defineProperty obj "readyState"
+      #js {:get (fn [] (:ready-state @!fake-ws-state)) :configurable true})
+
+    ;; onmessage - scittle.nrepl.js sets this
+    (js/Object.defineProperty obj "onmessage"
+      #js {:get (fn [] (:onmessage @!fake-ws-state))
+           :set (fn [f] (swap! !fake-ws-state assoc :onmessage f))
+           :configurable true})
+
+    ;; send() - Called when nREPL sends response
+    (aset obj "send" (fn [data]
+      (if-let [f (:send-fn @!fake-ws-state)] (f data))))
+
+    ;; injectMessage() - Called when sente receives nREPL request
+    (aset obj "injectMessage" (fn [data]
+      (if-let [f (:onmessage @!fake-ws-state)] (f #js {:data data}))))
+
+    ;; setSendFn() - Called by browser_adapter.cljs
+    (aset obj "setSendFn" (fn [f]
+      (swap! !fake-ws-state assoc :send-fn f)))
+    obj))
+
+(when-not (aget js/window "ws_nrepl")
+  (aset js/window "ws_nrepl" (create-fake-ws)))
+```
+
+**Scittle integration (browser_adapter.cljs)**:
+```clojure
+(defn connect! [{:keys [client]}]
+  (let [ws (.-ws_nrepl js/window)]
+    ;; Set up outbound: nREPL response → sente
+    (.setSendFn ws send-nrepl-response!)
+
+    ;; Set up inbound: sente → nREPL request
+    (sente/on! client {:event-id :nrepl/request
+                       :callback handle-nrepl-request})))
+
+(defn send-nrepl-response! [edn-str]
+  (sente/send! @!client-id [:nrepl/response {:edn edn-str}]))
+
+(defn handle-nrepl-request [msg]
+  (.injectMessage (.-ws_nrepl js/window) (:edn (:data msg))))
+```
+
+**⚠️ CRITICAL: HTML Load Order with `eval_script_tags()`**
+
+The FakeWebSocket **MUST** be created **BEFORE** loading `scittle.nrepl.js`. Use inline CLJS + forced evaluation:
+
+```html
+<!-- 1. Load Scittle core -->
+<script src="scittle.js"></script>
+
+<!-- ⚠️ 2. INLINE FakeWebSocket (queued for Scittle) -->
+<script type="application/x-scittle">
+  ;; FakeWebSocket code here (inline, not external file!)
+  (defonce !fake-ws-state (atom {...}))
+  (defn create-fake-ws [] ...)
+  (when-not (aget js/window "ws_nrepl")
+    (aset js/window "ws_nrepl" (create-fake-ws)))
+</script>
+
+<!-- ⚠️ 3. FORCE EVALUATION before scittle.nrepl.js loads! -->
+<script>scittle.core.eval_script_tags();</script>
+
+<!-- 4. NOW load scittle.nrepl.js (finds window.ws_nrepl ready) -->
+<script src="scittle.nrepl.js"></script>
+
+<!-- 5. Load sente-lite client and adapter -->
+<script src="client_scittle.cljs" type="application/x-scittle"></script>
+<script src="browser_adapter.cljs" type="application/x-scittle"></script>
+```
+
+**Why `eval_script_tags()` is required**:
+
+Scittle CLJS scripts are normally queued and evaluated after DOMContentLoaded. Without forced evaluation:
+```javascript
+// scittle.nrepl.js checks at load time:
+if (window.ws_nrepl && window.ws_nrepl.readyState === 1) {
+  // Attach onmessage handler to existing socket ✓
+  window.ws_nrepl.onmessage = function(e) { ... }
+} else {
+  // Create new WebSocket - WRONG! Our FakeWebSocket isn't ready yet!
+  window.ws_nrepl = new WebSocket(...)
+}
+```
+
+If our FakeWebSocket isn't already at `window.ws_nrepl` with `readyState = 1` (OPEN), the nREPL code will create its own real WebSocket and we lose the ability to intercept messages.
+
+**Common mistake**: Loading in wrong order causes silent failure - nREPL appears to work but messages go to a real WebSocket instead of sente-lite.
+
+**Pure CLJS Solution using `eval_script_tags()`**:
+
+By default, Scittle CLJS scripts (`type="application/x-scittle"`) are **queued** and processed **after** all synchronous scripts have loaded. This would cause a problem:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                    DEFAULT BROWSER SCRIPT LOADING ORDER                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+   <script src="scittle.js">           │ 1. Loads and runs immediately
+   <script src="fake.cljs" type="..."> │ 2. QUEUED for Scittle (not run yet!)
+   <script src="scittle.nrepl.js">     │ 3. Loads and runs immediately ← PROBLEM!
+
+   After all scripts load:
+   Scittle processes queued .cljs      │ 4. TOO LATE - nrepl.js already ran
+```
+
+**Solution**: Use `scittle.core.eval_script_tags()` to force immediate execution BEFORE scittle.nrepl.js loads:
+
+```html
+<!-- 1. Load Scittle core -->
+<script src="scittle.js"></script>
+
+<!-- 2. Inline FakeWebSocket CLJS (queued but not yet run) -->
+<script type="application/x-scittle">
+  (defonce !fake-ws-state (atom {:ready-state 1 :onmessage nil ...}))
+  (defn create-fake-ws [] ...)
+  (when-not (aget js/window "ws_nrepl")
+    (aset js/window "ws_nrepl" (create-fake-ws)))
+</script>
+
+<!-- 3. FORCE IMMEDIATE evaluation of FakeWebSocket -->
+<script>scittle.core.eval_script_tags();</script>
+
+<!-- 4. NOW load scittle.nrepl.js - FakeWebSocket is installed! -->
+<script src="scittle.nrepl.js"></script>
+```
+
+This works because:
+1. The inline CLJS is queued by Scittle
+2. `eval_script_tags()` processes all queued scripts immediately
+3. `window.ws_nrepl` is now set with our FakeWebSocket
+4. scittle.nrepl.js finds it and attaches its `onmessage` handler
+5. Subsequent `eval_script_tags()` calls at page bottom work fine (idempotent)
+
+**Key insight**: The FakeWebSocket code MUST be INLINE (not external file) because external `src` attributes use async XHR fetch even with `eval_script_tags()`. Inline scripts are processed synchronously.
+
+**Test results**: 4 evals → 8 responses (value + done each)
+- `(+ 1 2 3)` → 6 ✓
+- `(def x 42)` → #'user/x ✓
+- `(* x 2)` → 84 ✓ (state persists!)
+- `(do (def y 10) (+ x y))` → 52 ✓
+
+**Why this is elegant**:
+1. **100% Clojure/Script** - No JavaScript files needed, pure CLJS throughout
+2. **Zero changes to scittle.nrepl.js** - We don't fork or modify upstream
+3. **Reuses proven code** - sci.nrepl is battle-tested
+4. **Clean separation** - FakeWebSocket and adapter are pure Scittle CLJS
+5. **Decoupled from transport** - sente-lite handles reconnection, the nREPL code doesn't care
+
+### Phase 5: nbb nREPL Module - COMPLETE
+
+See: `modules/nrepl-nbb/README.md`
+
+Unlike Scittle, nbb doesn't have an nREPL server to hijack. Instead, we use `nbb.core/load-string` directly. The `server.cljc` already detects the runtime and uses the appropriate eval function.
+
+**Files created**:
+- `modules/nrepl-nbb/README.md` - Comprehensive documentation
+- `modules/nrepl-nbb/examples/nbb_nrepl_client.cljs` - Working nbb client
+- `modules/nrepl-nbb/test/test_nbb_nrepl.bb` - Integration test
+
+**Test results**: 5/5 tests pass
+```
+[test]   ✓ test-1: (+ 1 2 3) = 6
+[test]   ✓ test-2: (def my-var 42) = #'user/my-var
+[test]   ✓ test-3: (* my-var 10) = 420 (state persisted!)
+[test]   ✓ test-4: (do (def y 5) (+ my-var y)) = 47
+[test]   ✓ test-5: (/ 1 0) = ##Inf (JS returns Infinity, not error)
+```
+
+**Key insight documented**: Why sync vs async eval doesn't matter - the WebSocket transport layer already provides async decoupling. The eval function runs inside an async message handler callback, so whether it returns immediately (sync) or via Promise (async), the transport layer just waits for `send!` to be called.
 
 ## Updates Log
 
@@ -692,3 +922,7 @@ End-to-end test using Claude's nREPL-MCP tools:
 | 2024-12-21 | Added registry-based connection tracking to server.cljc (get-connections, get-latest-connection) |
 | 2024-12-21 | **Phase 3 complete**: Bencode proxy (proxy.clj), 19/19 tests pass, total 65 tests |
 | 2024-12-21 | **nREPL-MCP integration verified**: Full end-to-end test with Claude's nREPL-MCP tools working |
+| 2024-12-21 | **Phase 4 complete**: Scittle Browser Adapter - FakeWebSocket hijack pattern documented |
+| 2024-12-21 | **Phase 5 complete**: nbb nREPL module with working example and tests (5/5 pass) |
+| 2024-12-21 | Added critical documentation about FakeWebSocket load order requirement |
+| 2024-12-21 | Documented why sync vs async eval is irrelevant (transport layer provides async boundary) |

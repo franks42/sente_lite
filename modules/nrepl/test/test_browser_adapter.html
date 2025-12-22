@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>sente-lite nREPL Browser Adapter Test</title>
+
+  <!-- 1. Load Scittle core -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+
+  <!-- 2. Create FakeWebSocket INLINE (synchronous - executes immediately!) -->
+  <script type="application/x-scittle">
+    ;; Inline FakeWebSocket - must be BEFORE scittle.nrepl.js
+    (js/console.log "[fake-ws] Creating inline FakeWebSocket...")
+
+    (defonce !fake-ws-state
+      (atom {:ready-state 1 :onmessage nil :onerror nil :onclose nil
+             :onopen nil :pending-inbound [] :send-fn nil}))
+
+    (defn- create-fake-ws []
+      (let [obj (js-obj)]
+        (js/Object.defineProperty obj "readyState"
+          #js {:get (fn [] (:ready-state @!fake-ws-state)) :configurable true})
+        (js/Object.defineProperty obj "onmessage"
+          #js {:get (fn [] (:onmessage @!fake-ws-state))
+               :set (fn [f] (swap! !fake-ws-state assoc :onmessage f)
+                            (js/console.log "[fake-ws] onmessage SET by scittle.nrepl"))
+               :configurable true})
+        (js/Object.defineProperty obj "onerror"
+          #js {:get (fn [] (:onerror @!fake-ws-state))
+               :set (fn [f] (swap! !fake-ws-state assoc :onerror f)) :configurable true})
+        (js/Object.defineProperty obj "onclose"
+          #js {:get (fn [] (:onclose @!fake-ws-state))
+               :set (fn [f] (swap! !fake-ws-state assoc :onclose f)) :configurable true})
+        (js/Object.defineProperty obj "onopen"
+          #js {:get (fn [] (:onopen @!fake-ws-state))
+               :set (fn [f] (swap! !fake-ws-state assoc :onopen f)) :configurable true})
+        (aset obj "send" (fn [data]
+          (if-let [f (:send-fn @!fake-ws-state)] (f data)
+            (js/console.warn "[fake-ws] send called but no send-fn"))))
+        (aset obj "injectMessage" (fn [data]
+          (if-let [f (:onmessage @!fake-ws-state)] (f #js {:data data})
+            (swap! !fake-ws-state update :pending-inbound conj data))))
+        (aset obj "flushPending" (fn []
+          (let [pending (:pending-inbound @!fake-ws-state)]
+            (swap! !fake-ws-state assoc :pending-inbound [])
+            (when-let [f (:onmessage @!fake-ws-state)]
+              (doseq [d pending] (f #js {:data d}))))))
+        (aset obj "setSendFn" (fn [f]
+          (swap! !fake-ws-state assoc :send-fn f)
+          (js/console.log "[fake-ws] send-fn registered")))
+        (aset obj "close" (fn []
+          (swap! !fake-ws-state assoc :ready-state 3)
+          (when-let [f (:onclose @!fake-ws-state)] (f #js {:code 1000}))))
+        obj))
+
+    (when-not (aget js/window "ws_nrepl")
+      (aset js/window "ws_nrepl" (create-fake-ws))
+      (js/console.log "[fake-ws] window.ws_nrepl INSTALLED"))
+  </script>
+
+  <!-- 2.5. FORCE IMMEDIATE EVALUATION of FakeWebSocket script BEFORE scittle.nrepl.js -->
+  <script>scittle.core.eval_script_tags();</script>
+
+  <!-- 3. NOW load scittle.nrepl.js - FakeWebSocket is NOW installed! -->
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.nrepl.js"></script>
+
+  <!-- 4. Load Trove (required by sente-lite client) -->
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/utils.cljc" type="application/x-scittle"></script>
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove/console.cljc" type="application/x-scittle"></script>
+  <script src="https://cdn.jsdelivr.net/gh/franks42/trove-scittle@v1.1.0-scittle/src/taoensso/trove.cljc" type="application/x-scittle"></script>
+</head>
+<body>
+  <h1>sente-lite nREPL Browser Adapter Test</h1>
+  <div id="status">Initializing...</div>
+  <h2>Log</h2>
+  <pre id="log"></pre>
+  <h2>Results</h2>
+  <pre id="results"></pre>
+
+  <!-- 4. Load sente-lite client and dependencies -->
+  <script src="/src/sente_lite/packer.cljc" type="application/x-scittle"></script>
+  <script src="/src/sente_lite/queue_scittle.cljs" type="application/x-scittle"></script>
+  <script src="/src/sente_lite/client_scittle.cljs" type="application/x-scittle"></script>
+
+  <!-- 5. Load browser adapter (Scittle part) -->
+  <script src="/modules/nrepl/src/nrepl_sente/browser_adapter.cljs" type="application/x-scittle"></script>
+
+  <!-- 6. Test code -->
+  <script type="application/x-scittle">
+    (ns test.browser-adapter
+      (:require [sente-lite.client-scittle :as client]
+                [nrepl-sente.browser-adapter :as adapter]))
+
+    (defn log! [& args]
+      (let [el (js/document.getElementById "log")
+            msg (apply str (interpose " " (map pr-str args)))]
+        (set! (.-textContent el) (str (.-textContent el) msg "\n"))
+        (js/console.log msg)))
+
+    (defn set-status! [s]
+      (set! (.-textContent (js/document.getElementById "status")) s))
+
+    (defn add-result! [s]
+      (let [el (js/document.getElementById "results")]
+        (set! (.-textContent el) (str (.-textContent el) s "\n"))))
+
+    ;; Collect responses
+    (defonce !responses (atom []))
+
+    (log! "=== Starting Browser Adapter Test ===")
+    (log! "Adapter status:" (adapter/status))
+
+    ;; Get WebSocket URL from query params or use default
+    (def ws-port
+      (or (some-> js/window.location.search
+                  (.match #"port=(\d+)")
+                  second
+                  js/parseInt)
+          8765))
+
+    (def ws-url (str "ws://localhost:" ws-port "/ws"))
+    (log! "WebSocket URL:" ws-url)
+
+    ;; Create sente-lite client
+    (defonce !client (atom nil))
+
+    (defn on-message [event-id data]
+      (log! "Received:" event-id data)
+      (case event-id
+        ;; :nrepl/request handled by adapter's on! handler
+        :nrepl/request nil
+
+        :sente-lite/connected
+        (do
+          (set-status! "Connected!")
+          (log! "Connected to server"))
+
+        :sente-lite/disconnected
+        (do
+          (set-status! "Disconnected")
+          (log! "Disconnected from server"))
+
+        ;; Default - log unknown events
+        nil))
+
+    (defn start-client! []
+      (log! "Creating sente-lite client...")
+      (let [client (client/make-client!
+                    {:url ws-url
+                     :on-message on-message
+                     :on-open (fn []
+                                (log! "WebSocket opened")
+                                (set-status! "Connected!")
+                                ;; Connect the adapter using atom (client not available in this closure yet)
+                                (js/setTimeout
+                                  (fn []
+                                    (when-let [c @!client]
+                                      (log! "Connecting adapter with client...")
+                                      (adapter/connect! {:client c})
+                                      (log! "Adapter connected, status:" (adapter/status))
+                                      ;; Notify test we're ready
+                                      (set! (.-ADAPTER_READY js/window) true)))
+                                  10))
+                     :on-close (fn []
+                                 (log! "WebSocket closed")
+                                 (set-status! "Disconnected"))
+                     :on-error (fn [e]
+                                 (log! "WebSocket error:" e)
+                                 (set-status! "Error!"))})]
+        (reset! !client client)
+        (log! "Client created, connecting...")
+        (set-status! "Connecting...")))
+
+    ;; Auto-start
+    (start-client!)
+
+    (log! "=== Test initialized, waiting for connection ===")
+  </script>
+
+  <!-- 7. Evaluate all remaining Scittle scripts (since we disabled auto-eval) -->
+  <script>scittle.core.eval_script_tags();</script>
+</body>
+</html>
