@@ -1,13 +1,32 @@
 # sente-lite Implementation Plan
 
-**Version:** 2.4
+**Version:** 2.5
 **Created:** 2025-10-24
-**Last Updated:** 2025-12-20
-**Status:** v2.8.0 - Internal Unification (recv-queue removed) COMPLETE ✅
+**Last Updated:** 2025-12-22
+**Status:** Production-ready with 12-test suite, nREPL module complete, browser bundle ready
 
 ---
 
 ## Updates Log
+
+### 2025-12-22: Cleanup and Distribution
+
+**Cleanup completed:**
+- Removed 45+ stale test files (~5,500 lines deleted)
+- Archived 23 old docs to `doc/archive/`
+- Test suite consolidated to 12 focused tests
+
+**Browser bundle added:**
+- `dist/sente-lite-nrepl.cljs` - 70KB source bundle
+- Automated testing in Phase 5 of test suite
+- Local Maven: `clojure -T:build install`
+
+**Documentation updated:**
+- CONTEXT.md refreshed with current state
+- All module READMEs current
+- Stale references removed
+
+---
 
 ### 2025-12-20: Internal Unification - COMPLETE ✅
 
@@ -602,12 +621,18 @@ Since Telemere v1.1.0 doesn't support Babashka (dependency on Encore with incomp
 
 ---
 
-## Current Focus (2025-12-20)
+## Current Focus (2025-12-22)
 
-### Modules & Registry MVP
-1. **FQN-based atom-sync prototype** - Apply verified `ensure-atom!` pattern
-2. **Module use cases** - Expand log-routing and atom-sync examples
-3. **Cross-runtime module testing** - Verify modules work BB↔Scittle↔nbb
+### Completed Milestones
+1. **nREPL module** - 74 tests, all layers complete
+2. **Browser bundle** - 70KB, automated in test suite
+3. **Cleanup** - Stale files removed, docs archived
+4. **12-test suite** - Wire format, server, channels, nREPL, bundle
+
+### Next Steps
+1. **Module Phase 2** - Two-way atom-sync, log filtering
+2. **Cross-runtime testing** - Verify modules work BB↔Scittle↔nbb
+3. **Component system** - 108 tests, multimethod-based lifecycle
 
 ---
 

@@ -210,34 +210,32 @@ sente-lite uses Sente-compatible wire format:
 ## Testing
 
 ```bash
-# Run all tests (requires nbb for full suite)
-bb run_tests.bb
+# Run all tests (12 tests across 5 phases)
+./test/scripts/run_all_tests.bb
 
-# Just BB tests
-bb test/scripts/test_client_bb.bb
+# Individual test phases
+bb test/scripts/test_wire_formats.bb        # Phase 1: Wire Format
+bb test/scripts/test_server_foundation.bb   # Phase 2: Server
+bb test/scripts/test_channel_integration.bb # Phase 3: Channels
 
-# Cross-platform tests (includes browser/Scittle via Playwright)
-bb test/scripts/cross_platform/run_all_cross_platform_tests.bb
+# nREPL module tests (Phase 4)
+bb modules/nrepl/test/test_nrepl_bb_to_bb.bb
+bb modules/nrepl/test/test_nrepl_ns_persistence.bb
 
-# nbb tests only
-cd test/nbb && npm install
-nbb --classpath ../../src test_server_nbb_module.cljs
-
-# Browser/Scittle tests only (requires Playwright)
-cd dev/scittle-demo && npm install
-node playwright-client-test.mjs
+# Browser bundle test (Phase 5)
+cd dist && bb serve-bundle.bb &
+node test-bundle.mjs
 ```
 
-### Test Matrix
+### Test Suite (12 tests)
 
-| Test | Platforms | Status |
-|------|-----------|--------|
-| BB Server ↔ BB Client | BB only | ✅ |
-| nbb Server ↔ nbb Client | nbb only | ✅ |
-| BB Server ↔ nbb Client | Cross-platform | ✅ |
-| nbb Server ↔ BB Client | Cross-platform | ✅ |
-| BB Server ↔ Scittle Client | Browser (Playwright) | ✅ |
-| Sente Server ↔ BB Client | JVM interop | ✅ |
+| Phase | Tests | Description |
+|-------|-------|-------------|
+| 1 | Wire Formats, Timbre | EDN/JSON serialization |
+| 2 | WebSocket, Server, on-message | Server foundation |
+| 3 | Channel Integration | Pub/sub messaging |
+| 4 | nREPL (5 tests) | BB-to-BB, NS persistence, client API, proxy |
+| 5 | Browser Bundle | Playwright verification |
 
 ## Modules
 
@@ -245,6 +243,7 @@ sente-lite includes reusable modules for common patterns:
 
 | Module | Purpose | Status |
 |--------|---------|--------|
+| **nrepl** | nREPL-over-sente (eval, load-file, proxy) | ✅ Complete (74 tests) |
 | **config-discovery** | Ephemeral port discovery, HTML/JSON config | ✅ Complete |
 | **log-routing** | Registry-based log handlers, remote logging | ✅ Complete |
 | **atom-sync** | One-way atom synchronization across processes | ✅ Phase 1 |
