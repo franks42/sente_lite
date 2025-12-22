@@ -792,9 +792,51 @@ This is intentionally crude - real filtering happens server-side with Timbre.
 2. Use add-watch to detect unauthorized mutations
 3. Document as convention (simplest)
 
-**Related:** [editscript](https://github.com/juji-io/editscript) by Juji (same author as datalevin) could be used for computing diffs if full swap! compatibility needed, but explicit ops are simpler.
-
 **Status:** Future enhancement - not blocking Phase 1 one-way sync.
+
+### Enhancement: editscript Diff-Based Sync (Alternative)
+
+**Problem:** Same as above - full state sync is wasteful for large atoms.
+
+**Solution:** Use [editscript](https://github.com/juji-io/editscript) (by Juji/Huahai Yang, same author as datalevin) to compute minimal diffs automatically:
+
+```clojure
+(require '[editscript.core :as e])
+
+;; Sender: watch atom, compute and publish diff
+(add-watch state :sync
+  (fn [_ _ old new]
+    (let [script (e/diff old new)]
+      (when (seq (e/get-edits script))
+        (publish! {:edits (e/get-edits script)})))))
+
+;; Receiver: apply edits to reconstruct state
+(on! :atom/sync
+  (fn [{:keys [edits]}]
+    (swap! state #(e/patch % (e/edits->script edits)))))
+```
+
+**Benefits:**
+- **Transparent** - works with existing `swap!`, no API change
+- **Minimal diffs** - editscript computes optimal edit distance
+- **Any data structure** - maps, vectors, sets, nested structures
+- **Battle-tested** - production use at Juji
+
+**Trade-offs:**
+- **Diffing cost** - O(n) computation on every change
+- **Dependency** - adds editscript library
+- **Complexity** - more moving parts than explicit ops
+
+**Comparison:**
+
+| Approach | API Change | Computation | Best For |
+|----------|------------|-------------|----------|
+| Transactional (`tx!`) | Yes | None | New code, high frequency |
+| editscript diff | No | O(n) per change | Existing code, large infrequent changes |
+
+**Dependencies:** `[juji/editscript "0.6.4"]` (works in BB, CLJ, CLJS)
+
+**Status:** Future enhancement - alternative to transactional wrapper.
 
 ---
 
