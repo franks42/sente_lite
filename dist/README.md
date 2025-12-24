@@ -18,7 +18,7 @@ Pre-built bundle of sente-lite + nREPL module for Scittle/browser environments.
 
 ```html
 <!-- 1. Scittle core -->
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 
 <!-- 2. FakeWebSocket (required before scittle.nrepl.js) -->
 <script>
@@ -29,7 +29,7 @@ Pre-built bundle of sente-lite + nREPL module for Scittle/browser environments.
 </script>
 
 <!-- 3. Scittle nREPL -->
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.nrepl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js"></script>
 
 <!-- 4. sente-lite-nrepl bundle -->
 <script src="sente-lite-nrepl.cljs" type="application/x-scittle"></script>

@@ -90,7 +90,7 @@ AI assistants connect via nREPL-MCP to interact with live browsers:
 
 ```html
 <!-- 1. Load Scittle -->
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 
 <!-- 2. Create FakeWebSocket BEFORE scittle.nrepl.js -->
 <script type="application/x-scittle">
@@ -102,7 +102,7 @@ AI assistants connect via nREPL-MCP to interact with live browsers:
 <script>scittle.core.eval_script_tags();</script>
 
 <!-- 3. NOW load scittle.nrepl.js -->
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.nrepl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js"></script>
 
 <!-- 4. Load sente-lite and adapter -->
 <script type="application/x-scittle" src="sente_lite/client_scittle.cljs"></script>

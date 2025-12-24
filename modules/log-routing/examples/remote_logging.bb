@@ -41,7 +41,7 @@
 <html>
 <head>
   <title>Remote Logging Demo</title>
-  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.6.19/dist/scittle.js\"></script>
+  <script src=\"https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js\"></script>
   <style>
     body { font-family: monospace; padding: 20px; max-width: 900px; margin: 0 auto; }
     .success { color: green; }

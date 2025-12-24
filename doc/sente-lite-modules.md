@@ -4583,7 +4583,7 @@ Sente v1.21 introduced several important protocol-level enhancements that improv
 ```html
 <!-- Load pako before Scittle -->
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 
 <script type="application/x-scittle">
   (require '[sente-lite.compression.pako :as gzip])

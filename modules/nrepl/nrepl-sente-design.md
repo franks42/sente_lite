@@ -53,7 +53,7 @@ This document captures the design for a Dynamic Code Deployment Channel using nR
 
 **Loaded via**:
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.nrepl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.nrepl.js"></script>
 <script>scittle.nrepl.start();</script>
 ```
 

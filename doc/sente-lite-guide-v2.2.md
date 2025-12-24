@@ -788,7 +788,7 @@ Instead of imperatively building the system, define it as data:
 ```html
 <!-- Include transit-js before your Scittle script -->
 <script src="https://cdn.jsdelivr.net/npm/transit-js@0.8.874/transit.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.6.15/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 
 <script type="application/x-scittle">
 (ns my-app

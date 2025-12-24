@@ -78,7 +78,7 @@ A lightweight WebSocket library for Clojure environments where Sente can't run: 
 <!DOCTYPE html>
 <html>
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 </head>
 <body>
   <!-- Load Trove (vendored) and sente-lite -->

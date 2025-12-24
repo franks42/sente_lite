@@ -5,7 +5,7 @@
 Load the wrapper in your HTML:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 <script src="dev/scittle-demo/trove-macros.cljs" type="application/x-scittle"></script>
 
 <script type="application/x-scittle">

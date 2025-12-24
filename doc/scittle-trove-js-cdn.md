@@ -9,7 +9,7 @@ Trove works in Scittle once Peter removes `#?(:clj ...)` wrappers from `const?` 
 Once the upstream fix is merged, load directly from jsdelivr:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/utils.cljc" 
         type="application/x-scittle"></script>
 <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/console.cljc" 
@@ -31,8 +31,8 @@ Once the upstream fix is merged, load directly from jsdelivr:
 A compiled `scittle.trove.js` would be cleaner - single script tag:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.trove.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.trove.js"></script>
 ```
 
 This requires either:
@@ -169,7 +169,7 @@ bb publish
 ## CDN Usage (after publishing)
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/scittle-trove@1.0.0/dist/scittle.trove.js"></script>
 
 <script type="application/x-scittle">

@@ -38,7 +38,7 @@ This is a known SCI limitation, not specific to Trove.
 Load directly from jsdelivr CDN (no local copies needed):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/utils.cljc" 
         type="application/x-scittle"></script>
 <script src="https://cdn.jsdelivr.net/gh/taoensso/trove@vX.X.X/src/taoensso/trove/console.cljc" 

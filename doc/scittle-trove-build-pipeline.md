@@ -165,7 +165,7 @@ jobs:
 ## Usage After Publishing
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.28/dist/scittle.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/scittle@0.7.30/dist/scittle.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@taoensso/scittle-trove@1.2.0/dist/scittle.trove.js"></script>
 
 <script type="application/x-scittle">
