@@ -1,5 +1,5 @@
 ;;; sente-lite-nrepl.cljs - Bundled source for Scittle
-;;; Generated: 2025-12-22T12:56:41.780984
+;;; Generated: 2025-12-25T10:48:30.377675
 ;;; 
 ;;; Usage in HTML:
 ;;;   <script src="scittle.js"></script>
@@ -9,6 +9,8 @@
 ;;; Then use:
 ;;;   (require '[sente-lite.client-scittle :as client])
 ;;;   (require '[nrepl-sente.browser-adapter :as adapter])
+;;;
+;;; Dependency order validated at build time.
 ;;;
 
 
@@ -454,11 +456,12 @@
                               :error (.-message e)}})))))))))
 
 (defn- handle-handshake
-  "Handle :chsk/handshake event - extract uid and store it"
+  "Handle :chsk/handshake event - extract uid and csrf-token, store both"
   [client-id data ws]
   (let [uid (first data)
         csrf-token (second data)]
     (swap! clients assoc-in [client-id :uid] uid)
+    (swap! clients assoc-in [client-id :csrf-token] csrf-token)
     (log! {:level :info
            :id :sente-lite.client/handshake-received
            :data {:client-id client-id
@@ -909,6 +912,16 @@
   [client-id]
   (when-let [client-state (get @clients client-id)]
     (get client-state :uid)))
+
+(defn get-csrf-token
+  "Get the CSRF token received from the server during handshake.
+  Returns nil if not yet connected or handshake not received.
+
+  Use this token in HTTP requests (e.g., file uploads) by including
+  it in the X-CSRF-Token header."
+  [client-id]
+  (when-let [client-state (get @clients client-id)]
+    (get client-state :csrf-token)))
 
 (defn queue-stats
   "Get send queue statistics. Returns nil if no queue configured.
@@ -1429,6 +1442,62 @@
     (remove-watch ref key)
     (throw (ex-info "Registry name not found" {:name name}))))
 
+;; -----------------------------------------------------------------------------
+;; Platform Info (Local Runtime)
+;; -----------------------------------------------------------------------------
+
+(defonce *platform-info (atom {}))
+
+(defn register-platform-info!
+  "Register platform info. Modules call this on load to add their info.
+   Values are merged into the existing map.
+
+   Example: (register-platform-info! {:sente-lite-version \"0.1.0\"
+                                      :runtime :babashka})"
+  [info-map]
+  (swap! *platform-info merge info-map))
+
+(defn get-platform-info
+  "Get current platform info map.
+
+   Example: (get-platform-info)
+            => {:runtime :babashka
+                :bb-version \"1.3.186\"
+                :sente-lite-version \"0.1.0\"}"
+  []
+  @*platform-info)
+
+;; Watch key for platform info sync
+(defonce ^:private platform-sync-watch-key (atom nil))
+
+(defn start-platform-info-sync!
+  "Start syncing platform info changes over sente.
+   Sends current info immediately, then watches for changes.
+
+   Args:
+     send-fn - Function to send event: (fn [event] ...)
+               where event is [:platform-info/update info-map]
+
+   Returns watch key for stop-platform-info-sync!"
+  [send-fn]
+  (let [watch-key :platform-info-sync]
+    ;; Send current info immediately
+    (send-fn [:platform-info/update @*platform-info])
+    ;; Watch for changes
+    (add-watch *platform-info watch-key
+               (fn [_ _ old-val new-val]
+                 (when (not= old-val new-val)
+                   (send-fn [:platform-info/update new-val]))))
+    (reset! platform-sync-watch-key watch-key)
+    watch-key))
+
+(defn stop-platform-info-sync!
+  "Stop syncing platform info changes."
+  []
+  (when-let [watch-key @platform-sync-watch-key]
+    (remove-watch *platform-info watch-key)
+    (reset! platform-sync-watch-key nil)))
+
 
 ;;; ============================================================
 ;;; Source: ../modules/nrepl/src/nrepl_sente/protocol.cljc
@@ -1842,7 +1911,9 @@
 
 (ns nrepl-sente.browser-adapter
   "Bridges scittle.nrepl with sente-lite for browser-based nREPL."
-  (:require [sente-lite.client-scittle :as sente]))
+  (:require [sente-lite.client-scittle :as sente]
+            [sente-lite.registry :as reg]
+            [clojure.edn :as edn]))
 
 ;; State - stores client-id string (not a map)
 (defonce !client-id (atom nil))
@@ -1858,22 +1929,22 @@
 
 (defn send-nrepl-response!
   "Called when sci.nrepl.server sends a response.
-   Routes the EDN string through sente-lite."
+   Parses the EDN string and routes native map through sente-lite."
   [edn-str]
   (if-let [client-id @!client-id]
-    (do
+    (let [response (edn/read-string edn-str)]  ; parse to native map
       (log "Response:" (subs edn-str 0 (min 60 (count edn-str))))
-      ;; Send as :nrepl/response event using sente-lite's send! function
-      (sente/send! client-id [:nrepl/response {:edn edn-str}]))
+      ;; Send native map - stringify/parse happens only at FakeWebSocket boundary
+      (sente/send! client-id [:nrepl/response response]))
     (log "ERROR: No client-id set!")))
 
 ;;; --- Message handler for incoming nREPL requests ---
 
 (defn handle-nrepl-request
   "Called when sente-lite receives an nREPL request from the server.
-   Injects it into the FakeWebSocket for sci.nrepl.server to process."
+   Receives native map, stringifies for FakeWebSocket injection."
   [data]
-  (let [edn-str (get data :edn)]
+  (let [edn-str (pr-str data)]  ; stringify at FakeWebSocket boundary
     (log "Received request:" edn-str)
     (when-let [ws (get-ws-nrepl)]
       (.injectMessage ws edn-str))))
@@ -1889,6 +1960,17 @@
               :callback (fn [msg]
                           (handle-nrepl-request (get msg :data)))})
   (log "Registered :nrepl/request handler for" client-id))
+
+(defn- collect-browser-info
+  "Collect browser platform info."
+  []
+  {:runtime :scittle
+   :user-agent js/navigator.userAgent
+   :platform js/navigator.platform
+   :language js/navigator.language
+   :screen-width js/screen.width
+   :screen-height js/screen.height
+   :url js/location.href})
 
 (defn connect!
   "Connect the adapter to a sente-lite client.
@@ -1910,12 +1992,21 @@
       (setup-message-handler! client)
       (reset! !connected true)
       (.flushPending ws)
+
+      ;; Register browser platform info
+      (reg/register-platform-info! (collect-browser-info))
+
+      ;; Start syncing platform info to server
+      (reg/start-platform-info-sync!
+       (fn [event] (sente/send! client event)))
+
       (log "Connected to existing sente-lite client")
       (when on-connect (on-connect)))))
 
 (defn disconnect!
   "Disconnect the adapter."
   []
+  (reg/stop-platform-info-sync!)
   (reset! !connected false)
   (reset! !client-id nil)
   (log "Disconnected"))

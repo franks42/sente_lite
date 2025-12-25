@@ -15,20 +15,20 @@
   (swap! test-results update :total inc)
 
   (try
-    (let [full-path (str script-dir "/" test-file)
-          result (babashka.process/shell {:out :string :err :string}
+   (let [full-path (str script-dir "/" test-file)
+         result (babashka.process/shell {:out :string :err :string}
                                         "bb" full-path)]
-      (if (zero? (:exit result))
-        (do
-          (println (format "✅ %s PASSED" test-name))
-          (swap! test-results update :passed inc))
-        (do
-          (println (format "❌ %s FAILED (exit code: %d)" test-name (:exit result)))
-          (println "STDERR:" (:err result))
-          (swap! test-results update :failed inc))))
-    (catch Exception e
-      (println (format "❌ %s ERROR: %s" test-name (str e)))
-      (swap! test-results update :failed inc)))
+     (if (zero? (:exit result))
+       (do
+        (println (format "✅ %s PASSED" test-name))
+        (swap! test-results update :passed inc))
+       (do
+        (println (format "❌ %s FAILED (exit code: %d)" test-name (:exit result)))
+        (println "STDERR:" (:err result))
+        (swap! test-results update :failed inc))))
+   (catch Exception e
+          (println (format "❌ %s ERROR: %s" test-name (str e)))
+          (swap! test-results update :failed inc)))
 
   (println))
 
@@ -70,40 +70,63 @@
 (def project-root (-> script-dir fs/parent fs/parent str))
 (def dist-dir (str project-root "/dist"))
 
-;; Regenerate bundle
+;; Test dependency order validation (runs from dist directory)
+(println "🔄 Running Bundle Dependency Order...")
+(swap! test-results update :total inc)
+(try
+ (let [result (babashka.process/shell {:out :string :err :string :dir dist-dir}
+                                      "bb" "test-dependency-order.bb")]
+   (if (zero? (:exit result))
+     (do
+      (println "✅ Bundle Dependency Order PASSED")
+      (swap! test-results update :passed inc))
+     (do
+      (println "❌ Bundle Dependency Order FAILED")
+      (println (:out result))
+      (swap! test-results update :failed inc))))
+ (catch Exception e
+        (println (format "❌ Bundle Dependency Order ERROR: %s" (str e)))
+        (swap! test-results update :failed inc)))
+(println)
+
+;; Regenerate bundle (this also validates dependency order)
 (println "🔄 Regenerating browser bundle...")
 (let [result (babashka.process/shell {:out :string :err :string :dir dist-dir}
                                      "bb" "build-bundle.bb")]
   (if (zero? (:exit result))
-    (println "✅ Bundle regenerated")
-    (println "⚠️  Bundle regeneration had issues:" (:err result))))
+    (println "✅ Bundle regenerated (dependency order validated)")
+    (do
+     (println "❌ Bundle regeneration FAILED:")
+     (println (:out result))
+     (println (:err result))
+     (swap! test-results update :failed inc))))
 (println)
 
 ;; Run bundle test (starts server, runs Playwright, stops server)
 (println "🔄 Running Browser Bundle Test...")
 (swap! test-results update :total inc)
 (try
-  (let [;; Start server
-        server (babashka.process/process {:out :inherit :err :inherit :dir dist-dir}
-                                         "bb" "serve-bundle.bb")
-        _ (Thread/sleep 2000)  ; Wait for server to start
+ (let [;; Start server
+       server (babashka.process/process {:out :inherit :err :inherit :dir dist-dir}
+                                        "bb" "serve-bundle.bb")
+       _ (Thread/sleep 2000)  ; Wait for server to start
         ;; Run Playwright test
-        result (babashka.process/shell {:out :string :err :string :dir dist-dir}
-                                       "node" "test-bundle.mjs")]
+       result (babashka.process/shell {:out :string :err :string :dir dist-dir}
+                                      "node" "test-bundle.mjs")]
     ;; Stop server
-    (.destroy (:proc server))
+   (.destroy (:proc server))
 
-    (if (zero? (:exit result))
-      (do
-        (println "✅ Browser Bundle Test PASSED")
-        (swap! test-results update :passed inc))
-      (do
-        (println "❌ Browser Bundle Test FAILED")
-        (println (:out result))
-        (swap! test-results update :failed inc))))
-  (catch Exception e
-    (println (format "❌ Browser Bundle Test ERROR: %s" (str e)))
-    (swap! test-results update :failed inc)))
+   (if (zero? (:exit result))
+     (do
+      (println "✅ Browser Bundle Test PASSED")
+      (swap! test-results update :passed inc))
+     (do
+      (println "❌ Browser Bundle Test FAILED")
+      (println (:out result))
+      (swap! test-results update :failed inc))))
+ (catch Exception e
+        (println (format "❌ Browser Bundle Test ERROR: %s" (str e)))
+        (swap! test-results update :failed inc)))
 (println)
 
 ;; Summary
@@ -116,17 +139,17 @@
 
   (if (zero? (:failed results))
     (do
-      (println " ALL TESTS PASSED!")
-      (println)
-      (println " Ready for Production:")
-      (println "  Wire Formats: JSON, EDN, Transit+JSON")
-      (println "  WebSocket Foundation: Production-ready server")
-      (println "  Channel System: Complete pub/sub messaging with RPC")
-      (println "  Logging: Trove integration")
-      (println)
-      (println " Sente-lite with Trove logging!")
-      (System/exit 0))
+     (println " ALL TESTS PASSED!")
+     (println)
+     (println " Ready for Production:")
+     (println "  Wire Formats: JSON, EDN, Transit+JSON")
+     (println "  WebSocket Foundation: Production-ready server")
+     (println "  Channel System: Complete pub/sub messaging with RPC")
+     (println "  Logging: Trove integration")
+     (println)
+     (println " Sente-lite with Trove logging!")
+     (System/exit 0))
     (do
-      (println "  ❌ SOME TESTS FAILED!")
-      (println (format "Fix %d failing test(s) before proceeding" (:failed results)))
-      (System/exit 1))))
+     (println "  ❌ SOME TESTS FAILED!")
+     (println (format "Fix %d failing test(s) before proceeding" (:failed results)))
+     (System/exit 1))))
