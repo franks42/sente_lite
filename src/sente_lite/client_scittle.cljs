@@ -216,7 +216,11 @@
       (log! {:level :warn
              :id :sente-lite.client/msg-error
              :data {:client-id client-id
-                    :error (:error parsed)}})
+                    :error (:error parsed)
+                    :raw-data (let [r (:raw parsed)]
+                                (if (string? r)
+                                  (subs r 0 (min 200 (.-length r)))
+                                  (pr-str r)))}})
       (let [[event-id data] (normalize-recv (:event-id parsed) (:data parsed) config)]
         (log! {:level :trace
                :id :sente-lite.client/msg-recv
